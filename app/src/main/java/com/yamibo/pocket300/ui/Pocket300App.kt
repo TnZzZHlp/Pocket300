@@ -1,0 +1,724 @@
+package com.yamibo.pocket300.ui
+
+import android.text.Html
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material3.Button
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.AssistChip
+import androidx.compose.material3.Badge
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExposedDropdownMenuBox
+import androidx.compose.material3.ExposedDropdownMenuAnchorType
+import androidx.compose.material3.ExposedDropdownMenuDefaults
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.ElevatedCard
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.NavigationBar
+import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import androidx.navigation.NavType
+import androidx.navigation.compose.NavHost
+import androidx.navigation.compose.composable
+import androidx.navigation.compose.currentBackStackEntryAsState
+import androidx.navigation.compose.rememberNavController
+import androidx.navigation.navArgument
+import com.yamibo.pocket300.api.GetForumThreadsInput
+import com.yamibo.pocket300.api.GetThreadPostsInput
+import com.yamibo.pocket300.api.LoginInput
+import com.yamibo.pocket300.api.DEFAULT_SECURITY_QUESTIONS
+import com.yamibo.pocket300.api.SecurityQuestionOption
+import com.yamibo.pocket300.api.YamiboApi
+import com.yamibo.pocket300.api.YamiboForum
+import com.yamibo.pocket300.api.YamiboForumIndex
+import com.yamibo.pocket300.api.YamiboForumThreadsPage
+import com.yamibo.pocket300.api.YamiboPost
+import com.yamibo.pocket300.api.YamiboSession
+import com.yamibo.pocket300.api.YamiboThread
+import com.yamibo.pocket300.api.YamiboThreadPoll
+import com.yamibo.pocket300.api.YamiboThreadPostsPage
+import com.yamibo.pocket300.api.YamiboUserProfile
+import com.yamibo.pocket300.ui.theme.PocketTheme
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.rounded.AccountCircle
+import androidx.compose.material.icons.rounded.Favorite
+import androidx.compose.material.icons.rounded.Forum
+import androidx.compose.material.icons.rounded.Refresh
+
+private val api = YamiboApi()
+
+private sealed class LoadState<out T> {
+    data object Loading : LoadState<Nothing>()
+    data class Ready<T>(val value: T) : LoadState<T>()
+    data class Failed(val message: String) : LoadState<Nothing>()
+}
+
+private data class ForumContent(val page: YamiboForumThreadsPage, val threads: List<YamiboThread>)
+private data class ThreadContent(val page: YamiboThreadPostsPage, val posts: List<YamiboPost>)
+
+private data class Tab(val route: String, val label: String, val icon: ImageVector)
+
+private val tabs = listOf(
+    Tab("home", "论坛", Icons.Rounded.Forum),
+    Tab("favorites", "收藏", Icons.Rounded.Favorite),
+    Tab("profile", "我的", Icons.Rounded.AccountCircle),
+)
+
+@Composable
+fun Pocket300App() = PocketTheme {
+    val navController = rememberNavController()
+    val entry by navController.currentBackStackEntryAsState()
+    val route = entry?.destination?.route.orEmpty()
+    val isTopLevel = tabs.any { it.route == route }
+
+    Scaffold(
+        bottomBar = {
+            if (isTopLevel) {
+                NavigationBar {
+                    tabs.forEach { tab ->
+                        NavigationBarItem(
+                            selected = route == tab.route,
+                            onClick = {
+                                navController.navigate(tab.route) {
+                                    popUpTo("home") { saveState = true }
+                                    launchSingleTop = true
+                                    restoreState = true
+                                }
+                            },
+                            icon = { Icon(tab.icon, contentDescription = null) },
+                            label = { Text(tab.label) },
+                        )
+                    }
+                }
+            }
+        },
+    ) { padding ->
+        NavHost(navController, startDestination = "home", modifier = Modifier.padding(padding)) {
+            composable("home") { ForumIndexScreen { navController.navigate("forum/${it.id}") } }
+            composable("favorites") { FavoritesScreen() }
+            composable("profile") { ProfileScreen() }
+            composable(
+                route = "forum/{forumId}",
+                arguments = listOf(navArgument("forumId") { type = NavType.IntType }),
+            ) { backStack ->
+                ForumScreen(
+                    forumId = backStack.arguments?.getInt("forumId") ?: return@composable,
+                    onBack = navController::navigateUp,
+                    onForum = { navController.navigate("forum/$it") },
+                    onThread = { navController.navigate("thread/${it.id}") },
+                )
+            }
+            composable(
+                route = "thread/{threadId}",
+                arguments = listOf(navArgument("threadId") { type = NavType.IntType }),
+            ) { backStack ->
+                ThreadScreen(
+                    threadId = backStack.arguments?.getInt("threadId") ?: return@composable,
+                    onBack = navController::navigateUp,
+                )
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ForumIndexScreen(onForum: (YamiboForum) -> Unit) {
+    var reload by remember { mutableStateOf(0) }
+    var state: LoadState<YamiboForumIndex> by remember { mutableStateOf(LoadState.Loading) }
+    LaunchedEffect(reload) { state = load { api.forums.getForumIndex() } }
+    ScreenScaffold("Pocket300", onRefresh = { reload++ }) { padding ->
+        LoadContent(state, padding) { index ->
+            LazyColumn(
+                contentPadding = PaddingValues(16.dp),
+                verticalArrangement = Arrangement.spacedBy(20.dp),
+            ) {
+                index.categories.forEach { category ->
+                    item { Text(category.name, style = MaterialTheme.typography.titleLarge) }
+                    items(category.forums, key = { it.id }) { forum -> ForumCard(forum, onForum) }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ForumCard(forum: YamiboForum, onClick: (YamiboForum) -> Unit) {
+    ElevatedCard(onClick = { onClick(forum) }, modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Text(forum.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+            Text(
+                forum.description.ifBlank { "暂无简介" },
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                Stat("主题", forum.threadCount)
+                Stat("帖子", forum.postCount)
+                Stat("今日", forum.todayPostCount)
+            }
+        }
+    }
+}
+
+@Composable
+private fun Stat(label: String, value: Int) = Column {
+    Text(value.toString(), color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+    Text(label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ForumScreen(
+    forumId: Int,
+    onBack: () -> Unit,
+    onForum: (Int) -> Unit,
+    onThread: (YamiboThread) -> Unit,
+) {
+    var reload by remember { mutableStateOf(0) }
+    var pageNumber by remember(forumId) { mutableStateOf(1) }
+    var selectedTypeId by remember(forumId) { mutableStateOf<Int?>(null) }
+    var state: LoadState<ForumContent> by remember { mutableStateOf(LoadState.Loading) }
+    LaunchedEffect(forumId, reload, pageNumber, selectedTypeId) {
+        val previous = (state as? LoadState.Ready)?.value
+        state = if (pageNumber == 1) LoadState.Loading else state
+        when (val result = load {
+            api.threads.getForumThreads(GetForumThreadsInput(forumId, pageNumber, typeId = selectedTypeId))
+        }) {
+            is LoadState.Ready -> state = LoadState.Ready(
+                ForumContent(
+                    result.value,
+                    if (pageNumber == 1) result.value.threads
+                    else (previous?.threads.orEmpty() + result.value.threads).distinctBy { it.id },
+                ),
+            )
+            is LoadState.Failed -> state = result
+            LoadState.Loading -> Unit
+        }
+    }
+    ScreenScaffold(
+        title = (state as? LoadState.Ready)?.value?.page?.forum?.name ?: "板块",
+        onBack = onBack,
+        onRefresh = { pageNumber = 1; reload++ },
+    ) { padding ->
+        LoadContent(state, padding) { content ->
+            val page = content.page
+            LazyColumn(contentPadding = PaddingValues(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                item {
+                    ElevatedCard(Modifier.fillMaxWidth()) {
+                        Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                            Text(page.forum.name, style = MaterialTheme.typography.headlineSmall)
+                            Text(
+                                page.forum.description.ifBlank { "暂无板块简介" },
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                Stat("主题", page.pagination.totalThreads)
+                                Stat("帖子", page.forum.postCount)
+                                Stat("页码", page.pagination.page)
+                            }
+                        }
+                    }
+                }
+                if (page.subforums.isNotEmpty()) {
+                    item { SectionLabel("子板块") }
+                    item {
+                        LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            items(page.subforums, key = { it.id }) { subforum ->
+                                AssistChip(
+                                    onClick = { onForum(subforum.id) },
+                                    label = { Text("${subforum.name} · ${subforum.threadCount} 主题") },
+                                )
+                            }
+                        }
+                    }
+                }
+                if (page.threadTypes.isNotEmpty()) {
+                    item { SectionLabel("分类") }
+                    item {
+                        LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            item {
+                                FilterChip(
+                                    selected = selectedTypeId == null,
+                                    onClick = { selectedTypeId = null; pageNumber = 1 },
+                                    label = { Text("全部") },
+                                )
+                            }
+                            items(page.threadTypes, key = { it.id }) { type ->
+                                FilterChip(
+                                    selected = selectedTypeId == type.id,
+                                    onClick = { selectedTypeId = type.id; pageNumber = 1 },
+                                    label = { Text(type.name) },
+                                )
+                            }
+                        }
+                    }
+                }
+                items(content.threads, key = { it.id }) { thread -> ThreadCard(thread, onThread) }
+                item {
+                    ListFooter(
+                        count = content.threads.size,
+                        hasNextPage = page.pagination.hasNextPage,
+                        onLoadMore = { pageNumber = page.pagination.page + 1 },
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ThreadCard(thread: YamiboThread, onClick: (YamiboThread) -> Unit) {
+    Card(onClick = { onClick(thread) }, modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            if (thread.typeName != null) Text(thread.typeName, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+            Text(thread.subject, style = MaterialTheme.typography.titleMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            thread.excerpt?.takeIf(String::isNotBlank)?.let {
+                Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            }
+            Text("${thread.author.name} · ${thread.lastPostAtText} · ${thread.replyCount} 回复", style = MaterialTheme.typography.labelMedium)
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ThreadScreen(threadId: Int, onBack: () -> Unit) {
+    var reload by remember { mutableStateOf(0) }
+    var pageNumber by remember(threadId) { mutableStateOf(1) }
+    var state: LoadState<ThreadContent> by remember { mutableStateOf(LoadState.Loading) }
+    LaunchedEffect(threadId, reload, pageNumber) {
+        val previous = (state as? LoadState.Ready)?.value
+        state = if (pageNumber == 1) LoadState.Loading else state
+        when (val result = load { api.posts.getThreadPosts(GetThreadPostsInput(threadId, pageNumber)) }) {
+            is LoadState.Ready -> state = LoadState.Ready(
+                ThreadContent(
+                    result.value,
+                    if (pageNumber == 1) result.value.posts
+                    else (previous?.posts.orEmpty() + result.value.posts).distinctBy { it.id },
+                ),
+            )
+            is LoadState.Failed -> state = result
+            LoadState.Loading -> Unit
+        }
+    }
+    ScreenScaffold(
+        title = (state as? LoadState.Ready)?.value?.page?.thread?.subject ?: "主题",
+        onBack = onBack,
+        onRefresh = { pageNumber = 1; reload++ },
+    ) { padding ->
+        LoadContent(state, padding) { content ->
+            val page = content.page
+            LazyColumn(contentPadding = PaddingValues(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                item { ThreadHero(page) }
+                page.poll?.let { poll -> item { PollCard(poll) } }
+                items(content.posts, key = { it.id }) { post -> PostCard(post) }
+                item {
+                    ListFooter(
+                        count = content.posts.size,
+                        hasNextPage = page.pagination.hasNextPage,
+                        onLoadMore = { pageNumber = page.pagination.page + 1 },
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun PostCard(post: YamiboPost) {
+    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                Text(post.author.name, fontWeight = FontWeight.SemiBold)
+                Text(if (post.isOriginalPost) "楼主" else "#${post.number}", color = MaterialTheme.colorScheme.primary)
+            }
+            HorizontalDivider()
+            Text(plainText(post.html), style = MaterialTheme.typography.bodyLarge)
+            if (post.comments.isNotEmpty()) {
+                Surface(color = MaterialTheme.colorScheme.surfaceContainerHigh, shape = MaterialTheme.shapes.medium) {
+                    Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        post.comments.forEach { comment ->
+                            Text(
+                                "${comment.author.name}：${plainText(comment.message)}",
+                                style = MaterialTheme.typography.bodyMedium,
+                            )
+                        }
+                    }
+                }
+            }
+            Text(post.createdAtText, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun ThreadHero(page: YamiboThreadPostsPage) {
+    val thread = page.thread
+    ElevatedCard(Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+            Text(thread.subject, style = MaterialTheme.typography.headlineSmall)
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Surface(Modifier.size(40.dp), shape = CircleShape, color = MaterialTheme.colorScheme.primaryContainer) {
+                    Box(contentAlignment = Alignment.Center) { Text(thread.author.name.take(1)) }
+                }
+                Column {
+                    Text(thread.author.name, fontWeight = FontWeight.SemiBold)
+                    Text(
+                        "${thread.replyCount} 回复 · ${thread.viewCount} 浏览",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                Stat("楼层", thread.replyCount + 1)
+                Stat("热度", thread.heat)
+                Stat("推荐", thread.recommendationCount)
+                Stat("权限", thread.readPermission)
+            }
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (thread.isClosed) Badge { Text("已关闭") }
+                if (thread.price > 0) Badge { Text("${thread.price} 积分") }
+                if (thread.hasAttachment) Badge { Text("附件") }
+            }
+        }
+    }
+}
+
+@Composable
+private fun PollCard(poll: YamiboThreadPoll) {
+    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+            Text("投票", style = MaterialTheme.typography.titleLarge)
+            Text(
+                "${if (poll.multiple) "最多选 ${poll.maxChoices} 项" else "单选"} · ${poll.voterCount} 人参与",
+                color = MaterialTheme.colorScheme.onSecondaryContainer,
+            )
+            poll.options.forEach { option ->
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        Text(plainText(option.text), Modifier.weight(1f))
+                        Spacer(Modifier.width(12.dp))
+                        Text("${"%.1f".format(option.percentage)}%")
+                    }
+                    LinearProgressIndicator(
+                        progress = { (option.percentage / 100.0).toFloat().coerceIn(0f, 1f) },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    Text("${option.voteCount} 票", style = MaterialTheme.typography.labelSmall)
+                }
+            }
+            if (!poll.resultsVisible) Text("投票后才可查看完整结果", style = MaterialTheme.typography.labelMedium)
+        }
+    }
+}
+
+@Composable
+private fun SectionLabel(text: String) {
+    Text(text, style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 8.dp))
+}
+
+@Composable
+private fun ListFooter(count: Int, hasNextPage: Boolean, onLoadMore: () -> Unit) {
+    Column(
+        Modifier.fillMaxWidth().padding(vertical = 16.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Text("已加载 $count 项", style = MaterialTheme.typography.labelMedium)
+        if (hasNextPage) OutlinedButton(onClick = onLoadMore) { Text("加载下一页") }
+        else Text("已经到底了", color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun FavoritesScreen() {
+    ScreenScaffold("收藏") { padding ->
+        EmptyState("还没有收藏", "在主题页面收藏的内容会显示在这里。", Modifier.padding(padding))
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ProfileScreen() {
+    var sessionState: LoadState<YamiboSession?> by remember { mutableStateOf(LoadState.Loading) }
+    LaunchedEffect(Unit) { sessionState = load { api.auth.getCurrentSession() } }
+
+    ScreenScaffold("我的") { padding ->
+        when (val current = sessionState) {
+            LoadState.Loading -> Loading(Modifier.padding(padding))
+            is LoadState.Failed -> EmptyState("无法读取登录状态", current.message, Modifier.padding(padding))
+            is LoadState.Ready -> if (current.value == null) {
+                LoginPanel(Modifier.padding(padding)) { sessionState = LoadState.Ready(it) }
+            } else {
+                ProfileSummary(
+                    session = current.value,
+                    modifier = Modifier.padding(padding),
+                    onLoggedOut = { sessionState = LoadState.Ready(null) },
+                )
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun LoginPanel(modifier: Modifier, onLoggedIn: (YamiboSession) -> Unit) {
+    var account by rememberSaveable { mutableStateOf("") }
+    var password by rememberSaveable { mutableStateOf("") }
+    var answer by rememberSaveable { mutableStateOf("") }
+    var selectedQuestion by rememberSaveable { mutableStateOf(0) }
+    var questions by remember { mutableStateOf<List<SecurityQuestionOption>>(DEFAULT_SECURITY_QUESTIONS) }
+    var expanded by remember { mutableStateOf(false) }
+    var submitting by remember { mutableStateOf(false) }
+    var error by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(Unit) {
+        questions = runCatching { api.auth.getLoginSecurityQuestions() }.getOrDefault(DEFAULT_SECURITY_QUESTIONS)
+    }
+
+    LazyColumn(
+        modifier = modifier.fillMaxSize(),
+        contentPadding = PaddingValues(24.dp),
+        verticalArrangement = Arrangement.spacedBy(18.dp),
+    ) {
+        item {
+            Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
+                Surface(Modifier.size(72.dp), shape = CircleShape, color = MaterialTheme.colorScheme.primaryContainer) {
+                    Box(contentAlignment = Alignment.Center) { Text("百", style = MaterialTheme.typography.headlineLarge) }
+                }
+                Spacer(Modifier.height(12.dp))
+                Text("登录百合会", style = MaterialTheme.typography.headlineMedium)
+                Text("连接账号后查看个人信息、私信和收藏内容。", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
+        item {
+            ElevatedCard {
+                Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                    Text("账号登录", style = MaterialTheme.typography.titleLarge)
+                    Text("登录状态由原生网络层的 HttpOnly Cookie 保存。", style = MaterialTheme.typography.bodyMedium)
+                    OutlinedTextField(account, { account = it }, label = { Text("账号") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                    OutlinedTextField(
+                        password,
+                        { password = it },
+                        label = { Text("密码") },
+                        singleLine = true,
+                        visualTransformation = PasswordVisualTransformation(),
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = { expanded = it }) {
+                        OutlinedTextField(
+                            value = questions.firstOrNull { it.id == selectedQuestion }?.label.orEmpty(),
+                            onValueChange = {},
+                            readOnly = true,
+                            label = { Text("安全提问") },
+                            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded) },
+                            modifier = Modifier.menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable).fillMaxWidth(),
+                        )
+                        ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+                            questions.forEach { question ->
+                                DropdownMenuItem(
+                                    text = { Text(question.label) },
+                                    onClick = {
+                                        selectedQuestion = question.id
+                                        if (question.id == 0) answer = ""
+                                        expanded = false
+                                    },
+                                )
+                            }
+                        }
+                    }
+                    if (selectedQuestion != 0) {
+                        OutlinedTextField(
+                            answer,
+                            { answer = it },
+                            label = { Text("安全提问答案") },
+                            visualTransformation = PasswordVisualTransformation(),
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    }
+                    error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+                    Button(
+                        onClick = { submitting = true; error = null },
+                        enabled = account.isNotBlank() && password.isNotBlank() && !submitting,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) { Text(if (submitting) "正在登录…" else "登录") }
+                }
+            }
+        }
+    }
+    if (submitting) LaunchedEffect(account, password, selectedQuestion, answer) {
+        when (val result = load { api.auth.login(LoginInput(account, password, answer, selectedQuestion)) }) {
+            is LoadState.Ready -> onLoggedIn(result.value)
+            is LoadState.Failed -> error = result.message
+            LoadState.Loading -> Unit
+        }
+        submitting = false
+    }
+}
+
+@Composable
+private fun ProfileSummary(session: YamiboSession, modifier: Modifier, onLoggedOut: () -> Unit) {
+    var reload by remember { mutableStateOf(0) }
+    var profile: LoadState<YamiboUserProfile> by remember { mutableStateOf(LoadState.Loading) }
+    var loggingOut by remember { mutableStateOf(false) }
+    var error by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(session.uid, reload) { profile = load { api.auth.getUserProfile(session.uid) } }
+
+    LazyColumn(
+        modifier = modifier.fillMaxSize(),
+        contentPadding = PaddingValues(20.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp),
+    ) {
+        item {
+            Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)) {
+                Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                    Surface(Modifier.size(72.dp), shape = CircleShape, color = MaterialTheme.colorScheme.surface) {
+                        Box(contentAlignment = Alignment.Center) { Text(session.username.take(1), style = MaterialTheme.typography.headlineLarge) }
+                    }
+                    Text(session.username, style = MaterialTheme.typography.headlineMedium)
+                    Text("UID ${session.uid} · 阅读权限 ${session.readAccess}")
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Button(onClick = { reload++ }) { Text("刷新资料") }
+                        OutlinedButton(onClick = { loggingOut = true }, enabled = !loggingOut) {
+                            Text(if (loggingOut) "正在退出…" else "退出登录")
+                        }
+                    }
+                    error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+                }
+            }
+        }
+        item { SectionLabel("个人资料") }
+        when (val current = profile) {
+            LoadState.Loading -> item { Box(Modifier.fillMaxWidth().height(120.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator() } }
+            is LoadState.Failed -> item { Text(current.message, color = MaterialTheme.colorScheme.error) }
+            is LoadState.Ready -> if (current.value.fields.isEmpty()) {
+                item { Text("资料页没有解析到可展示字段", color = MaterialTheme.colorScheme.onSurfaceVariant) }
+            } else {
+                items(current.value.fields) { field ->
+                    Card {
+                        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Text(field.label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+                            Text(field.value, style = MaterialTheme.typography.bodyLarge)
+                        }
+                    }
+                }
+            }
+        }
+    }
+    if (loggingOut) LaunchedEffect(Unit) {
+        runCatching { api.auth.logout() }
+            .onSuccess { onLoggedOut() }
+            .onFailure { error = it.message ?: "退出失败" }
+        loggingOut = false
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ScreenScaffold(
+    title: String,
+    onBack: (() -> Unit)? = null,
+    onRefresh: (() -> Unit)? = null,
+    content: @Composable (PaddingValues) -> Unit,
+) = Scaffold(
+    topBar = {
+        TopAppBar(
+            title = { Text(title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+            navigationIcon = {
+                if (onBack != null) IconButton(onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "返回") }
+            },
+            actions = {
+                if (onRefresh != null) IconButton(onRefresh) { Icon(Icons.Rounded.Refresh, "刷新") }
+            },
+            colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surface),
+        )
+    },
+    content = content,
+)
+
+@Composable
+private fun <T> LoadContent(state: LoadState<T>, padding: PaddingValues, content: @Composable (T) -> Unit) {
+    Box(Modifier.fillMaxSize().padding(padding)) {
+        when (state) {
+            LoadState.Loading -> Loading()
+            is LoadState.Failed -> EmptyState("加载失败", state.message)
+            is LoadState.Ready -> content(state.value)
+        }
+    }
+}
+
+@Composable
+private fun Loading(modifier: Modifier = Modifier) = Box(modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+    CircularProgressIndicator()
+}
+
+@Composable
+private fun EmptyState(title: String, message: String, modifier: Modifier = Modifier) = Box(
+    modifier.fillMaxSize().padding(24.dp),
+    contentAlignment = Alignment.Center,
+) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text(title, style = MaterialTheme.typography.titleLarge)
+        Text(message, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+}
+
+private suspend fun <T> load(block: suspend () -> T): LoadState<T> = try {
+    LoadState.Ready(block())
+} catch (error: Exception) {
+    LoadState.Failed(error.message ?: "发生未知错误")
+}
+
+@Suppress("DEPRECATION")
+private fun plainText(html: String): String = Html.fromHtml(html, Html.FROM_HTML_MODE_LEGACY).toString().trim()
