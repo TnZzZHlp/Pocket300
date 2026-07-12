@@ -24,7 +24,15 @@ data class YamiboPostComment(
     val threadId: Int,
 )
 
+data class YamiboPostAttachment(
+    val id: Int,
+    val filename: String,
+    val isImage: Boolean,
+    val url: String,
+)
+
 data class YamiboPost(
+    val attachments: List<YamiboPostAttachment>,
     val author: YamiboPostAuthor,
     val comments: List<YamiboPostComment>,
     val createdAt: Long,
@@ -179,7 +187,9 @@ private fun parsePostThread(raw: Any?): YamiboThreadDetails {
 
 private fun parsePost(value: JSONObject, comments: Map<Int, List<YamiboPostComment>>): YamiboPost {
     val id = value.postPositive("pid")
+    val position = value.postPositive("position")
     return YamiboPost(
+        attachments = parsePostAttachments(value.opt("attachments") ?: value.opt("attachlist")),
         author = parseFloorAuthor(value),
         comments = comments[id].orEmpty(),
         createdAt = value.postTimestamp("dbdateline"),
@@ -188,12 +198,61 @@ private fun parsePost(value: JSONObject, comments: Map<Int, List<YamiboPostComme
         hasAttachment = value.postFlag("attachment"),
         id = id,
         isOriginalPost = value.postFlag("first"),
-        number = value.postPositive("number"),
-        position = value.postPositive("position"),
+        number = postDisplayNumber(value.opt("number"), position),
+        position = position,
         replyCredit = value.postNonNegative("replycredit"),
         status = value.postNonNegative("status"),
         threadId = value.postPositive("tid"),
     )
+}
+
+private fun postDisplayNumber(raw: Any?, position: Int): Int = when (raw) {
+    is Int -> raw
+    is Long -> raw.takeIf { it in Int.MIN_VALUE..Int.MAX_VALUE }?.toInt()
+    is String -> raw.toIntOrNull()
+    else -> null
+}?.takeIf { it > 0 } ?: position
+
+private fun parsePostAttachments(raw: Any?): List<YamiboPostAttachment> {
+    if (raw == null || raw == JSONObject.NULL || (raw is JSONArray && raw.length() == 0)) return emptyList()
+    val values = when (raw) {
+        is JSONObject -> raw.keys().asSequence().map { raw.opt(it) }.toList()
+        is JSONArray -> (0 until raw.length()).map(raw::opt)
+        else -> invalidResponse("百合会返回了无效的附件数据")
+    }
+    return values.map { item ->
+        val value = item as? JSONObject ?: invalidResponse("百合会返回了无效的附件数据")
+        val id = value.postPositive("aid")
+        val attachment = value.postString("attachment", "").trim()
+        val baseUrl = value.postString("url", "").trim()
+        val directUrl = when {
+            attachment.startsWith("http://") || attachment.startsWith("https://") || attachment.startsWith("//") -> attachment
+            baseUrl.isNotEmpty() && attachment.isNotEmpty() -> "${baseUrl.trimEnd('/')}/${attachment.trimStart('/')}"
+            baseUrl.isNotEmpty() -> baseUrl
+            attachment.isNotEmpty() -> "/data/attachment/forum/${attachment.trimStart('/')}"
+            else -> "$YAMIBO_ORIGIN/forum.php?mod=attachment&aid=$id"
+        }
+        YamiboPostAttachment(
+            id = id,
+            filename = value.postString("filename", attachment.substringAfterLast('/')).ifBlank { "附件 $id" },
+            isImage = attachmentIsImage(value.opt("isimage"), attachment, baseUrl),
+            url = normalizePostUrl(directUrl) ?: invalidResponse("百合会返回了无效的附件地址"),
+        )
+    }
+}
+
+private val postImageExtensions = setOf("avif", "bmp", "gif", "jpeg", "jpg", "png", "webp")
+
+private fun attachmentIsImage(raw: Any?, vararg paths: String): Boolean {
+    val declared = when (raw) {
+        is Number -> raw.toInt().takeIf { it >= 0 }?.let { it > 0 }
+        is String -> raw.toIntOrNull()?.takeIf { it >= 0 }?.let { it > 0 }
+            ?: raw.lowercase().takeIf { it.startsWith("image/") }?.let { true }
+        else -> null
+    }
+    return declared ?: paths.any { path ->
+        path.substringBefore('?').substringAfterLast('.', "").lowercase() in postImageExtensions
+    }
 }
 
 private fun parseComments(raw: Any?): Map<Int, List<YamiboPostComment>> {
@@ -288,7 +347,8 @@ private fun normalizePostUrl(raw: String): String? {
     return when {
         value.startsWith("//") -> "https:$value"
         value.startsWith('/') -> "$YAMIBO_ORIGIN$value"
-        else -> value
+        value.startsWith("http://") || value.startsWith("https://") -> value
+        else -> "$YAMIBO_ORIGIN/${value.trimStart('/')}"
     }
 }
 
