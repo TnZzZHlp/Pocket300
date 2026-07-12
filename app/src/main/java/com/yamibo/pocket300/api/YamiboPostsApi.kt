@@ -306,13 +306,13 @@ private fun parsePoll(raw: Any?): YamiboThreadPoll? {
     val value = raw as? JSONObject ?: invalidResponse("百合会返回了无效的投票数据")
     val options = value.opt("polloptions") as? JSONObject ?: invalidResponse("百合会返回了无效的投票数据")
     val expiration = when (val expirationRaw = value.opt("expirations")) {
-        null, JSONObject.NULL, "" -> 0
-        else -> postScalarInt(expirationRaw, "expirations")
+        null, JSONObject.NULL, "" -> 0L
+        else -> postScalarLong(expirationRaw, "expirations")
     }
-    if (expiration < 0) invalidResponse("百合会投票数据包含无效的截止时间")
+    if (expiration !in 0..Long.MAX_VALUE / 1_000) invalidResponse("百合会投票数据包含无效的截止时间")
     return YamiboThreadPoll(
         canVote = value.postFlag("allowvote"),
-        expiresAt = expiration.takeIf { it > 0 }?.toLong()?.times(1_000),
+        expiresAt = expiration.takeIf { it > 0 }?.times(1_000),
         maxChoices = value.postPositive("maxchoices"),
         multiple = value.postFlag("multiple"),
         options = options.keys().asSequence().map { key ->
@@ -380,6 +380,13 @@ private fun postScalarInt(raw: Any?, field: String): Int = when (raw) {
     is Int -> raw
     is Long -> raw.takeIf { it in Int.MIN_VALUE..Int.MAX_VALUE }?.toInt()
     is String -> raw.toIntOrNull()
+    else -> null
+} ?: invalidResponse("百合会主题数据包含无效的 $field 字段")
+
+private fun postScalarLong(raw: Any?, field: String): Long = when (raw) {
+    is Int -> raw.toLong()
+    is Long -> raw
+    is String -> raw.toLongOrNull()
     else -> null
 } ?: invalidResponse("百合会主题数据包含无效的 $field 字段")
 

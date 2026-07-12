@@ -25,6 +25,14 @@ class YamiboPostsApiTest {
         assertEquals(25.5, page.poll?.options?.single()?.percentage ?: -1.0, 0.0)
     }
 
+    @Test
+    fun acceptsUnsignedIntMaximumPollExpiration() {
+        val fixture = JSONObject(FIXTURE)
+        fixture.getJSONObject("special_poll").put("expirations", "4294967295")
+
+        assertEquals(4_294_967_295_000L, parseThreadPosts(fixture).poll?.expiresAt)
+    }
+
     @Test(expected = YamiboApiException::class)
     fun rejectsCommentAssignedToDifferentPost() {
         val fixture = JSONObject(FIXTURE)
