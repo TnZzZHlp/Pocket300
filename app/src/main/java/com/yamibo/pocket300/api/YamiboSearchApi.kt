@@ -1,7 +1,5 @@
 package com.yamibo.pocket300.api
 
-import android.os.Build
-import androidx.annotation.RequiresApi
 import java.net.URI
 import java.net.URLDecoder
 import java.nio.charset.StandardCharsets
@@ -68,15 +66,12 @@ data class ParseSearchPageContext(
 )
 
 class YamiboSearchApi(private val client: YamiboClient) {
-    @RequiresApi(Build.VERSION_CODES.TIRAMISU)
     suspend fun searchSiteThreads(input: SearchSiteThreadsInput): YamiboSearchPage =
         search(input.keyword, input.page, input.searchId, YamiboSearchScope.SITE, null)
 
-    @RequiresApi(Build.VERSION_CODES.TIRAMISU)
     suspend fun searchForumThreads(input: SearchForumThreadsInput): YamiboSearchPage =
         search(input.keyword, input.page, input.searchId, YamiboSearchScope.FORUM, input.forumId)
 
-    @RequiresApi(Build.VERSION_CODES.TIRAMISU)
     private suspend fun search(
         rawKeyword: String,
         page: Int,
@@ -145,7 +140,6 @@ class YamiboSearchApi(private val client: YamiboClient) {
     }
 }
 
-@RequiresApi(Build.VERSION_CODES.TIRAMISU)
 fun parseSearchPage(html: String, context: ParseSearchPageContext): YamiboSearchPage {
     throwForSearchTip(html)
     val input = requiredSearchMatch(
@@ -319,21 +313,20 @@ private fun splitSearchItems(html: String): List<String> {
     }
 }
 
-@RequiresApi(Build.VERSION_CODES.TIRAMISU)
 private fun parseSearchId(html: String, responseUrl: String): Int? {
     val raw = runCatching {
         URI(responseUrl).rawQuery.orEmpty().split('&').firstNotNullOfOrNull { pair ->
             val parts = pair.split('=', limit = 2)
-            if (parts.firstOrNull() == "searchid") URLDecoder.decode(
-                parts.getOrElse(1) { "" },
-                StandardCharsets.UTF_8
-            ) else null
+            if (parts.firstOrNull() == "searchid") decodeSearchQuery(parts.getOrElse(1) { "" }) else null
         }
     }.getOrElse { searchInvalid("百合会搜索返回了无效的页面地址") }
         ?: Regex("""searchid=(\d+)""", RegexOption.IGNORE_CASE).find(html)?.groupValues?.get(1)
         ?: return null
     return positiveSearchCount(raw, "searchid")
 }
+
+@Suppress("DEPRECATION")
+private fun decodeSearchQuery(value: String): String = URLDecoder.decode(value, StandardCharsets.UTF_8.name())
 
 private fun throwForSearchTip(html: String) {
     val tip =
