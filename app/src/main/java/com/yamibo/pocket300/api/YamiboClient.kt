@@ -1,5 +1,6 @@
 package com.yamibo.pocket300.api
 
+import android.webkit.CookieManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.FormBody
@@ -43,7 +44,7 @@ data class YamiboPageResponse(val html: String, val url: String)
  * lifetime of the client because Discuz authentication is held in HttpOnly cookies.
  */
 class YamiboClient(
-    cookieJar: CookieJar = InMemoryCookieJar(),
+    cookieJar: CookieJar = AndroidCookieJar(),
     timeoutMillis: Long = 15_000,
 ) {
     private val http = OkHttpClient.Builder()
@@ -149,6 +150,30 @@ class YamiboClient(
     }
 
     private data class TextResponse(val body: String, val url: String)
+}
+
+/**
+ * Bridges OkHttp to Android's persistent cookie store. This preserves Discuz
+ * login across API modules and app process restarts, including HttpOnly cookies.
+ */
+class AndroidCookieJar(
+    private val manager: CookieManager = CookieManager.getInstance(),
+) : CookieJar {
+    init {
+        manager.setAcceptCookie(true)
+    }
+
+    @Synchronized
+    override fun saveFromResponse(url: HttpUrl, cookies: List<Cookie>) {
+        cookies.forEach { manager.setCookie(url.toString(), it.toString(), null) }
+        manager.flush()
+    }
+
+    @Synchronized
+    override fun loadForRequest(url: HttpUrl): List<Cookie> = manager.getCookie(url.toString())
+        ?.split(';')
+        ?.mapNotNull { Cookie.parse(url, it.trim()) }
+        .orEmpty()
 }
 
 /** Thread-safe process-lifetime cookie storage, including HttpOnly authentication cookies. */
