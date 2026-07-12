@@ -13,6 +13,7 @@ composeBom = "2026.06.00"
 activityCompose = "1.13.0"
 navigationCompose = "2.9.8"
 kotlin = "2.3.21"
+coil = "2.7.0"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -31,6 +32,7 @@ compose-ui-tooling-preview = { group = "androidx.compose.ui", name = "ui-tooling
 activity-compose = { group = "androidx.activity", name = "activity-compose", version.ref = "activityCompose" }
 navigation-compose = { group = "androidx.navigation", name = "navigation-compose", version.ref = "navigationCompose" }
 json = { group = "org.json", name = "json", version.ref = "json" }
+coil-compose = { group = "io.coil-kt", name = "coil-compose", version.ref = "coil" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
