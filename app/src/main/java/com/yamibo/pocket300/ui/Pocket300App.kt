@@ -81,6 +81,9 @@ import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -107,6 +110,8 @@ import com.yamibo.pocket300.api.YamiboThreadPostsPage
 import com.yamibo.pocket300.api.YamiboUserProfile
 import com.yamibo.pocket300.api.YAMIBO_ORIGIN
 import com.yamibo.pocket300.ui.theme.PocketTheme
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.launch
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.AccountCircle
@@ -116,10 +121,28 @@ import androidx.compose.material.icons.rounded.Refresh
 
 private val api = YamiboApi()
 
-private sealed class LoadState<out T> {
+internal sealed class LoadState<out T> {
     data object Loading : LoadState<Nothing>()
     data class Ready<T>(val value: T) : LoadState<T>()
     data class Failed(val message: String) : LoadState<Nothing>()
+}
+
+internal class ForumIndexViewModel : ViewModel() {
+    var state: LoadState<YamiboForumIndex> by mutableStateOf(LoadState.Loading)
+        private set
+
+    private var loadJob: Job? = null
+
+    init {
+        refresh()
+    }
+
+    fun refresh() {
+        loadJob?.cancel()
+        loadJob = viewModelScope.launch {
+            state = load { api.forums.getForumIndex() }
+        }
+    }
 }
 
 private data class ForumContent(val page: YamiboForumThreadsPage, val threads: List<YamiboThread>)
@@ -216,11 +239,9 @@ private fun ForumIndexScreen(
     animatedVisibilityScope: AnimatedVisibilityScope,
     onForum: (YamiboForum) -> Unit,
 ) {
-    var reload by remember { mutableStateOf(0) }
-    var state: LoadState<YamiboForumIndex> by remember { mutableStateOf(LoadState.Loading) }
-    LaunchedEffect(reload) { state = load { api.forums.getForumIndex() } }
-    ScreenScaffold("Pocket300", onRefresh = { reload++ }) { padding ->
-        LoadContent(state, padding) { index ->
+    val viewModel: ForumIndexViewModel = viewModel()
+    ScreenScaffold("Pocket300", onRefresh = viewModel::refresh) { padding ->
+        LoadContent(viewModel.state, padding) { index ->
             LazyColumn(
                 contentPadding = PaddingValues(start = 16.dp, top = 16.dp, end = 16.dp, bottom = 104.dp),
                 verticalArrangement = Arrangement.spacedBy(20.dp),
