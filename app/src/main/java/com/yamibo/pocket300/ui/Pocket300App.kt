@@ -3,6 +3,7 @@ package com.yamibo.pocket300.ui
 import android.text.Html
 import android.text.Spanned
 import android.text.style.ImageSpan
+import android.text.style.URLSpan
 import android.util.LruCache
 import android.webkit.CookieManager
 import androidx.compose.animation.AnimatedVisibilityScope
@@ -78,6 +79,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.Placeholder
 import androidx.compose.ui.text.PlaceholderVerticalAlign
 import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.LinkAnnotation
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.TextLinkStyles
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -93,6 +98,7 @@ import androidx.navigation.navArgument
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalUriHandler
 import com.yamibo.pocket300.api.GetForumThreadsInput
 import com.yamibo.pocket300.api.GetThreadPostsInput
 import com.yamibo.pocket300.api.LoginInput
@@ -301,6 +307,8 @@ fun Pocket300App() = PocketTheme {
                     sharedTransitionScope = sharedTransitionScope,
                     animatedVisibilityScope = this,
                     onBack = navController::navigateUp,
+                    onForum = { navController.navigate("forum/$it") },
+                    onThread = { navController.navigate("thread/$it") },
                 )
             }
         }
@@ -563,6 +571,8 @@ private fun ThreadScreen(
     sharedTransitionScope: SharedTransitionScope,
     animatedVisibilityScope: AnimatedVisibilityScope,
     onBack: () -> Unit,
+    onForum: (Int) -> Unit,
+    onThread: (Int) -> Unit,
 ) {
     val context = LocalContext.current
     val historyDatabase = remember(context) { ReadingHistoryDatabase.getInstance(context) }
@@ -603,7 +613,9 @@ private fun ThreadScreen(
             LazyColumn(contentPadding = PaddingValues(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 item { ThreadHero(page) }
                 page.poll?.let { poll -> item { PollCard(poll) } }
-                items(content.posts, key = { it.id }, contentType = { "post" }) { post -> PostCard(post) }
+                items(content.posts, key = { it.id }, contentType = { "post" }) { post ->
+                    PostCard(post, onForum, onThread)
+                }
                 item {
                     ListFooter(
                         count = content.posts.size,
@@ -617,7 +629,15 @@ private fun ThreadScreen(
 }
 
 @Composable
-private fun PostCard(post: YamiboPost) {
+private fun PostCard(post: YamiboPost, onForum: (Int) -> Unit, onThread: (Int) -> Unit) {
+    val uriHandler = LocalUriHandler.current
+    val openLink: (String) -> Unit = { url ->
+        when (val target = resolvePostLink(url)) {
+            is PostLinkTarget.Forum -> onForum(target.id)
+            is PostLinkTarget.Thread -> onThread(target.id)
+            is PostLinkTarget.External -> uriHandler.openUri(target.url)
+        }
+    }
     Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
@@ -629,6 +649,7 @@ private fun PostCard(post: YamiboPost) {
                 html = post.html,
                 threadId = post.threadId,
                 attachmentUrls = post.attachments.filter { it.isImage }.map { it.url },
+                onLink = openLink,
             )
             if (post.comments.isNotEmpty()) {
                 Surface(color = MaterialTheme.colorScheme.surfaceContainerHigh, shape = MaterialTheme.shapes.medium) {
@@ -648,7 +669,7 @@ private fun PostCard(post: YamiboPost) {
 }
 
 private sealed interface PostHtmlPart {
-    data class Text(val value: String) : PostHtmlPart
+    data class Text(val value: String, val url: String? = null) : PostHtmlPart
     data class Image(val url: String) : PostHtmlPart
 }
 
@@ -660,7 +681,7 @@ private sealed interface PostRenderPart {
 private val postHtmlCache = LruCache<String, List<PostHtmlPart>>(64)
 
 @Composable
-private fun PostHtml(html: String, threadId: Int, attachmentUrls: List<String>) {
+private fun PostHtml(html: String, threadId: Int, attachmentUrls: List<String>, onLink: (String) -> Unit) {
     val parts = remember(html, attachmentUrls) {
         val htmlParts = postHtmlCache.get(html) ?: parsePostHtml(html).also { postHtmlCache.put(html, it) }
         val embeddedUrls = htmlParts.filterIsInstance<PostHtmlPart.Image>()
@@ -674,7 +695,7 @@ private fun PostHtml(html: String, threadId: Int, attachmentUrls: List<String>) 
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         renderParts.forEachIndexed { index, part ->
             when (part) {
-                is PostRenderPart.Inline -> PostInlineHtml(part.parts, threadId)
+                is PostRenderPart.Inline -> PostInlineHtml(part.parts, threadId, onLink)
                 is PostRenderPart.Image -> {
                     val url = normalizePostImageUrl(part.url)
                     var failed by remember(url) { mutableStateOf(false) }
@@ -716,12 +737,28 @@ private fun groupPostHtmlParts(parts: List<PostHtmlPart>): List<PostRenderPart> 
 }
 
 @Composable
-private fun PostInlineHtml(parts: List<PostHtmlPart>, threadId: Int) {
+private fun PostInlineHtml(parts: List<PostHtmlPart>, threadId: Int, onLink: (String) -> Unit) {
     val style = MaterialTheme.typography.bodyLarge
+    val linkStyle = SpanStyle(
+        color = MaterialTheme.colorScheme.primary,
+        textDecoration = TextDecoration.Underline,
+    )
     val text = buildAnnotatedString {
         parts.forEachIndexed { index, part ->
             when (part) {
-                is PostHtmlPart.Text -> append(part.value)
+                is PostHtmlPart.Text -> if (part.url == null) {
+                    append(part.value)
+                } else {
+                    pushLink(
+                        LinkAnnotation.Url(
+                            part.url,
+                            styles = TextLinkStyles(style = linkStyle),
+                            linkInteractionListener = { onLink(part.url) },
+                        ),
+                    )
+                    append(part.value)
+                    pop()
+                }
                 is PostHtmlPart.Image -> appendInlineContent("smiley-$index", "表情")
             }
         }
@@ -782,11 +819,11 @@ private fun parsePostHtml(html: String): List<PostHtmlPart> {
     val parts = mutableListOf<PostHtmlPart>()
     var cursor = 0
     images.forEach { image ->
-        addPostText(parts, spanned.subSequence(cursor, spanned.getSpanStart(image)).toString())
+        addPostText(parts, spanned, cursor, spanned.getSpanStart(image))
         image.source?.takeIf(String::isNotBlank)?.let { parts += PostHtmlPart.Image(it) }
         cursor = spanned.getSpanEnd(image)
     }
-    addPostText(parts, spanned.subSequence(cursor, spanned.length).toString())
+    addPostText(parts, spanned, cursor, spanned.length)
     return parts
 }
 
@@ -819,9 +856,25 @@ private fun readHtmlAttribute(tag: String, name: String): String? {
     return match.groupValues.drop(1).firstOrNull(String::isNotEmpty)
 }
 
-private fun addPostText(parts: MutableList<PostHtmlPart>, raw: String) {
-    val text = raw.replace('\uFFFC'.toString(), "").trim()
-    if (text.isNotEmpty()) parts += PostHtmlPart.Text(text)
+private fun addPostText(parts: MutableList<PostHtmlPart>, spanned: Spanned, start: Int, end: Int) {
+    if (start >= end) return
+    val boundaries = buildSet {
+        add(start)
+        add(end)
+        spanned.getSpans(start, end, URLSpan::class.java).forEach { span ->
+            add(spanned.getSpanStart(span).coerceIn(start, end))
+            add(spanned.getSpanEnd(span).coerceIn(start, end))
+        }
+    }.sorted()
+    boundaries.zipWithNext().forEach { (from, to) ->
+        var text = spanned.subSequence(from, to).toString().replace('\uFFFC'.toString(), "")
+        if (from == start) text = text.trimStart()
+        if (to == end) text = text.trimEnd()
+        if (text.isNotEmpty()) {
+            val url = spanned.getSpans(from, to, URLSpan::class.java).firstOrNull()?.url
+            parts += PostHtmlPart.Text(text, url)
+        }
+    }
 }
 
 private fun normalizePostImageUrl(source: String): String {
