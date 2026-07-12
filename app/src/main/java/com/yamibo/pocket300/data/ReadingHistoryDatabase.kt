@@ -1,0 +1,115 @@
+package com.yamibo.pocket300.data
+
+import android.content.ContentValues
+import android.content.Context
+import android.database.sqlite.SQLiteDatabase
+import android.database.sqlite.SQLiteOpenHelper
+import com.yamibo.pocket300.api.YamiboThreadDetails
+
+data class ReadingHistoryEntry(
+    val threadId: Int,
+    val forumId: Int,
+    val subject: String,
+    val authorName: String,
+    val lastPostAtText: String,
+    val readAt: Long,
+)
+
+class ReadingHistoryDatabase private constructor(context: Context) :
+    SQLiteOpenHelper(context, DATABASE_NAME, null, DATABASE_VERSION) {
+
+    override fun onCreate(database: SQLiteDatabase) {
+        database.execSQL(
+            """
+            CREATE TABLE reading_history (
+                thread_id INTEGER PRIMARY KEY,
+                forum_id INTEGER NOT NULL,
+                subject TEXT NOT NULL,
+                author_name TEXT NOT NULL,
+                last_post_at_text TEXT NOT NULL,
+                read_at INTEGER NOT NULL
+            )
+            """.trimIndent(),
+        )
+        database.execSQL("CREATE INDEX reading_history_read_at ON reading_history(read_at DESC)")
+    }
+
+    override fun onUpgrade(database: SQLiteDatabase, oldVersion: Int, newVersion: Int) = Unit
+
+    fun record(thread: YamiboThreadDetails, readAt: Long = System.currentTimeMillis()) {
+        val values = ContentValues().apply {
+            put("thread_id", thread.id)
+            put("forum_id", thread.forumId)
+            put("subject", thread.subject)
+            put("author_name", thread.author.name)
+            put("last_post_at_text", thread.lastPostAtText)
+            put("read_at", readAt)
+        }
+        writableDatabase.transaction {
+            insertWithOnConflict("reading_history", null, values, SQLiteDatabase.CONFLICT_REPLACE)
+            execSQL(
+                """
+                DELETE FROM reading_history
+                WHERE thread_id NOT IN (
+                    SELECT thread_id FROM reading_history ORDER BY read_at DESC LIMIT $MAX_ENTRIES
+                )
+                """.trimIndent(),
+            )
+        }
+    }
+
+    fun getAll(): List<ReadingHistoryEntry> = readableDatabase.query(
+        "reading_history",
+        COLUMNS,
+        null,
+        null,
+        null,
+        null,
+        "read_at DESC",
+    ).use { cursor ->
+        buildList {
+            while (cursor.moveToNext()) {
+                add(
+                    ReadingHistoryEntry(
+                        threadId = cursor.getInt(0),
+                        forumId = cursor.getInt(1),
+                        subject = cursor.getString(2),
+                        authorName = cursor.getString(3),
+                        lastPostAtText = cursor.getString(4),
+                        readAt = cursor.getLong(5),
+                    ),
+                )
+            }
+        }
+    }
+
+    private inline fun <T> SQLiteDatabase.transaction(block: SQLiteDatabase.() -> T): T {
+        beginTransaction()
+        return try {
+            block().also { setTransactionSuccessful() }
+        } finally {
+            endTransaction()
+        }
+    }
+
+    companion object {
+        private const val DATABASE_NAME = "pocket300.db"
+        private const val DATABASE_VERSION = 1
+        private const val MAX_ENTRIES = 500
+        private val COLUMNS = arrayOf(
+            "thread_id",
+            "forum_id",
+            "subject",
+            "author_name",
+            "last_post_at_text",
+            "read_at",
+        )
+
+        @Volatile
+        private var instance: ReadingHistoryDatabase? = null
+
+        fun getInstance(context: Context): ReadingHistoryDatabase = instance ?: synchronized(this) {
+            instance ?: ReadingHistoryDatabase(context.applicationContext).also { instance = it }
+        }
+    }
+}

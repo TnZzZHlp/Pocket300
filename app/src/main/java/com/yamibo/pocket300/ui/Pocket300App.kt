@@ -98,26 +98,38 @@ import com.yamibo.pocket300.api.GetThreadPostsInput
 import com.yamibo.pocket300.api.LoginInput
 import com.yamibo.pocket300.api.DEFAULT_SECURITY_QUESTIONS
 import com.yamibo.pocket300.api.SecurityQuestionOption
+import com.yamibo.pocket300.api.SearchSiteThreadsInput
 import com.yamibo.pocket300.api.YamiboApi
 import com.yamibo.pocket300.api.YamiboForum
 import com.yamibo.pocket300.api.YamiboForumIndex
 import com.yamibo.pocket300.api.YamiboForumThreadsPage
 import com.yamibo.pocket300.api.YamiboPost
 import com.yamibo.pocket300.api.YamiboSession
+import com.yamibo.pocket300.api.YamiboSearchPage
+import com.yamibo.pocket300.api.YamiboSearchThread
 import com.yamibo.pocket300.api.YamiboThread
 import com.yamibo.pocket300.api.YamiboThreadPoll
 import com.yamibo.pocket300.api.YamiboThreadPostsPage
 import com.yamibo.pocket300.api.YamiboUserProfile
 import com.yamibo.pocket300.api.YAMIBO_ORIGIN
+import com.yamibo.pocket300.data.ReadingHistoryDatabase
+import com.yamibo.pocket300.data.ReadingHistoryEntry
 import com.yamibo.pocket300.ui.theme.PocketTheme
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.AccountCircle
 import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.Forum
+import androidx.compose.material.icons.rounded.History
 import androidx.compose.material.icons.rounded.Refresh
+import androidx.compose.material.icons.rounded.Search
+import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 
 private val api = YamiboApi()
 
@@ -147,6 +159,70 @@ internal class ForumIndexViewModel : ViewModel() {
 
 private data class ForumContent(val page: YamiboForumThreadsPage, val threads: List<YamiboThread>)
 private data class ThreadContent(val page: YamiboThreadPostsPage, val posts: List<YamiboPost>)
+internal data class SearchContent(val page: YamiboSearchPage, val threads: List<YamiboSearchThread>)
+
+internal class SearchViewModel : ViewModel() {
+    var query by mutableStateOf("")
+        private set
+    var state: LoadState<SearchContent>? by mutableStateOf(null)
+        private set
+
+    private var submittedKeyword = ""
+    private var searchId: Int? = null
+    private var searchJob: Job? = null
+
+    fun updateQuery(value: String) {
+        query = value
+    }
+
+    fun submit() {
+        val keyword = query.trim()
+        if (keyword.isEmpty()) {
+            state = LoadState.Failed("请输入搜索关键字")
+            return
+        }
+        submittedKeyword = keyword
+        searchId = null
+        search(page = 1, replace = true)
+    }
+
+    fun loadMore() {
+        val current = (state as? LoadState.Ready)?.value ?: return
+        if (!current.page.pagination.hasNextPage || searchJob?.isActive == true) return
+        search(page = current.page.pagination.page + 1, replace = false)
+    }
+
+    private fun search(page: Int, replace: Boolean) {
+        searchJob?.cancel()
+        if (replace) state = LoadState.Loading
+        val previous = (state as? LoadState.Ready)?.value
+        searchJob = viewModelScope.launch {
+            val result = load {
+                api.search.searchSiteThreads(
+                    SearchSiteThreadsInput(
+                        keyword = submittedKeyword,
+                        page = page,
+                        searchId = if (page == 1) null else searchId,
+                    ),
+                )
+            }
+            state = when (result) {
+                is LoadState.Ready -> {
+                    searchId = result.value.pagination.searchId
+                    LoadState.Ready(
+                        SearchContent(
+                            page = result.value,
+                            threads = if (replace) result.value.threads
+                            else (previous?.threads.orEmpty() + result.value.threads).distinctBy { it.id },
+                        ),
+                    )
+                }
+                is LoadState.Failed -> result
+                LoadState.Loading -> LoadState.Loading
+            }
+        }
+    }
+}
 private data class ForumSnapshot(
     val content: ForumContent,
     val pageNumber: Int,
@@ -159,9 +235,12 @@ private data class Tab(val route: String, val label: String, val icon: ImageVect
 
 private val tabs = listOf(
     Tab("home", "论坛", Icons.Rounded.Forum),
+    Tab("history", "历史", Icons.Rounded.History),
     Tab("favorites", "收藏", Icons.Rounded.Favorite),
     Tab("profile", "我的", Icons.Rounded.AccountCircle),
 )
+
+private val historyTimeFormatter: DateTimeFormatter = DateTimeFormatter.ofPattern("MM-dd HH:mm")
 
 @OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
@@ -176,10 +255,30 @@ fun Pocket300App() = PocketTheme {
       Box(Modifier.fillMaxSize()) {
         NavHost(navController, startDestination = "home", modifier = Modifier.fillMaxSize()) {
             composable("home") {
-                ForumIndexScreen(sharedTransitionScope, this) { navController.navigate("forum/${it.id}") }
+                ForumIndexScreen(
+                    sharedTransitionScope = sharedTransitionScope,
+                    animatedVisibilityScope = this,
+                    onForum = { navController.navigate("forum/${it.id}") },
+                    onSearch = { navController.navigate("search") },
+                )
             }
             composable("favorites") { FavoritesScreen() }
+            composable("history") {
+                ReadingHistoryScreen(
+                    sharedTransitionScope = sharedTransitionScope,
+                    animatedVisibilityScope = this,
+                    onThread = { navController.navigate("thread/${it.threadId}") },
+                )
+            }
             composable("profile") { ProfileScreen() }
+            composable("search") {
+                SearchScreen(
+                    sharedTransitionScope = sharedTransitionScope,
+                    animatedVisibilityScope = this,
+                    onBack = navController::navigateUp,
+                    onThread = { navController.navigate("thread/${it.id}") },
+                )
+            }
             composable(
                 route = "forum/{forumId}",
                 arguments = listOf(navArgument("forumId") { type = NavType.IntType }),
@@ -238,9 +337,10 @@ private fun ForumIndexScreen(
     sharedTransitionScope: SharedTransitionScope,
     animatedVisibilityScope: AnimatedVisibilityScope,
     onForum: (YamiboForum) -> Unit,
+    onSearch: () -> Unit,
 ) {
     val viewModel: ForumIndexViewModel = viewModel()
-    ScreenScaffold("Pocket300", onRefresh = viewModel::refresh) { padding ->
+    ScreenScaffold("Pocket300", onRefresh = viewModel::refresh, onSearch = onSearch) { padding ->
         LoadContent(viewModel.state, padding) { index ->
             LazyColumn(
                 contentPadding = PaddingValues(start = 16.dp, top = 16.dp, end = 16.dp, bottom = 104.dp),
@@ -464,6 +564,8 @@ private fun ThreadScreen(
     animatedVisibilityScope: AnimatedVisibilityScope,
     onBack: () -> Unit,
 ) {
+    val context = LocalContext.current
+    val historyDatabase = remember(context) { ReadingHistoryDatabase.getInstance(context) }
     var reload by remember { mutableStateOf(0) }
     var pageNumber by remember(threadId) { mutableStateOf(1) }
     var state: LoadState<ThreadContent> by remember { mutableStateOf(LoadState.Loading) }
@@ -480,6 +582,12 @@ private fun ThreadScreen(
             )
             is LoadState.Failed -> state = result
             LoadState.Loading -> Unit
+        }
+    }
+    val loadedThread = (state as? LoadState.Ready)?.value?.page?.thread
+    LaunchedEffect(loadedThread?.id, loadedThread?.subject) {
+        loadedThread?.let { thread ->
+            withContext(Dispatchers.IO) { historyDatabase.record(thread) }
         }
     }
     ScreenScaffold(
@@ -808,6 +916,187 @@ private fun ListFooter(count: Int, hasNextPage: Boolean, onLoadMore: () -> Unit)
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalSharedTransitionApi::class)
+@Composable
+private fun SearchScreen(
+    sharedTransitionScope: SharedTransitionScope,
+    animatedVisibilityScope: AnimatedVisibilityScope,
+    onBack: () -> Unit,
+    onThread: (YamiboSearchThread) -> Unit,
+) {
+    val viewModel: SearchViewModel = viewModel()
+
+    ScreenScaffold("搜索", onBack = onBack) { padding ->
+        Column(Modifier.fillMaxSize().padding(padding)) {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(16.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                OutlinedTextField(
+                    value = viewModel.query,
+                    onValueChange = viewModel::updateQuery,
+                    modifier = Modifier.weight(1f),
+                    label = { Text("搜索主题") },
+                    placeholder = { Text("输入关键字") },
+                    singleLine = true,
+                )
+                Button(onClick = viewModel::submit) { Text("搜索") }
+            }
+            Box(Modifier.fillMaxWidth().weight(1f)) {
+                when (val current = viewModel.state) {
+                    null -> EmptyState("搜索主题", "输入关键字开始搜索。")
+                    LoadState.Loading -> Loading()
+                    is LoadState.Failed -> EmptyState("搜索失败", current.message)
+                    is LoadState.Ready -> SearchResults(
+                        content = current.value,
+                        sharedTransitionScope = sharedTransitionScope,
+                        animatedVisibilityScope = animatedVisibilityScope,
+                        onThread = onThread,
+                        onLoadMore = viewModel::loadMore,
+                    )
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalSharedTransitionApi::class)
+@Composable
+private fun SearchResults(
+    content: SearchContent,
+    sharedTransitionScope: SharedTransitionScope,
+    animatedVisibilityScope: AnimatedVisibilityScope,
+    onThread: (YamiboSearchThread) -> Unit,
+    onLoadMore: () -> Unit,
+) {
+    if (content.threads.isEmpty()) {
+        EmptyState("没有搜索结果", "没有找到与“${content.page.keyword}”相关的主题。")
+        return
+    }
+    LazyColumn(
+        contentPadding = PaddingValues(16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        items(content.threads, key = { it.id }) { thread ->
+            SearchThreadCard(
+                thread = thread,
+                onClick = onThread,
+                modifier = with(sharedTransitionScope) {
+                    Modifier.sharedBounds(
+                        rememberSharedContentState("thread-${thread.id}"),
+                        animatedVisibilityScope,
+                    )
+                },
+            )
+        }
+        item {
+            ListFooter(
+                count = content.threads.size,
+                hasNextPage = content.page.pagination.hasNextPage,
+                onLoadMore = onLoadMore,
+            )
+        }
+    }
+}
+
+@Composable
+private fun SearchThreadCard(
+    thread: YamiboSearchThread,
+    onClick: (YamiboSearchThread) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Card(onClick = { onClick(thread) }, modifier = modifier.fillMaxWidth()) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(thread.forum.name, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+            Text(thread.subject, style = MaterialTheme.typography.titleMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            thread.excerpt?.let {
+                Text(
+                    it,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 3,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            Text(
+                "${thread.author.name} · ${thread.createdAtText} · ${thread.replyCount} 回复 · ${thread.viewCount} 浏览",
+                style = MaterialTheme.typography.labelMedium,
+            )
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalSharedTransitionApi::class)
+@Composable
+private fun ReadingHistoryScreen(
+    sharedTransitionScope: SharedTransitionScope,
+    animatedVisibilityScope: AnimatedVisibilityScope,
+    onThread: (ReadingHistoryEntry) -> Unit,
+) {
+    val context = LocalContext.current
+    val database = remember(context) { ReadingHistoryDatabase.getInstance(context) }
+    var reload by remember { mutableStateOf(0) }
+    var state: LoadState<List<ReadingHistoryEntry>> by remember { mutableStateOf(LoadState.Loading) }
+    LaunchedEffect(reload) {
+        state = load { withContext(Dispatchers.IO) { database.getAll() } }
+    }
+    ScreenScaffold("阅读历史", onRefresh = { reload++ }) { padding ->
+        LoadContent(state, padding) { entries ->
+            if (entries.isEmpty()) {
+                EmptyState("还没有阅读记录", "打开主题后会自动记录在这里。")
+            } else {
+                LazyColumn(
+                    contentPadding = PaddingValues(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    items(entries, key = { it.threadId }) { entry ->
+                        ReadingHistoryCard(
+                            entry = entry,
+                            onClick = onThread,
+                            modifier = with(sharedTransitionScope) {
+                                Modifier.sharedBounds(
+                                    rememberSharedContentState("thread-${entry.threadId}"),
+                                    animatedVisibilityScope,
+                                )
+                            },
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ReadingHistoryCard(
+    entry: ReadingHistoryEntry,
+    onClick: (ReadingHistoryEntry) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val readAtText = remember(entry.readAt) {
+        Instant.ofEpochMilli(entry.readAt).atZone(ZoneId.systemDefault()).format(historyTimeFormatter)
+    }
+    Card(onClick = { onClick(entry) }, modifier = modifier.fillMaxWidth()) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(
+                entry.subject,
+                style = MaterialTheme.typography.titleMedium,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                "${entry.authorName} · 阅读于 $readAtText",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            if (entry.lastPostAtText.isNotBlank()) {
+                Text("最后回复 ${entry.lastPostAtText}", style = MaterialTheme.typography.bodySmall)
+            }
+        }
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun FavoritesScreen() {
@@ -998,6 +1287,7 @@ private fun ScreenScaffold(
     modifier: Modifier = Modifier,
     onBack: (() -> Unit)? = null,
     onRefresh: (() -> Unit)? = null,
+    onSearch: (() -> Unit)? = null,
     content: @Composable (PaddingValues) -> Unit,
 ) = Scaffold(
     modifier = modifier,
@@ -1008,6 +1298,7 @@ private fun ScreenScaffold(
                 if (onBack != null) IconButton(onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "返回") }
             },
             actions = {
+                if (onSearch != null) IconButton(onSearch) { Icon(Icons.Rounded.Search, "搜索") }
                 if (onRefresh != null) IconButton(onRefresh) { Icon(Icons.Rounded.Refresh, "刷新") }
             },
             colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surface),
