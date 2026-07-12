@@ -1,6 +1,17 @@
 package com.yamibo.pocket300.ui
 
 import android.text.Html
+import android.text.Spanned
+import android.text.style.ImageSpan
+import android.util.LruCache
+import android.webkit.CookieManager
+import androidx.compose.animation.AnimatedVisibilityScope
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.ExperimentalSharedTransitionApi
+import androidx.compose.animation.SharedTransitionLayout
+import androidx.compose.animation.SharedTransitionScope
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -10,7 +21,9 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.padding
@@ -18,6 +31,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.text.InlineTextContent
+import androidx.compose.foundation.text.appendInlineContent
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -57,8 +72,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.Placeholder
+import androidx.compose.ui.text.PlaceholderVerticalAlign
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -68,6 +87,9 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import coil.compose.AsyncImage
+import coil.request.ImageRequest
+import androidx.compose.ui.platform.LocalContext
 import com.yamibo.pocket300.api.GetForumThreadsInput
 import com.yamibo.pocket300.api.GetThreadPostsInput
 import com.yamibo.pocket300.api.LoginInput
@@ -83,6 +105,7 @@ import com.yamibo.pocket300.api.YamiboThread
 import com.yamibo.pocket300.api.YamiboThreadPoll
 import com.yamibo.pocket300.api.YamiboThreadPostsPage
 import com.yamibo.pocket300.api.YamiboUserProfile
+import com.yamibo.pocket300.api.YAMIBO_ORIGIN
 import com.yamibo.pocket300.ui.theme.PocketTheme
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
@@ -101,6 +124,13 @@ private sealed class LoadState<out T> {
 
 private data class ForumContent(val page: YamiboForumThreadsPage, val threads: List<YamiboThread>)
 private data class ThreadContent(val page: YamiboThreadPostsPage, val posts: List<YamiboPost>)
+private data class ForumSnapshot(
+    val content: ForumContent,
+    val pageNumber: Int,
+    val selectedTypeId: Int?,
+)
+
+private val forumSnapshots = mutableMapOf<Int, ForumSnapshot>()
 
 private data class Tab(val route: String, val label: String, val icon: ImageVector)
 
@@ -110,6 +140,7 @@ private val tabs = listOf(
     Tab("profile", "我的", Icons.Rounded.AccountCircle),
 )
 
+@OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
 fun Pocket300App() = PocketTheme {
     val navController = rememberNavController()
@@ -117,30 +148,13 @@ fun Pocket300App() = PocketTheme {
     val route = entry?.destination?.route.orEmpty()
     val isTopLevel = tabs.any { it.route == route }
 
-    Scaffold(
-        bottomBar = {
-            if (isTopLevel) {
-                NavigationBar {
-                    tabs.forEach { tab ->
-                        NavigationBarItem(
-                            selected = route == tab.route,
-                            onClick = {
-                                navController.navigate(tab.route) {
-                                    popUpTo("home") { saveState = true }
-                                    launchSingleTop = true
-                                    restoreState = true
-                                }
-                            },
-                            icon = { Icon(tab.icon, contentDescription = null) },
-                            label = { Text(tab.label) },
-                        )
-                    }
-                }
+    SharedTransitionLayout {
+      val sharedTransitionScope = this
+      Box(Modifier.fillMaxSize()) {
+        NavHost(navController, startDestination = "home", modifier = Modifier.fillMaxSize()) {
+            composable("home") {
+                ForumIndexScreen(sharedTransitionScope, this) { navController.navigate("forum/${it.id}") }
             }
-        },
-    ) { padding ->
-        NavHost(navController, startDestination = "home", modifier = Modifier.padding(padding)) {
-            composable("home") { ForumIndexScreen { navController.navigate("forum/${it.id}") } }
             composable("favorites") { FavoritesScreen() }
             composable("profile") { ProfileScreen() }
             composable(
@@ -149,6 +163,8 @@ fun Pocket300App() = PocketTheme {
             ) { backStack ->
                 ForumScreen(
                     forumId = backStack.arguments?.getInt("forumId") ?: return@composable,
+                    sharedTransitionScope = sharedTransitionScope,
+                    animatedVisibilityScope = this,
                     onBack = navController::navigateUp,
                     onForum = { navController.navigate("forum/$it") },
                     onThread = { navController.navigate("thread/${it.id}") },
@@ -160,28 +176,69 @@ fun Pocket300App() = PocketTheme {
             ) { backStack ->
                 ThreadScreen(
                     threadId = backStack.arguments?.getInt("threadId") ?: return@composable,
+                    sharedTransitionScope = sharedTransitionScope,
+                    animatedVisibilityScope = this,
                     onBack = navController::navigateUp,
                 )
             }
         }
+        AnimatedVisibility(
+            visible = isTopLevel,
+            modifier = Modifier.align(Alignment.BottomCenter),
+            enter = fadeIn(),
+            exit = fadeOut(),
+        ) {
+          NavigationBar {
+                tabs.forEach { tab ->
+                    NavigationBarItem(
+                        selected = route == tab.route,
+                        onClick = {
+                            navController.navigate(tab.route) {
+                                popUpTo("home") { saveState = true }
+                                launchSingleTop = true
+                                restoreState = true
+                            }
+                        },
+                        icon = { Icon(tab.icon, contentDescription = null) },
+                        label = { Text(tab.label) },
+                    )
+                }
+            }
+        }
+      }
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalSharedTransitionApi::class)
 @Composable
-private fun ForumIndexScreen(onForum: (YamiboForum) -> Unit) {
+private fun ForumIndexScreen(
+    sharedTransitionScope: SharedTransitionScope,
+    animatedVisibilityScope: AnimatedVisibilityScope,
+    onForum: (YamiboForum) -> Unit,
+) {
     var reload by remember { mutableStateOf(0) }
     var state: LoadState<YamiboForumIndex> by remember { mutableStateOf(LoadState.Loading) }
     LaunchedEffect(reload) { state = load { api.forums.getForumIndex() } }
     ScreenScaffold("Pocket300", onRefresh = { reload++ }) { padding ->
         LoadContent(state, padding) { index ->
             LazyColumn(
-                contentPadding = PaddingValues(16.dp),
+                contentPadding = PaddingValues(start = 16.dp, top = 16.dp, end = 16.dp, bottom = 104.dp),
                 verticalArrangement = Arrangement.spacedBy(20.dp),
             ) {
                 index.categories.forEach { category ->
                     item { Text(category.name, style = MaterialTheme.typography.titleLarge) }
-                    items(category.forums, key = { it.id }) { forum -> ForumCard(forum, onForum) }
+                    items(category.forums, key = { it.id }) { forum ->
+                        ForumCard(
+                            forum = forum,
+                            onClick = onForum,
+                            modifier = with(sharedTransitionScope) {
+                                Modifier.sharedBounds(
+                                    rememberSharedContentState("forum-${forum.id}"),
+                                    animatedVisibilityScope,
+                                )
+                            },
+                        )
+                    }
                 }
             }
         }
@@ -189,8 +246,8 @@ private fun ForumIndexScreen(onForum: (YamiboForum) -> Unit) {
 }
 
 @Composable
-private fun ForumCard(forum: YamiboForum, onClick: (YamiboForum) -> Unit) {
-    ElevatedCard(onClick = { onClick(forum) }, modifier = Modifier.fillMaxWidth()) {
+private fun ForumCard(forum: YamiboForum, onClick: (YamiboForum) -> Unit, modifier: Modifier = Modifier) {
+    ElevatedCard(onClick = { onClick(forum) }, modifier = modifier.fillMaxWidth()) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Text(forum.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
             Text(
@@ -215,36 +272,56 @@ private fun Stat(label: String, value: Int) = Column {
     Text(label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalSharedTransitionApi::class)
 @Composable
 private fun ForumScreen(
     forumId: Int,
+    sharedTransitionScope: SharedTransitionScope,
+    animatedVisibilityScope: AnimatedVisibilityScope,
     onBack: () -> Unit,
     onForum: (Int) -> Unit,
     onThread: (YamiboThread) -> Unit,
 ) {
+    val cachedSnapshot = remember(forumId) { forumSnapshots[forumId] }
     var reload by remember { mutableStateOf(0) }
-    var pageNumber by remember(forumId) { mutableStateOf(1) }
-    var selectedTypeId by remember(forumId) { mutableStateOf<Int?>(null) }
-    var state: LoadState<ForumContent> by remember { mutableStateOf(LoadState.Loading) }
+    var pageNumber by rememberSaveable(forumId) { mutableStateOf(cachedSnapshot?.pageNumber ?: 1) }
+    var selectedTypeId by rememberSaveable(forumId) { mutableStateOf(cachedSnapshot?.selectedTypeId) }
+    var state: LoadState<ForumContent> by remember(forumId) {
+        mutableStateOf(cachedSnapshot?.content?.let { LoadState.Ready(it) } ?: LoadState.Loading)
+    }
+    var restoreCachedPage by remember(forumId) { mutableStateOf(cachedSnapshot != null) }
+    var refreshingThreads by remember { mutableStateOf(false) }
+    var threadLoadError by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(forumId, reload, pageNumber, selectedTypeId) {
+        if (restoreCachedPage && reload == 0) {
+            restoreCachedPage = false
+            return@LaunchedEffect
+        }
         val previous = (state as? LoadState.Ready)?.value
-        state = if (pageNumber == 1) LoadState.Loading else state
+        refreshingThreads = pageNumber == 1 && previous != null
+        threadLoadError = null
+        if (pageNumber == 1 && previous == null) state = LoadState.Loading
         when (val result = load {
             api.threads.getForumThreads(GetForumThreadsInput(forumId, pageNumber, typeId = selectedTypeId))
         }) {
-            is LoadState.Ready -> state = LoadState.Ready(
-                ForumContent(
+            is LoadState.Ready -> {
+                val content = ForumContent(
                     result.value,
                     if (pageNumber == 1) result.value.threads
                     else (previous?.threads.orEmpty() + result.value.threads).distinctBy { it.id },
-                ),
-            )
-            is LoadState.Failed -> state = result
+                )
+                state = LoadState.Ready(content)
+                forumSnapshots[forumId] = ForumSnapshot(content, pageNumber, selectedTypeId)
+            }
+            is LoadState.Failed -> if (previous == null) state = result else threadLoadError = result.message
             LoadState.Loading -> Unit
         }
+        refreshingThreads = false
     }
     ScreenScaffold(
+        modifier = with(sharedTransitionScope) {
+            Modifier.sharedBounds(rememberSharedContentState("forum-$forumId"), animatedVisibilityScope)
+        },
         title = (state as? LoadState.Ready)?.value?.page?.forum?.name ?: "板块",
         onBack = onBack,
         onRefresh = { pageNumber = 1; reload++ },
@@ -302,13 +379,42 @@ private fun ForumScreen(
                         }
                     }
                 }
-                items(content.threads, key = { it.id }) { thread -> ThreadCard(thread, onThread) }
-                item {
-                    ListFooter(
-                        count = content.threads.size,
-                        hasNextPage = page.pagination.hasNextPage,
-                        onLoadMore = { pageNumber = page.pagination.page + 1 },
-                    )
+                if (refreshingThreads) {
+                    item {
+                        Box(
+                            Modifier.fillMaxWidth().height(120.dp),
+                            contentAlignment = Alignment.Center,
+                        ) { CircularProgressIndicator() }
+                    }
+                } else {
+                    threadLoadError?.let { message ->
+                        item {
+                            Text(
+                                message,
+                                modifier = Modifier.fillMaxWidth().padding(20.dp),
+                                color = MaterialTheme.colorScheme.error,
+                            )
+                        }
+                    }
+                    items(content.threads, key = { it.id }, contentType = { "thread" }) { thread ->
+                        ThreadCard(
+                            thread = thread,
+                            onClick = onThread,
+                            modifier = with(sharedTransitionScope) {
+                                Modifier.sharedBounds(
+                                    rememberSharedContentState("thread-${thread.id}"),
+                                    animatedVisibilityScope,
+                                )
+                            },
+                        )
+                    }
+                    item {
+                        ListFooter(
+                            count = content.threads.size,
+                            hasNextPage = page.pagination.hasNextPage,
+                            onLoadMore = { pageNumber = page.pagination.page + 1 },
+                        )
+                    }
                 }
             }
         }
@@ -316,8 +422,8 @@ private fun ForumScreen(
 }
 
 @Composable
-private fun ThreadCard(thread: YamiboThread, onClick: (YamiboThread) -> Unit) {
-    Card(onClick = { onClick(thread) }, modifier = Modifier.fillMaxWidth()) {
+private fun ThreadCard(thread: YamiboThread, onClick: (YamiboThread) -> Unit, modifier: Modifier = Modifier) {
+    Card(onClick = { onClick(thread) }, modifier = modifier.fillMaxWidth()) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             if (thread.typeName != null) Text(thread.typeName, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
             Text(thread.subject, style = MaterialTheme.typography.titleMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
@@ -329,9 +435,14 @@ private fun ThreadCard(thread: YamiboThread, onClick: (YamiboThread) -> Unit) {
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalSharedTransitionApi::class)
 @Composable
-private fun ThreadScreen(threadId: Int, onBack: () -> Unit) {
+private fun ThreadScreen(
+    threadId: Int,
+    sharedTransitionScope: SharedTransitionScope,
+    animatedVisibilityScope: AnimatedVisibilityScope,
+    onBack: () -> Unit,
+) {
     var reload by remember { mutableStateOf(0) }
     var pageNumber by remember(threadId) { mutableStateOf(1) }
     var state: LoadState<ThreadContent> by remember { mutableStateOf(LoadState.Loading) }
@@ -351,6 +462,9 @@ private fun ThreadScreen(threadId: Int, onBack: () -> Unit) {
         }
     }
     ScreenScaffold(
+        modifier = with(sharedTransitionScope) {
+            Modifier.sharedBounds(rememberSharedContentState("thread-$threadId"), animatedVisibilityScope)
+        },
         title = (state as? LoadState.Ready)?.value?.page?.thread?.subject ?: "主题",
         onBack = onBack,
         onRefresh = { pageNumber = 1; reload++ },
@@ -360,7 +474,7 @@ private fun ThreadScreen(threadId: Int, onBack: () -> Unit) {
             LazyColumn(contentPadding = PaddingValues(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 item { ThreadHero(page) }
                 page.poll?.let { poll -> item { PollCard(poll) } }
-                items(content.posts, key = { it.id }) { post -> PostCard(post) }
+                items(content.posts, key = { it.id }, contentType = { "post" }) { post -> PostCard(post) }
                 item {
                     ListFooter(
                         count = content.posts.size,
@@ -382,7 +496,11 @@ private fun PostCard(post: YamiboPost) {
                 Text(if (post.isOriginalPost) "楼主" else "#${post.number}", color = MaterialTheme.colorScheme.primary)
             }
             HorizontalDivider()
-            Text(plainText(post.html), style = MaterialTheme.typography.bodyLarge)
+            PostHtml(
+                html = post.html,
+                threadId = post.threadId,
+                attachmentUrls = post.attachments.filter { it.isImage }.map { it.url },
+            )
             if (post.comments.isNotEmpty()) {
                 Surface(color = MaterialTheme.colorScheme.surfaceContainerHigh, shape = MaterialTheme.shapes.medium) {
                     Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -397,6 +515,194 @@ private fun PostCard(post: YamiboPost) {
             }
             Text(post.createdAtText, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
+    }
+}
+
+private sealed interface PostHtmlPart {
+    data class Text(val value: String) : PostHtmlPart
+    data class Image(val url: String) : PostHtmlPart
+}
+
+private sealed interface PostRenderPart {
+    data class Inline(val parts: List<PostHtmlPart>) : PostRenderPart
+    data class Image(val url: String) : PostRenderPart
+}
+
+private val postHtmlCache = LruCache<String, List<PostHtmlPart>>(64)
+
+@Composable
+private fun PostHtml(html: String, threadId: Int, attachmentUrls: List<String>) {
+    val parts = remember(html, attachmentUrls) {
+        val htmlParts = postHtmlCache.get(html) ?: parsePostHtml(html).also { postHtmlCache.put(html, it) }
+        val embeddedUrls = htmlParts.filterIsInstance<PostHtmlPart.Image>()
+            .map { normalizePostImageUrl(it.url) }
+            .toSet()
+        htmlParts + attachmentUrls
+            .filterNot { normalizePostImageUrl(it) in embeddedUrls }
+            .map(PostHtmlPart::Image)
+    }
+    val renderParts = remember(parts) { groupPostHtmlParts(parts) }
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        renderParts.forEachIndexed { index, part ->
+            when (part) {
+                is PostRenderPart.Inline -> PostInlineHtml(part.parts, threadId)
+                is PostRenderPart.Image -> {
+                    val url = normalizePostImageUrl(part.url)
+                    var failed by remember(url) { mutableStateOf(false) }
+                    val request = rememberPostImageRequest(url, threadId)
+                    if (failed) {
+                        Text("图片加载失败", color = MaterialTheme.colorScheme.error)
+                    } else {
+                        AsyncImage(
+                            model = request,
+                            contentDescription = "帖子图片 ${index + 1}",
+                            contentScale = ContentScale.Fit,
+                            onError = { failed = true },
+                            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp, max = 520.dp),
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+private fun groupPostHtmlParts(parts: List<PostHtmlPart>): List<PostRenderPart> {
+    val result = mutableListOf<PostRenderPart>()
+    val inline = mutableListOf<PostHtmlPart>()
+    fun flushInline() {
+        if (inline.isNotEmpty()) result += PostRenderPart.Inline(inline.toList())
+        inline.clear()
+    }
+    parts.forEach { part ->
+        if (part is PostHtmlPart.Image && !isSmileyImage(part.url)) {
+            flushInline()
+            result += PostRenderPart.Image(part.url)
+        } else {
+            inline += part
+        }
+    }
+    flushInline()
+    return result
+}
+
+@Composable
+private fun PostInlineHtml(parts: List<PostHtmlPart>, threadId: Int) {
+    val style = MaterialTheme.typography.bodyLarge
+    val text = buildAnnotatedString {
+        parts.forEachIndexed { index, part ->
+            when (part) {
+                is PostHtmlPart.Text -> append(part.value)
+                is PostHtmlPart.Image -> appendInlineContent("smiley-$index", "表情")
+            }
+        }
+    }
+    val inlineContent = buildMap {
+        parts.forEachIndexed { index, part ->
+            if (part is PostHtmlPart.Image) {
+                put(
+                    "smiley-$index",
+                    InlineTextContent(
+                        Placeholder(
+                            width = style.lineHeight,
+                            height = style.lineHeight,
+                            placeholderVerticalAlign = PlaceholderVerticalAlign.TextCenter,
+                        ),
+                    ) {
+                        AsyncImage(
+                            model = rememberPostImageRequest(normalizePostImageUrl(part.url), threadId),
+                            contentDescription = "表情",
+                            contentScale = ContentScale.Fit,
+                            modifier = Modifier.fillMaxSize(),
+                        )
+                    },
+                )
+            }
+        }
+    }
+    Text(text = text, inlineContent = inlineContent, style = style)
+}
+
+@Composable
+private fun rememberPostImageRequest(url: String, threadId: Int): ImageRequest {
+    val context = LocalContext.current
+    return remember(url, threadId) {
+        ImageRequest.Builder(context)
+            .data(url)
+            .crossfade(false)
+            .apply {
+                val cookie = CookieManager.getInstance().getCookie(url)
+                if (!cookie.isNullOrBlank()) addHeader("Cookie", cookie)
+                addHeader("Referer", "$YAMIBO_ORIGIN/forum.php?mod=viewthread&tid=$threadId")
+                addHeader("User-Agent", "Mozilla/5.0 (Linux; Android) Pocket300/1.0")
+            }
+            .build()
+    }
+}
+
+private fun isSmileyImage(source: String): Boolean = normalizePostImageUrl(source)
+    .substringAfter(YAMIBO_ORIGIN)
+    .trimStart('/')
+    .startsWith("static/image/smiley/", ignoreCase = true)
+
+@Suppress("DEPRECATION")
+private fun parsePostHtml(html: String): List<PostHtmlPart> {
+    val spanned = Html.fromHtml(resolveDiscuzImageSources(html), Html.FROM_HTML_MODE_LEGACY) as Spanned
+    val images = spanned.getSpans(0, spanned.length, ImageSpan::class.java)
+        .sortedBy(spanned::getSpanStart)
+    val parts = mutableListOf<PostHtmlPart>()
+    var cursor = 0
+    images.forEach { image ->
+        addPostText(parts, spanned.subSequence(cursor, spanned.getSpanStart(image)).toString())
+        image.source?.takeIf(String::isNotBlank)?.let { parts += PostHtmlPart.Image(it) }
+        cursor = spanned.getSpanEnd(image)
+    }
+    addPostText(parts, spanned.subSequence(cursor, spanned.length).toString())
+    return parts
+}
+
+private val imageTagPattern = Regex("""<img\b[^>]*>""", RegexOption.IGNORE_CASE)
+private val sourceAttributePattern = Regex(
+    """\bsrc\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)""",
+    RegexOption.IGNORE_CASE,
+)
+
+private fun resolveDiscuzImageSources(html: String): String = imageTagPattern.replace(html) { match ->
+    val tag = match.value
+    val source = listOf("zoomfile", "file", "data-src", "data-original")
+        .firstNotNullOfOrNull { readHtmlAttribute(tag, it) }
+        ?.takeIf { it.isNotBlank() }
+        ?: return@replace tag
+    val resolvedSource = "src=\"${source.replace("\"", "&quot;")}\""
+    if (sourceAttributePattern.containsMatchIn(tag)) {
+        sourceAttributePattern.replaceFirst(tag, resolvedSource)
+    } else {
+        tag.replaceFirst("<img", "<img $resolvedSource", ignoreCase = true)
+    }
+}
+
+private fun readHtmlAttribute(tag: String, name: String): String? {
+    val pattern = Regex(
+        """(?:^|\s)${Regex.escape(name)}\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))""",
+        RegexOption.IGNORE_CASE,
+    )
+    val match = pattern.find(tag) ?: return null
+    return match.groupValues.drop(1).firstOrNull(String::isNotEmpty)
+}
+
+private fun addPostText(parts: MutableList<PostHtmlPart>, raw: String) {
+    val text = raw.replace('\uFFFC'.toString(), "").trim()
+    if (text.isNotEmpty()) parts += PostHtmlPart.Text(text)
+}
+
+private fun normalizePostImageUrl(source: String): String {
+    val value = source.trim().replace("&amp;", "&")
+    return when {
+        value.startsWith("//") -> "https:$value"
+        value.startsWith("/") -> "$YAMIBO_ORIGIN$value"
+        value.startsWith("http://bbs.yamibo.com/") -> value.replaceFirst("http://", "https://")
+        value.startsWith("http://") || value.startsWith("https://") -> value
+        else -> "$YAMIBO_ORIGIN/${value.trimStart('/')}"
     }
 }
 
@@ -668,10 +974,12 @@ private fun ProfileSummary(session: YamiboSession, modifier: Modifier, onLoggedO
 @Composable
 private fun ScreenScaffold(
     title: String,
+    modifier: Modifier = Modifier,
     onBack: (() -> Unit)? = null,
     onRefresh: (() -> Unit)? = null,
     content: @Composable (PaddingValues) -> Unit,
 ) = Scaffold(
+    modifier = modifier,
     topBar = {
         TopAppBar(
             title = { Text(title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
