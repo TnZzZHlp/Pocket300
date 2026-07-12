@@ -12,6 +12,7 @@ data class ReadingHistoryEntry(
     val subject: String,
     val authorName: String,
     val lastPostAtText: String,
+    val lastReadFloor: Int,
     val readAt: Long,
 )
 
@@ -27,22 +28,32 @@ class ReadingHistoryDatabase private constructor(context: Context) :
                 subject TEXT NOT NULL,
                 author_name TEXT NOT NULL,
                 last_post_at_text TEXT NOT NULL,
-                read_at INTEGER NOT NULL
+                read_at INTEGER NOT NULL,
+                last_read_floor INTEGER NOT NULL DEFAULT 1
             )
             """.trimIndent(),
         )
-        database.execSQL("CREATE INDEX reading_history_read_at ON reading_history(read_at DESC)")
+        createIndexes(database)
     }
 
-    override fun onUpgrade(database: SQLiteDatabase, oldVersion: Int, newVersion: Int) = Unit
+    override fun onUpgrade(database: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
+        if (oldVersion < 2) {
+            database.execSQL(
+                "ALTER TABLE reading_history ADD COLUMN last_read_floor INTEGER NOT NULL DEFAULT 1",
+            )
+            database.execSQL("DROP INDEX IF EXISTS reading_history_read_at")
+            createIndexes(database)
+        }
+    }
 
-    fun record(thread: YamiboThreadDetails, readAt: Long = System.currentTimeMillis()) {
+    fun record(thread: YamiboThreadDetails, lastReadFloor: Int, readAt: Long = System.currentTimeMillis()) {
         val values = ContentValues().apply {
             put("thread_id", thread.id)
             put("forum_id", thread.forumId)
             put("subject", thread.subject)
             put("author_name", thread.author.name)
             put("last_post_at_text", thread.lastPostAtText)
+            put("last_read_floor", lastReadFloor.coerceAtLeast(1))
             put("read_at", readAt)
         }
         writableDatabase.transaction {
@@ -76,7 +87,8 @@ class ReadingHistoryDatabase private constructor(context: Context) :
                         subject = cursor.getString(2),
                         authorName = cursor.getString(3),
                         lastPostAtText = cursor.getString(4),
-                        readAt = cursor.getLong(5),
+                        lastReadFloor = cursor.getInt(5),
+                        readAt = cursor.getLong(6),
                     ),
                 )
             }
@@ -94,7 +106,7 @@ class ReadingHistoryDatabase private constructor(context: Context) :
 
     companion object {
         private const val DATABASE_NAME = "pocket300.db"
-        private const val DATABASE_VERSION = 1
+        private const val DATABASE_VERSION = 2
         private const val MAX_ENTRIES = 500
         private val COLUMNS = arrayOf(
             "thread_id",
@@ -102,8 +114,16 @@ class ReadingHistoryDatabase private constructor(context: Context) :
             "subject",
             "author_name",
             "last_post_at_text",
+            "last_read_floor",
             "read_at",
         )
+
+        private fun createIndexes(database: SQLiteDatabase) {
+            database.execSQL(
+                "CREATE INDEX IF NOT EXISTS reading_history_read_at_thread_id " +
+                    "ON reading_history(read_at DESC, thread_id)",
+            )
+        }
 
         @Volatile
         private var instance: ReadingHistoryDatabase? = null

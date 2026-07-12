@@ -32,6 +32,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.text.InlineTextContent
 import androidx.compose.foundation.text.appendInlineContent
 import androidx.compose.foundation.shape.CircleShape
@@ -67,6 +68,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -123,6 +125,9 @@ import com.yamibo.pocket300.data.ReadingHistoryEntry
 import com.yamibo.pocket300.ui.theme.PocketTheme
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import androidx.compose.material.icons.Icons
@@ -273,7 +278,9 @@ fun Pocket300App() = PocketTheme {
                 ReadingHistoryScreen(
                     sharedTransitionScope = sharedTransitionScope,
                     animatedVisibilityScope = this,
-                    onThread = { navController.navigate("thread/${it.threadId}") },
+                    onThread = {
+                        navController.navigate("thread/${it.threadId}?floor=${it.lastReadFloor}")
+                    },
                 )
             }
             composable("profile") { ProfileScreen() }
@@ -299,11 +306,15 @@ fun Pocket300App() = PocketTheme {
                 )
             }
             composable(
-                route = "thread/{threadId}",
-                arguments = listOf(navArgument("threadId") { type = NavType.IntType }),
+                route = "thread/{threadId}?floor={floor}",
+                arguments = listOf(
+                    navArgument("threadId") { type = NavType.IntType },
+                    navArgument("floor") { type = NavType.IntType; defaultValue = 0 },
+                ),
             ) { backStack ->
                 ThreadScreen(
                     threadId = backStack.arguments?.getInt("threadId") ?: return@composable,
+                    initialFloor = backStack.arguments?.getInt("floor") ?: 0,
                     sharedTransitionScope = sharedTransitionScope,
                     animatedVisibilityScope = this,
                     onBack = navController::navigateUp,
@@ -568,6 +579,7 @@ private fun ThreadCard(thread: YamiboThread, onClick: (YamiboThread) -> Unit, mo
 @Composable
 private fun ThreadScreen(
     threadId: Int,
+    initialFloor: Int,
     sharedTransitionScope: SharedTransitionScope,
     animatedVisibilityScope: AnimatedVisibilityScope,
     onBack: () -> Unit,
@@ -579,6 +591,8 @@ private fun ThreadScreen(
     var reload by remember { mutableStateOf(0) }
     var pageNumber by remember(threadId) { mutableStateOf(1) }
     var state: LoadState<ThreadContent> by remember { mutableStateOf(LoadState.Loading) }
+    val listState = rememberLazyListState()
+    var restoredFloor by remember(threadId, initialFloor) { mutableStateOf(initialFloor <= 0) }
     LaunchedEffect(threadId, reload, pageNumber) {
         val previous = (state as? LoadState.Ready)?.value
         state = if (pageNumber == 1) LoadState.Loading else state
@@ -594,11 +608,41 @@ private fun ThreadScreen(
             LoadState.Loading -> Unit
         }
     }
-    val loadedThread = (state as? LoadState.Ready)?.value?.page?.thread
+    val loadedContent = (state as? LoadState.Ready)?.value
+    val loadedThread = loadedContent?.page?.thread
+    LaunchedEffect(loadedContent, initialFloor, restoredFloor) {
+        val content = loadedContent ?: return@LaunchedEffect
+        if (restoredFloor) return@LaunchedEffect
+        val postIndex = content.posts.indexOfFirst { it.number == initialFloor }
+        if (postIndex >= 0) {
+            val headerCount = 1 + if (content.page.poll == null) 0 else 1
+            listState.scrollToItem(headerCount + postIndex)
+            restoredFloor = true
+        } else if (pageNumber == 1) {
+            pageNumber = ((initialFloor - 1) / content.page.pagination.pageSize) + 1
+        } else {
+            restoredFloor = true
+        }
+    }
     LaunchedEffect(loadedThread?.id, loadedThread?.subject) {
         loadedThread?.let { thread ->
-            withContext(Dispatchers.IO) { historyDatabase.record(thread) }
+            withContext(Dispatchers.IO) { historyDatabase.record(thread, initialFloor.coerceAtLeast(1)) }
         }
+    }
+    LaunchedEffect(listState, loadedContent, restoredFloor) {
+        val content = loadedContent ?: return@LaunchedEffect
+        if (!restoredFloor) return@LaunchedEffect
+        snapshotFlow {
+            val visiblePostIds = listState.layoutInfo.visibleItemsInfo.mapNotNull { it.key as? Int }.toSet()
+            content.posts.filter { it.id in visiblePostIds }.maxOfOrNull { it.number }
+        }
+            .distinctUntilChanged()
+            .collectLatest { floor ->
+                val thread = loadedThread ?: return@collectLatest
+                floor ?: return@collectLatest
+                delay(300)
+                withContext(Dispatchers.IO) { historyDatabase.record(thread, floor) }
+            }
     }
     ScreenScaffold(
         modifier = with(sharedTransitionScope) {
@@ -610,7 +654,11 @@ private fun ThreadScreen(
     ) { padding ->
         LoadContent(state, padding) { content ->
             val page = content.page
-            LazyColumn(contentPadding = PaddingValues(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            LazyColumn(
+                state = listState,
+                contentPadding = PaddingValues(12.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
                 item { ThreadHero(page) }
                 page.poll?.let { poll -> item { PollCard(poll) } }
                 items(content.posts, key = { it.id }, contentType = { "post" }) { post ->
@@ -1139,7 +1187,7 @@ private fun ReadingHistoryCard(
                 overflow = TextOverflow.Ellipsis,
             )
             Text(
-                "${entry.authorName} · 阅读于 $readAtText",
+                "${entry.authorName} · 看到 #${entry.lastReadFloor} · 阅读于 $readAtText",
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
