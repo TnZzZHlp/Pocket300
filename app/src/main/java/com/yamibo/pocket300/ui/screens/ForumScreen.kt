@@ -1,5 +1,6 @@
 package com.yamibo.pocket300.ui.screens
 
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.AnimatedVisibilityScope
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionScope
@@ -15,11 +16,15 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.ExpandLess
+import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -31,7 +36,9 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import com.yamibo.pocket300.R
 import com.yamibo.pocket300.api.GetForumThreadsInput
 import com.yamibo.pocket300.api.YamiboForumThreadsPage
 import com.yamibo.pocket300.api.YamiboThread
@@ -56,6 +63,10 @@ private data class ForumSnapshot(
 
 private val forumSnapshots = mutableMapOf<Int, ForumSnapshot>()
 
+internal const val STICKY_THREADS_INITIAL_EXPANDED = false
+
+internal fun isStickyThread(stickyLevel: Int): Boolean = stickyLevel > 0
+
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalSharedTransitionApi::class)
 @Composable
@@ -77,6 +88,9 @@ internal fun ForumScreen(
     var restoreCachedPage by remember(forumId) { mutableStateOf(cachedSnapshot != null) }
     var refreshingThreads by remember { mutableStateOf(false) }
     var threadLoadError by remember { mutableStateOf<String?>(null) }
+    var stickyThreadsExpanded by rememberSaveable(forumId) {
+        mutableStateOf(STICKY_THREADS_INITIAL_EXPANDED)
+    }
     val listState = rememberLazyListState()
     LaunchedEffect(forumId, reload, pageNumber, selectedTypeId) {
         if (restoreCachedPage && reload == 0) {
@@ -218,16 +232,64 @@ internal fun ForumScreen(
                             )
                         }
                     }
-                    items(content.threads, key = { it.id }, contentType = { "thread" }) { thread ->
-                        ThreadCard(
+                    val (stickyThreads, regularThreads) = content.threads.partition {
+                        isStickyThread(it.stickyLevel)
+                    }
+                    if (stickyThreads.isNotEmpty()) {
+                        item(key = "sticky-threads", contentType = "sticky-threads") {
+                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                ElevatedCard(
+                                    onClick = { stickyThreadsExpanded = !stickyThreadsExpanded },
+                                    modifier = Modifier.fillMaxWidth(),
+                                ) {
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(horizontal = 16.dp, vertical = 12.dp),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically,
+                                    ) {
+                                        Text(
+                                            stringResource(R.string.forum_sticky_threads, stickyThreads.size),
+                                            style = MaterialTheme.typography.titleMedium,
+                                        )
+                                        Icon(
+                                            imageVector = if (stickyThreadsExpanded) {
+                                                Icons.Rounded.ExpandLess
+                                            } else {
+                                                Icons.Rounded.ExpandMore
+                                            },
+                                            contentDescription = stringResource(
+                                                if (stickyThreadsExpanded) {
+                                                    R.string.forum_collapse_sticky_threads
+                                                } else {
+                                                    R.string.forum_expand_sticky_threads
+                                                }
+                                            ),
+                                        )
+                                    }
+                                }
+                                AnimatedVisibility(visible = stickyThreadsExpanded) {
+                                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        stickyThreads.forEach { thread ->
+                                            ForumThreadCard(
+                                                thread = thread,
+                                                onThread = onThread,
+                                                sharedTransitionScope = sharedTransitionScope,
+                                                animatedVisibilityScope = animatedVisibilityScope,
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    items(regularThreads, key = { it.id }, contentType = { "thread" }) { thread ->
+                        ForumThreadCard(
                             thread = thread,
-                            onClick = onThread,
-                            modifier = with(sharedTransitionScope) {
-                                Modifier.sharedBounds(
-                                    rememberSharedContentState("thread-${thread.id}"),
-                                    animatedVisibilityScope,
-                                )
-                            },
+                            onThread = onThread,
+                            sharedTransitionScope = sharedTransitionScope,
+                            animatedVisibilityScope = animatedVisibilityScope,
                         )
                     }
                     item {
@@ -241,4 +303,24 @@ internal fun ForumScreen(
             }
         }
     }
+}
+
+@OptIn(ExperimentalSharedTransitionApi::class)
+@Composable
+private fun ForumThreadCard(
+    thread: YamiboThread,
+    onThread: (YamiboThread) -> Unit,
+    sharedTransitionScope: SharedTransitionScope,
+    animatedVisibilityScope: AnimatedVisibilityScope,
+) {
+    ThreadCard(
+        thread = thread,
+        onClick = onThread,
+        modifier = with(sharedTransitionScope) {
+            Modifier.sharedBounds(
+                rememberSharedContentState("thread-${thread.id}"),
+                animatedVisibilityScope,
+            )
+        },
+    )
 }
