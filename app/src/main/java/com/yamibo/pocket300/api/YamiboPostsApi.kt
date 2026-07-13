@@ -32,6 +32,16 @@ data class YamiboPostAttachment(
     val url: String,
 )
 
+data class YamiboPostRating(
+    val creditName: String,
+    val createdAtText: String,
+    val reason: String,
+    val score: Int,
+    val unit: String,
+    val userId: Int,
+    val username: String,
+)
+
 data class YamiboPost(
     val attachments: List<YamiboPostAttachment>,
     val author: YamiboPostAuthor,
@@ -45,6 +55,8 @@ data class YamiboPost(
     val isOriginalPost: Boolean,
     val number: Int,
     val position: Int,
+    val ratingCount: Int,
+    val ratings: List<YamiboPostRating>,
     val replyCredit: Int,
     val status: Int,
     val threadId: Int,
@@ -74,6 +86,7 @@ data class YamiboThreadDetails(
     val digestLevel: Int,
     val forumId: Int,
     val heat: Int,
+    val hasRatings: Boolean,
     val hasAttachment: Boolean,
     val id: Int,
     val isClosed: Boolean,
@@ -125,10 +138,48 @@ class YamiboPostsApi(private val client: YamiboClient) {
                 serverCode,
             )
         }
-        return parseThreadPosts(
+        val page = parseThreadPosts(
             response.variables ?: invalidResponse("百合会未返回主题楼层数据"),
             input.page,
         )
+        val ratedPostIds = if (page.thread.hasRatings) {
+            val threadPage = client.requestPage(
+                path = "/forum.php",
+                parameters = mapOf(
+                    "mobile" to "2",
+                    "mod" to "viewthread",
+                    "page" to input.page.toString(),
+                    "tid" to input.threadId.toString(),
+                ),
+            )
+            parseRatedPostIds(threadPage.html)
+        } else {
+            emptySet()
+        }
+        val posts = page.posts.map { post ->
+            if (post.id in ratedPostIds) {
+                val ratings = getPostRatings(input.threadId, post.id)
+                post.copy(ratingCount = ratings.size, ratings = ratings)
+            } else {
+                post
+            }
+        }
+        return page.copy(posts = posts)
+    }
+
+    suspend fun getPostRatings(threadId: Int, postId: Int): List<YamiboPostRating> {
+        require(threadId > 0) { "threadId must be a positive integer" }
+        require(postId > 0) { "postId must be a positive integer" }
+        val response = client.requestPage(
+            path = "/forum.php",
+            parameters = mapOf(
+                "action" to "viewratings",
+                "mod" to "misc",
+                "pid" to postId.toString(),
+                "tid" to threadId.toString(),
+            ),
+        )
+        return parsePostRatings(response.html)
     }
 
     suspend fun findPostPage(threadId: Int, postId: Int): Int? {
@@ -193,6 +244,7 @@ private fun parsePostThread(raw: Any?): YamiboThreadDetails {
         digestLevel = value.postNonNegative("digest"),
         forumId = value.postPositive("fid"),
         heat = value.postNonNegative("heats"),
+        hasRatings = value.postNonNegative("rate") > 0,
         hasAttachment = value.postFlag("attachment"),
         id = id,
         isClosed = value.postFlag("closed"),
@@ -227,11 +279,73 @@ private fun parsePost(value: JSONObject, comments: Map<Int, List<YamiboPostComme
         isOriginalPost = value.postFlag("first"),
         number = postDisplayNumber(value.opt("number"), position),
         position = position,
+        ratingCount = value.postNonNegative("ratetimes"),
+        ratings = emptyList(),
         replyCredit = value.postNonNegative("replycredit"),
         status = value.postNonNegative("status"),
         threadId = value.postPositive("tid"),
     )
 }
+
+internal fun parsePostRatings(html: String): List<YamiboPostRating> =
+    Regex("""<tr\b[^>]*>([\s\S]*?)</tr\s*>""", RegexOption.IGNORE_CASE)
+        .findAll(html)
+        .mapNotNull { row ->
+            val cells = Regex("""<td\b[^>]*>([\s\S]*?)</td\s*>""", RegexOption.IGNORE_CASE)
+                .findAll(row.groupValues[1])
+                .map { it.groupValues[1] }
+                .toList()
+            if (cells.size < 4) return@mapNotNull null
+            val userId = listOf(
+                Regex("""(?:[?&]|&amp;)uid=(\d+)""", RegexOption.IGNORE_CASE),
+                Regex("""space-uid-(\d+)(?:\.|-|/|$)""", RegexOption.IGNORE_CASE),
+            ).firstNotNullOfOrNull { pattern ->
+                pattern.find(cells[1])?.groupValues?.get(1)?.toIntOrNull()?.takeIf { it > 0 }
+            }
+                ?: return@mapNotNull null
+            val credit = ratingHtmlText(cells[0])
+            val creditParts = Regex("""^(.+?)\s+([+-]?\d+)(?:\s+(.*))?$""").matchEntire(credit)
+                ?: invalidResponse("百合会返回了无效的评分数据")
+            YamiboPostRating(
+                creditName = creditParts.groupValues[1],
+                createdAtText = ratingHtmlText(cells[2]),
+                reason = ratingHtmlText(cells[3]),
+                score = creditParts.groupValues[2].toIntOrNull()
+                    ?: invalidResponse("百合会返回了无效的评分数据"),
+                unit = creditParts.groupValues[3],
+                userId = userId,
+                username = ratingHtmlText(cells[1]),
+            )
+        }
+        .toList()
+
+internal fun parseRatedPostIds(html: String): Set<Int> =
+    Regex("""\bid=["']ratelog_(\d+)["']""", RegexOption.IGNORE_CASE)
+        .findAll(html)
+        .mapNotNull { it.groupValues[1].toIntOrNull()?.takeIf { id -> id > 0 } }
+        .toSet()
+
+private fun ratingHtmlText(value: String): String =
+    Regex("""&(?:#(\d+)|#x([\da-f]+)|([a-z]+));""", RegexOption.IGNORE_CASE)
+        .replace(value.replace(Regex("""<[^>]*>"""), "")) { match ->
+            val codePoint = match.groupValues[1].toIntOrNull()
+                ?: match.groupValues[2].toIntOrNull(16)
+            if (codePoint != null && Character.isValidCodePoint(codePoint)) {
+                String(Character.toChars(codePoint))
+            } else {
+                when (match.groupValues[3].lowercase()) {
+                    "amp" -> "&"
+                    "apos" -> "'"
+                    "gt" -> ">"
+                    "lt" -> "<"
+                    "nbsp" -> " "
+                    "quot" -> "\""
+                    else -> match.value
+                }
+            }
+        }
+        .replace(Regex("""\s+"""), " ")
+        .trim()
 
 private val hiddenPostSpan = Regex(
     """<span\b(?=[^>]*\bstyle\s*=\s*([\"'])[^\"']*\bdisplay\s*:\s*none\b[^\"']*\1)[^>]*>[\s\S]*?</span\s*>""",
