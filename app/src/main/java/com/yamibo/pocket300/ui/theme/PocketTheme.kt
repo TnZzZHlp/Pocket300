@@ -13,27 +13,55 @@ import androidx.compose.ui.platform.LocalContext
 import com.yamibo.pocket300.ui.AppColorTheme
 
 private val LightColors = lightColorScheme(
-    primary = Color(0xFF8F4A60),
+    primary = Color(0xFF79552E),
     onPrimary = Color.White,
-    primaryContainer = Color(0xFFFFD9E2),
-    onPrimaryContainer = Color(0xFF3B071D),
-    secondary = Color(0xFF75565E),
-    secondaryContainer = Color(0xFFFFD9E2),
-    tertiary = Color(0xFF7C5635),
-    background = Color(0xFFFFF8F8),
-    surface = Color(0xFFFFF8F8),
-    surfaceVariant = Color(0xFFF2DDE2),
+    primaryContainer = Color(0xFFF7DDB5),
+    onPrimaryContainer = Color(0xFF2B1907),
+    secondary = Color(0xFF705C46),
+    onSecondary = Color.White,
+    secondaryContainer = Color(0xFFF3E0CA),
+    onSecondaryContainer = Color(0xFF28190C),
+    tertiary = Color(0xFF8B4F3F),
+    tertiaryContainer = Color(0xFFFFDAD0),
+    background = Color(0xFFFFF8F1),
+    onBackground = Color(0xFF211A14),
+    surface = Color(0xFFFFF8F1),
+    onSurface = Color(0xFF211A14),
+    surfaceVariant = Color(0xFFEFE1D3),
+    onSurfaceVariant = Color(0xFF514539),
+    outline = Color(0xFF837568),
+    outlineVariant = Color(0xFFD6C4B4),
+    surfaceContainerLowest = Color(0xFFFFFFFF),
+    surfaceContainerLow = Color(0xFFFFF3E7),
+    surfaceContainer = Color(0xFFF9EDE1),
+    surfaceContainerHigh = Color(0xFFF3E7DB),
+    surfaceContainerHighest = Color(0xFFEDDFD2),
 )
 
 private val DarkColors = darkColorScheme(
-    primary = Color(0xFFFFB1C6),
-    onPrimary = Color(0xFF56142F),
-    primaryContainer = Color(0xFF713048),
-    secondary = Color(0xFFE4BDC6),
-    tertiary = Color(0xFFEDBD8D),
-    background = Color(0xFF201A1B),
-    surface = Color(0xFF201A1B),
-    surfaceVariant = Color(0xFF514347),
+    primary = Color(0xFFE9BD82),
+    onPrimary = Color(0xFF432C0D),
+    primaryContainer = Color(0xFF5C421F),
+    onPrimaryContainer = Color(0xFFFFDDAE),
+    secondary = Color(0xFFD6C2AA),
+    onSecondary = Color(0xFF3B2F22),
+    secondaryContainer = Color(0xFF524638),
+    onSecondaryContainer = Color(0xFFF3DFC6),
+    tertiary = Color(0xFFEDB8A7),
+    tertiaryContainer = Color(0xFF69382C),
+    background = Color(0xFF1F1B17),
+    onBackground = Color(0xFFEAE1D8),
+    surface = Color(0xFF1F1B17),
+    onSurface = Color(0xFFEAE1D8),
+    surfaceVariant = Color(0xFF51463B),
+    onSurfaceVariant = Color(0xFFD3C4B5),
+    outline = Color(0xFF9C8F82),
+    outlineVariant = Color(0xFF51463B),
+    surfaceContainerLowest = Color(0xFF191511),
+    surfaceContainerLow = Color(0xFF27211C),
+    surfaceContainer = Color(0xFF2B251F),
+    surfaceContainerHigh = Color(0xFF362F28),
+    surfaceContainerHighest = Color(0xFF413A32),
 )
 
 private val VioletLightColors = lightColorScheme(
@@ -97,7 +125,7 @@ private val GreenDarkColors = darkColorScheme(
 )
 
 @Composable
-internal fun PocketTheme(colorTheme: AppColorTheme = AppColorTheme.SYSTEM, content: @Composable () -> Unit) {
+internal fun PocketTheme(colorTheme: AppColorTheme = AppColorTheme.BEIGE, content: @Composable () -> Unit) {
     val context = LocalContext.current
     val dark = isSystemInDarkTheme()
     val colors = when (colorTheme) {
@@ -107,7 +135,7 @@ internal fun PocketTheme(colorTheme: AppColorTheme = AppColorTheme.SYSTEM, conte
             dark -> DarkColors
             else -> LightColors
         }
-        AppColorTheme.SAKURA -> if (dark) DarkColors else LightColors
+        AppColorTheme.BEIGE -> if (dark) DarkColors else LightColors
         AppColorTheme.VIOLET -> if (dark) VioletDarkColors else VioletLightColors
         AppColorTheme.BLUE -> if (dark) BlueDarkColors else BlueLightColors
         AppColorTheme.GREEN -> if (dark) GreenDarkColors else GreenLightColors

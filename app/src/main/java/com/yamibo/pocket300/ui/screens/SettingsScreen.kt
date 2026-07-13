@@ -92,7 +92,7 @@ internal fun SettingsScreen(
 private val AppColorTheme.previewColor: Color
     get() = when (this) {
         AppColorTheme.SYSTEM -> Color(0xFF777777)
-        AppColorTheme.SAKURA -> Color(0xFF8F4A60)
+        AppColorTheme.BEIGE -> Color(0xFF79552E)
         AppColorTheme.VIOLET -> Color(0xFF6750A4)
         AppColorTheme.BLUE -> Color(0xFF0061A4)
         AppColorTheme.GREEN -> Color(0xFF006C4C)
@@ -101,7 +101,7 @@ private val AppColorTheme.previewColor: Color
 private val AppColorTheme.labelResource: Int
     get() = when (this) {
         AppColorTheme.SYSTEM -> R.string.settings_theme_system
-        AppColorTheme.SAKURA -> R.string.settings_theme_sakura
+        AppColorTheme.BEIGE -> R.string.settings_theme_beige
         AppColorTheme.VIOLET -> R.string.settings_theme_violet
         AppColorTheme.BLUE -> R.string.settings_theme_blue
         AppColorTheme.GREEN -> R.string.settings_theme_green
