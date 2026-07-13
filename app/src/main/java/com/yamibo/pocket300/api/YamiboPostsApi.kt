@@ -2,6 +2,7 @@ package com.yamibo.pocket300.api
 
 import org.json.JSONArray
 import org.json.JSONObject
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import kotlin.math.ceil
 
 data class GetThreadPostsInput(val threadId: Int, val page: Int = 1)
@@ -129,6 +130,32 @@ class YamiboPostsApi(private val client: YamiboClient) {
             input.page,
         )
     }
+
+    suspend fun findPostPage(threadId: Int, postId: Int): Int? {
+        require(threadId > 0) { "threadId must be a positive integer" }
+        require(postId > 0) { "postId must be a positive integer" }
+        val response = client.requestPage(
+            path = "/forum.php",
+            parameters = mapOf(
+                "mod" to "redirect",
+                "goto" to "findpost",
+                "ptid" to threadId.toString(),
+                "pid" to postId.toString(),
+            ),
+        )
+        return parsePostPageUrl(response.url, threadId)
+    }
+}
+
+internal fun parsePostPageUrl(url: String, expectedThreadId: Int): Int? {
+    val parsed = url.toHttpUrlOrNull() ?: return null
+    val queryThreadId = parsed.queryParameter("tid")?.toIntOrNull()
+    val rewritten = Regex("(?:^|/)thread-(\\d+)-(\\d+)(?:-|\\.|/|$)", RegexOption.IGNORE_CASE)
+        .find(parsed.encodedPath)
+    val threadId = queryThreadId ?: rewritten?.groupValues?.get(1)?.toIntOrNull()
+    if (threadId != expectedThreadId) return null
+    return parsed.queryParameter("page")?.toIntOrNull()?.takeIf { it > 0 }
+        ?: rewritten?.groupValues?.get(2)?.toIntOrNull()?.takeIf { it > 0 }
 }
 
 fun parseThreadPosts(variables: JSONObject, requestedPage: Int = 1): YamiboThreadPostsPage {
@@ -194,7 +221,7 @@ private fun parsePost(value: JSONObject, comments: Map<Int, List<YamiboPostComme
         comments = comments[id].orEmpty(),
         createdAt = value.postTimestamp("dbdateline"),
         createdAtText = value.postString("dateline"),
-        html = value.postString("message"),
+        html = sanitizePostHtml(value.postString("message")),
         hasAttachment = value.postFlag("attachment"),
         id = id,
         isOriginalPost = value.postFlag("first"),
@@ -204,6 +231,25 @@ private fun parsePost(value: JSONObject, comments: Map<Int, List<YamiboPostComme
         status = value.postNonNegative("status"),
         threadId = value.postPositive("tid"),
     )
+}
+
+private val hiddenPostSpan = Regex(
+    """<span\b(?=[^>]*\bstyle\s*=\s*([\"'])[^\"']*\bdisplay\s*:\s*none\b[^\"']*\1)[^>]*>[\s\S]*?</span\s*>""",
+    RegexOption.IGNORE_CASE,
+)
+private val postJammerElement = Regex(
+    """<([a-z][\w:-]*)\b(?=[^>]*\bclass\s*=\s*([\"'])[^\"']*\bjammer\b[^\"']*\2)[^>]*>[\s\S]*?</\1\s*>""",
+    RegexOption.IGNORE_CASE,
+)
+
+internal fun sanitizePostHtml(html: String): String {
+    var sanitized = html
+    do {
+        val previous = sanitized
+        sanitized = hiddenPostSpan.replace(sanitized, "")
+        sanitized = postJammerElement.replace(sanitized, "")
+    } while (sanitized != previous)
+    return sanitized
 }
 
 private fun postDisplayNumber(raw: Any?, position: Int): Int = when (raw) {
