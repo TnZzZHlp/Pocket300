@@ -4,7 +4,11 @@ import com.yamibo.pocket300.api.YAMIBO_ORIGIN
 import java.net.URI
 
 internal sealed interface PostLinkTarget {
-    data class Thread(val id: Int) : PostLinkTarget
+    data class Thread(
+        val id: Int,
+        val postId: Int? = null,
+        val page: Int? = null,
+    ) : PostLinkTarget
     data class Forum(val id: Int) : PostLinkTarget
     data class External(val url: String) : PostLinkTarget
 }
@@ -18,7 +22,16 @@ internal fun resolvePostLink(rawUrl: String): PostLinkTarget {
         val threadId = queryParameter(query, "tid")
             ?: Regex("(?:^|/)thread-(\\d+)(?:-|\\.|/|$)", RegexOption.IGNORE_CASE)
                 .find(uri.path.orEmpty())?.groupValues?.get(1)?.toIntOrNull()
-        if (threadId != null) return PostLinkTarget.Thread(threadId)
+        if (threadId != null) {
+            val postId = queryParameter(query, "pid")
+                ?: Regex("^pid(\\d+)$", RegexOption.IGNORE_CASE)
+                    .matchEntire(uri.rawFragment.orEmpty())?.groupValues?.get(1)?.toIntOrNull()
+            return PostLinkTarget.Thread(
+                id = threadId,
+                postId = postId,
+                page = queryParameter(query, "page"),
+            )
+        }
 
         val forumId = queryParameter(query, "fid")
             ?: Regex("(?:^|/)forum-(\\d+)(?:-|\\.|/|$)", RegexOption.IGNORE_CASE)

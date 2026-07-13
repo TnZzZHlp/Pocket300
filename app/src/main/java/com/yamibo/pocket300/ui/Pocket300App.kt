@@ -6,6 +6,7 @@ import android.text.style.ImageSpan
 import android.text.style.URLSpan
 import android.util.LruCache
 import android.webkit.CookieManager
+import android.widget.Toast
 import androidx.compose.animation.AnimatedVisibilityScope
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.ExperimentalSharedTransitionApi
@@ -68,6 +69,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -111,6 +113,7 @@ import com.yamibo.pocket300.api.YamiboApi
 import com.yamibo.pocket300.api.YamiboForum
 import com.yamibo.pocket300.api.YamiboForumIndex
 import com.yamibo.pocket300.api.YamiboForumThreadsPage
+import com.yamibo.pocket300.api.YamiboFavoriteThread
 import com.yamibo.pocket300.api.YamiboPost
 import com.yamibo.pocket300.api.YamiboSession
 import com.yamibo.pocket300.api.YamiboSearchPage
@@ -273,7 +276,9 @@ fun Pocket300App() = PocketTheme {
                     onSearch = { navController.navigate("search") },
                 )
             }
-            composable("favorites") { FavoritesScreen() }
+            composable("favorites") {
+                FavoritesScreen(onThread = { navController.navigate("thread/${it.threadId}") })
+            }
             composable("history") {
                 ReadingHistoryScreen(
                     sharedTransitionScope = sharedTransitionScope,
@@ -306,20 +311,28 @@ fun Pocket300App() = PocketTheme {
                 )
             }
             composable(
-                route = "thread/{threadId}?floor={floor}",
+                route = "thread/{threadId}?floor={floor}&postId={postId}&page={page}",
                 arguments = listOf(
                     navArgument("threadId") { type = NavType.IntType },
                     navArgument("floor") { type = NavType.IntType; defaultValue = 0 },
+                    navArgument("postId") { type = NavType.IntType; defaultValue = 0 },
+                    navArgument("page") { type = NavType.IntType; defaultValue = 0 },
                 ),
             ) { backStack ->
                 ThreadScreen(
                     threadId = backStack.arguments?.getInt("threadId") ?: return@composable,
                     initialFloor = backStack.arguments?.getInt("floor") ?: 0,
+                    initialPostId = backStack.arguments?.getInt("postId") ?: 0,
+                    initialPage = backStack.arguments?.getInt("page") ?: 0,
                     sharedTransitionScope = sharedTransitionScope,
                     animatedVisibilityScope = this,
                     onBack = navController::navigateUp,
                     onForum = { navController.navigate("forum/$it") },
-                    onThread = { navController.navigate("thread/$it") },
+                    onThread = {
+                        navController.navigate(
+                            "thread/${it.id}?postId=${it.postId ?: 0}&page=${it.page ?: 0}",
+                        )
+                    },
                 )
             }
         }
@@ -580,19 +593,28 @@ private fun ThreadCard(thread: YamiboThread, onClick: (YamiboThread) -> Unit, mo
 private fun ThreadScreen(
     threadId: Int,
     initialFloor: Int,
+    initialPostId: Int,
+    initialPage: Int,
     sharedTransitionScope: SharedTransitionScope,
     animatedVisibilityScope: AnimatedVisibilityScope,
     onBack: () -> Unit,
     onForum: (Int) -> Unit,
-    onThread: (Int) -> Unit,
+    onThread: (PostLinkTarget.Thread) -> Unit,
 ) {
     val context = LocalContext.current
     val historyDatabase = remember(context) { ReadingHistoryDatabase.getInstance(context) }
     var reload by remember { mutableStateOf(0) }
-    var pageNumber by remember(threadId) { mutableStateOf(1) }
+    var pageNumber by remember(threadId, initialPostId, initialPage) {
+        mutableStateOf(if (initialPostId > 0) initialPage.coerceAtLeast(1) else 1)
+    }
     var state: LoadState<ThreadContent> by remember { mutableStateOf(LoadState.Loading) }
     val listState = rememberLazyListState()
-    var restoredFloor by remember(threadId, initialFloor) { mutableStateOf(initialFloor <= 0) }
+    var restoredFloor by remember(threadId, initialFloor, initialPostId) {
+        mutableStateOf(initialFloor <= 0 && initialPostId <= 0)
+    }
+    var isFavorited by remember(threadId) { mutableStateOf(false) }
+    var favoriteBusy by remember(threadId) { mutableStateOf(false) }
+    val coroutineScope = rememberCoroutineScope()
     LaunchedEffect(threadId, reload, pageNumber) {
         val previous = (state as? LoadState.Ready)?.value
         state = if (pageNumber == 1) LoadState.Loading else state
@@ -613,12 +635,14 @@ private fun ThreadScreen(
     LaunchedEffect(loadedContent, initialFloor, restoredFloor) {
         val content = loadedContent ?: return@LaunchedEffect
         if (restoredFloor) return@LaunchedEffect
-        val postIndex = content.posts.indexOfFirst { it.number == initialFloor }
+        val postIndex = content.posts.indexOfFirst {
+            if (initialPostId > 0) it.id == initialPostId else it.number == initialFloor
+        }
         if (postIndex >= 0) {
             val headerCount = 1 + if (content.page.poll == null) 0 else 1
             listState.scrollToItem(headerCount + postIndex)
             restoredFloor = true
-        } else if (pageNumber == 1) {
+        } else if (initialPostId <= 0 && pageNumber == 1) {
             pageNumber = ((initialFloor - 1) / content.page.pagination.pageSize) + 1
         } else {
             restoredFloor = true
@@ -659,7 +683,33 @@ private fun ThreadScreen(
                 contentPadding = PaddingValues(12.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
-                item { ThreadHero(page) }
+                item {
+                    ThreadHero(
+                        page = page,
+                        isFavorited = isFavorited,
+                        favoriteBusy = favoriteBusy,
+                        onFavorite = {
+                            if (!isFavorited && !favoriteBusy) {
+                                favoriteBusy = true
+                                coroutineScope.launch {
+                                    when (val result = load { api.favorites.addThread(threadId) }) {
+                                        is LoadState.Ready -> {
+                                            isFavorited = true
+                                            Toast.makeText(context, "已收藏", Toast.LENGTH_SHORT).show()
+                                        }
+                                        is LoadState.Failed -> Toast.makeText(
+                                            context,
+                                            result.message,
+                                            Toast.LENGTH_SHORT,
+                                        ).show()
+                                        LoadState.Loading -> Unit
+                                    }
+                                    favoriteBusy = false
+                                }
+                            }
+                        },
+                    )
+                }
                 page.poll?.let { poll -> item { PollCard(poll) } }
                 items(content.posts, key = { it.id }, contentType = { "post" }) { post ->
                     PostCard(post, onForum, onThread)
@@ -677,12 +727,16 @@ private fun ThreadScreen(
 }
 
 @Composable
-private fun PostCard(post: YamiboPost, onForum: (Int) -> Unit, onThread: (Int) -> Unit) {
+private fun PostCard(
+    post: YamiboPost,
+    onForum: (Int) -> Unit,
+    onThread: (PostLinkTarget.Thread) -> Unit,
+) {
     val uriHandler = LocalUriHandler.current
     val openLink: (String) -> Unit = { url ->
         when (val target = resolvePostLink(url)) {
             is PostLinkTarget.Forum -> onForum(target.id)
-            is PostLinkTarget.Thread -> onThread(target.id)
+            is PostLinkTarget.Thread -> onThread(target)
             is PostLinkTarget.External -> uriHandler.openUri(target.url)
         }
     }
@@ -938,11 +992,29 @@ private fun normalizePostImageUrl(source: String): String {
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun ThreadHero(page: YamiboThreadPostsPage) {
+private fun ThreadHero(
+    page: YamiboThreadPostsPage,
+    isFavorited: Boolean,
+    favoriteBusy: Boolean,
+    onFavorite: () -> Unit,
+) {
     val thread = page.thread
     ElevatedCard(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
             Text(thread.subject, style = MaterialTheme.typography.headlineSmall)
+            OutlinedButton(
+                onClick = onFavorite,
+                enabled = !isFavorited && !favoriteBusy,
+            ) {
+                if (favoriteBusy) {
+                    CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                    Spacer(Modifier.width(8.dp))
+                } else {
+                    Icon(Icons.Rounded.Favorite, contentDescription = null)
+                    Spacer(Modifier.width(8.dp))
+                }
+                Text(if (isFavorited) "已收藏" else "收藏主题")
+            }
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 Surface(Modifier.size(40.dp), shape = CircleShape, color = MaterialTheme.colorScheme.primaryContainer) {
                     Box(contentAlignment = Alignment.Center) { Text(thread.author.name.take(1)) }
@@ -1200,9 +1272,40 @@ private fun ReadingHistoryCard(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun FavoritesScreen() {
-    ScreenScaffold("收藏") { padding ->
-        EmptyState("还没有收藏", "在主题页面收藏的内容会显示在这里。", Modifier.padding(padding))
+private fun FavoritesScreen(onThread: (YamiboFavoriteThread) -> Unit) {
+    var reload by remember { mutableStateOf(0) }
+    var state: LoadState<List<YamiboFavoriteThread>> by remember { mutableStateOf(LoadState.Loading) }
+    LaunchedEffect(reload) { state = load { api.favorites.getFavoriteThreads() } }
+    ScreenScaffold("收藏", onRefresh = { reload++ }) { padding ->
+        LoadContent(state, padding) { favorites ->
+            if (favorites.isEmpty()) {
+                EmptyState("还没有收藏", "在主题页面收藏的内容会显示在这里。")
+            } else {
+                LazyColumn(
+                    contentPadding = PaddingValues(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    items(favorites, key = { it.favoriteId }) { favorite ->
+                        Card(onClick = { onThread(favorite) }, modifier = Modifier.fillMaxWidth()) {
+                            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Text(favorite.title, style = MaterialTheme.typography.titleMedium)
+                                favorite.description.takeIf(String::isNotBlank)?.let {
+                                    Text(
+                                        plainText(it),
+                                        maxLines = 2,
+                                        overflow = TextOverflow.Ellipsis,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
+                                favorite.createdAtText.takeIf(String::isNotBlank)?.let {
+                                    Text(it, style = MaterialTheme.typography.labelMedium)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 

@@ -8,6 +8,22 @@ class PostLinkTest {
         assertEquals(PostLinkTarget.Thread(123), resolvePostLink("forum.php?mod=viewthread&tid=123"))
     }
 
+    @Test fun resolvesThreadFloorAnchor() {
+        assertEquals(
+            PostLinkTarget.Thread(id = 493657, postId = 39191175, page = 1),
+            resolvePostLink(
+                "https://bbs.yamibo.com/forum.php?mod=viewthread&tid=493657&page=1&mobile=2#pid39191175",
+            ),
+        )
+    }
+
+    @Test fun resolvesThreadPostFromQuery() {
+        assertEquals(
+            PostLinkTarget.Thread(id = 493657, postId = 39191175, page = 2),
+            resolvePostLink("forum.php?mod=viewthread&tid=493657&page=2&pid=39191175"),
+        )
+    }
+
     @Test fun resolvesAbsoluteForumLink() {
         assertEquals(
             PostLinkTarget.Forum(300),
