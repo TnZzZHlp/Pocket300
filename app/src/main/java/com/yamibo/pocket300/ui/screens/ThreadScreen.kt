@@ -1,9 +1,13 @@
 package com.yamibo.pocket300.ui.screens
 
 import android.widget.Toast
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.AnimatedVisibilityScope
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionScope
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -26,13 +30,24 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.OutlinedIconButton
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.darkColorScheme
+import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -43,19 +58,28 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.yamibo.pocket300.api.GetThreadPostsInput
 import com.yamibo.pocket300.api.YamiboPost
 import com.yamibo.pocket300.api.YamiboThreadPoll
 import com.yamibo.pocket300.api.YamiboThreadPostsPage
+import com.yamibo.pocket300.R
 import com.yamibo.pocket300.data.ReadingHistoryDatabase
 import com.yamibo.pocket300.ui.LoadContent
 import com.yamibo.pocket300.ui.LoadState
 import com.yamibo.pocket300.ui.PostHtml
 import com.yamibo.pocket300.ui.PostLinkTarget
+import com.yamibo.pocket300.ui.ReaderPreferences
+import com.yamibo.pocket300.ui.ReaderPreferencesStore
+import com.yamibo.pocket300.ui.ReaderTone
 import com.yamibo.pocket300.ui.ScreenScaffold
 import com.yamibo.pocket300.ui.api
 import com.yamibo.pocket300.ui.components.AutoLoadNextPage
@@ -64,7 +88,16 @@ import com.yamibo.pocket300.ui.load
 import com.yamibo.pocket300.ui.plainText
 import com.yamibo.pocket300.ui.resolvePostLink
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.automirrored.rounded.MenuBook
+import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.ChevronLeft
+import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material.icons.rounded.Favorite
+import androidx.compose.material.icons.rounded.FavoriteBorder
+import androidx.compose.material.icons.rounded.Remove
+import androidx.compose.material.icons.rounded.Refresh
+import androidx.compose.material.icons.rounded.Settings
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
@@ -87,6 +120,8 @@ internal fun ThreadScreen(
     animatedVisibilityScope: AnimatedVisibilityScope,
     onBack: () -> Unit,
     onForum: (Int) -> Unit,
+    onRatings: (Int, Int) -> Unit,
+    onReader: (Int, Int, Int) -> Unit,
     onThread: (PostLinkTarget.Thread) -> Unit,
 ) {
     val context = LocalContext.current
@@ -176,7 +211,7 @@ internal fun ThreadScreen(
         modifier = with(sharedTransitionScope) {
             Modifier.sharedBounds(rememberSharedContentState("thread-$threadId"), animatedVisibilityScope)
         },
-        title = (state as? LoadState.Ready)?.value?.page?.thread?.subject ?: "主题",
+        title = loadedThread?.subject ?: "主题",
         onBack = onBack,
         onRefresh = { pageNumber = 1; reload++ },
     ) { padding ->
@@ -210,7 +245,6 @@ internal fun ThreadScreen(
                                                     .firstOrNull { it.threadId == threadId }
                                                     ?.favoriteId
                                                 ?: error("未找到收藏记录，请刷新后重试")
-
                                             api.favorites.removeThread(id)
                                         }
                                     } else {
@@ -244,6 +278,11 @@ internal fun ThreadScreen(
                     PostCard(
                         post = post,
                         onForum = onForum,
+                        onRatings = { onRatings(post.threadId, post.id) },
+                        onReader = {
+                            val postPage = ((post.position - 1) / page.pagination.pageSize) + 1
+                            onReader(post.threadId, post.id, postPage.coerceAtLeast(1))
+                        },
                         onThread = { target ->
                             if (target.id == threadId && target.postId != null) {
                                 targetFloor = 0
@@ -268,10 +307,219 @@ internal fun ThreadScreen(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ReaderTopBar(
+    title: String,
+    isFavorited: Boolean,
+    favoriteBusy: Boolean,
+    onBack: () -> Unit,
+    onFavorite: () -> Unit,
+    onSettings: () -> Unit,
+    onRefresh: () -> Unit,
+) {
+    TopAppBar(
+        title = { Text(title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+        navigationIcon = {
+            IconButton(onClick = onBack) {
+                Icon(Icons.AutoMirrored.Rounded.ArrowBack, stringResource(R.string.reader_back))
+            }
+        },
+        actions = {
+            IconButton(onClick = onFavorite, enabled = !favoriteBusy) {
+                if (favoriteBusy) {
+                    CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
+                } else {
+                    Icon(
+                        if (isFavorited) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder,
+                        stringResource(if (isFavorited) R.string.reader_unfavorite else R.string.reader_favorite),
+                        tint = if (isFavorited) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+                    )
+                }
+            }
+            IconButton(onClick = onSettings) {
+                Icon(Icons.Rounded.Settings, stringResource(R.string.reader_settings))
+            }
+            IconButton(onClick = onRefresh) {
+                Icon(Icons.Rounded.Refresh, stringResource(R.string.reader_refresh))
+            }
+        },
+        colors = TopAppBarDefaults.topAppBarColors(
+            containerColor = MaterialTheme.colorScheme.background,
+            scrolledContainerColor = MaterialTheme.colorScheme.background,
+        ),
+    )
+}
+
+@Composable
+private fun ReaderProgressBar(
+    currentFloor: Int,
+    maximumFloor: Int,
+    pageSize: Int,
+    seekFloor: Float,
+    onSeek: (Float) -> Unit,
+    onSeekFinished: () -> Unit,
+    onPrevious: () -> Unit,
+    onNext: () -> Unit,
+) {
+    val totalPages = ((maximumFloor + pageSize - 1) / pageSize).coerceAtLeast(1)
+    val page = ((currentFloor - 1) / pageSize) + 1
+    Surface(color = MaterialTheme.colorScheme.surface, tonalElevation = 4.dp) {
+        Column(Modifier.padding(horizontal = 8.dp, vertical = 6.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                IconButton(onClick = onPrevious, enabled = currentFloor > 1) {
+                    Icon(Icons.Rounded.ChevronLeft, stringResource(R.string.reader_previous_page))
+                }
+                Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(
+                        stringResource(R.string.reader_progress, currentFloor, maximumFloor),
+                        style = MaterialTheme.typography.labelLarge,
+                    )
+                    Text(
+                        stringResource(R.string.reader_page_progress, page, totalPages),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                IconButton(onClick = onNext, enabled = currentFloor < maximumFloor) {
+                    Icon(Icons.Rounded.ChevronRight, stringResource(R.string.reader_next_page))
+                }
+            }
+            Slider(
+                value = seekFloor,
+                onValueChange = onSeek,
+                onValueChangeFinished = onSeekFinished,
+                valueRange = 1f..maximumFloor.toFloat().coerceAtLeast(1f),
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
+            )
+        }
+    }
+}
+
+@Composable
+internal fun ReaderSettingsSheet(
+    preferences: ReaderPreferences,
+    onChange: (ReaderPreferences) -> Unit,
+) {
+    Column(
+        Modifier.fillMaxWidth().padding(start = 24.dp, end = 24.dp, bottom = 32.dp),
+        verticalArrangement = Arrangement.spacedBy(20.dp),
+    ) {
+        Text(stringResource(R.string.reader_settings), style = MaterialTheme.typography.titleLarge)
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Text(stringResource(R.string.reader_font_size), style = MaterialTheme.typography.labelLarge)
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                OutlinedIconButton(
+                    onClick = { onChange(preferences.copy(fontSizeSp = (preferences.fontSizeSp - 1f).coerceAtLeast(14f))) },
+                    enabled = preferences.fontSizeSp > 14f,
+                ) { Icon(Icons.Rounded.Remove, stringResource(R.string.reader_font_smaller)) }
+                Text(
+                    stringResource(R.string.reader_font_size_value, preferences.fontSizeSp.toInt()),
+                    style = MaterialTheme.typography.titleMedium,
+                )
+                OutlinedIconButton(
+                    onClick = { onChange(preferences.copy(fontSizeSp = (preferences.fontSizeSp + 1f).coerceAtMost(26f))) },
+                    enabled = preferences.fontSizeSp < 26f,
+                ) { Icon(Icons.Rounded.Add, stringResource(R.string.reader_font_larger)) }
+            }
+        }
+        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                Text(stringResource(R.string.reader_line_height), style = MaterialTheme.typography.labelLarge)
+                Text(
+                    stringResource(R.string.reader_line_height_value, preferences.lineHeightMultiplier),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Slider(
+                value = preferences.lineHeightMultiplier,
+                onValueChange = { onChange(preferences.copy(lineHeightMultiplier = it)) },
+                valueRange = 1.35f..2f,
+                steps = 5,
+            )
+        }
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Text(stringResource(R.string.reader_background), style = MaterialTheme.typography.labelLarge)
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                ReaderTone.entries.forEach { tone ->
+                    FilterChip(
+                        selected = preferences.tone == tone,
+                        onClick = { onChange(preferences.copy(tone = tone)) },
+                        label = { Text(stringResource(tone.labelResource)) },
+                    )
+                }
+            }
+        }
+        TextButton(
+            onClick = { onChange(ReaderPreferences()) },
+            modifier = Modifier.align(Alignment.End),
+        ) { Text(stringResource(R.string.reader_reset)) }
+    }
+}
+
+private val ReaderTone.labelResource: Int
+    get() = when (this) {
+        ReaderTone.SYSTEM -> R.string.reader_tone_system
+        ReaderTone.PAPER -> R.string.reader_tone_paper
+        ReaderTone.MINT -> R.string.reader_tone_mint
+        ReaderTone.NIGHT -> R.string.reader_tone_night
+    }
+
+@Composable
+internal fun ReaderTheme(tone: ReaderTone, content: @Composable () -> Unit) {
+    val baseColors = MaterialTheme.colorScheme
+    val colors = when (tone) {
+        ReaderTone.SYSTEM -> baseColors
+        ReaderTone.PAPER -> lightColorScheme(
+            primary = Color(0xFF795548),
+            onPrimary = Color.White,
+            primaryContainer = Color(0xFFEADCC8),
+            onPrimaryContainer = Color(0xFF342018),
+            background = Color(0xFFF7F0E3),
+            onBackground = Color(0xFF322C25),
+            surface = Color(0xFFF7F0E3),
+            onSurface = Color(0xFF322C25),
+            surfaceVariant = Color(0xFFE9E0D2),
+            onSurfaceVariant = Color(0xFF655C51),
+        )
+        ReaderTone.MINT -> lightColorScheme(
+            primary = Color(0xFF3F6655),
+            onPrimary = Color.White,
+            primaryContainer = Color(0xFFD0E8D8),
+            onPrimaryContainer = Color(0xFF163A2B),
+            background = Color(0xFFEFF6EE),
+            onBackground = Color(0xFF243029),
+            surface = Color(0xFFEFF6EE),
+            onSurface = Color(0xFF243029),
+            surfaceVariant = Color(0xFFDCE9DC),
+            onSurfaceVariant = Color(0xFF526158),
+        )
+        ReaderTone.NIGHT -> darkColorScheme(
+            primary = Color(0xFFD6B98C),
+            onPrimary = Color(0xFF402D10),
+            primaryContainer = Color(0xFF59451F),
+            onPrimaryContainer = Color(0xFFF4DCB0),
+            background = Color(0xFF171819),
+            onBackground = Color(0xFFD7D4CE),
+            surface = Color(0xFF171819),
+            onSurface = Color(0xFFD7D4CE),
+            surfaceVariant = Color(0xFF303234),
+            onSurfaceVariant = Color(0xFFB8B6B0),
+        )
+    }
+    MaterialTheme(colorScheme = colors, typography = MaterialTheme.typography, content = content)
+}
+
 @Composable
 private fun PostCard(
     post: YamiboPost,
     onForum: (Int) -> Unit,
+    onRatings: () -> Unit,
+    onReader: () -> Unit,
     onThread: (PostLinkTarget.Thread) -> Unit,
 ) {
     val uriHandler = LocalUriHandler.current
@@ -285,16 +533,57 @@ private fun PostCard(
     Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                Text(post.author.name, fontWeight = FontWeight.SemiBold)
-                Text(if (post.isOriginalPost) "楼主" else "#${post.number}", color = MaterialTheme.colorScheme.primary)
+                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text(post.author.name, fontWeight = FontWeight.SemiBold)
+                    Text(
+                        post.createdAtText,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Surface(
+                        color = MaterialTheme.colorScheme.primaryContainer,
+                        shape = CircleShape,
+                    ) {
+                        Text(
+                            if (post.isOriginalPost) "楼主" else "${post.number} 楼",
+                            modifier = Modifier.padding(horizontal = 11.dp, vertical = 6.dp),
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer,
+                        )
+                    }
+                    IconButton(onClick = onReader) {
+                        Icon(
+                            Icons.AutoMirrored.Rounded.MenuBook,
+                            contentDescription = stringResource(R.string.reader_open),
+                        )
+                    }
+                }
             }
-            HorizontalDivider()
             PostHtml(
                 html = post.html,
                 threadId = post.threadId,
                 attachmentUrls = post.attachments.filter { it.isImage }.map { it.url },
                 onLink = openLink,
             )
+            if (post.ratings.isNotEmpty()) {
+                Surface(color = MaterialTheme.colorScheme.secondaryContainer, shape = MaterialTheme.shapes.medium) {
+                    Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text(
+                            stringResource(R.string.rating_count, post.ratingCount),
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                        post.ratings.take(3).forEach { rating -> RatingRow(rating) }
+                        if (post.ratingCount > 3) {
+                            TextButton(onClick = onRatings, modifier = Modifier.align(Alignment.End)) {
+                                Text(stringResource(R.string.rating_view_all, post.ratingCount))
+                            }
+                        }
+                    }
+                }
+            }
             if (post.comments.isNotEmpty()) {
                 Surface(color = MaterialTheme.colorScheme.surfaceContainerHigh, shape = MaterialTheme.shapes.medium) {
                     Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -307,7 +596,7 @@ private fun PostCard(
                     }
                 }
             }
-            Text(post.createdAtText, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.65f))
         }
     }
 }
@@ -323,12 +612,12 @@ private fun ThreadHero(
 ) {
     val thread = page.thread
     ElevatedCard(Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-            Text(thread.subject, style = MaterialTheme.typography.headlineSmall)
-            OutlinedButton(
-                onClick = onFavorite,
-                enabled = !favoriteBusy,
-            ) {
+      Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+            Text(
+                thread.subject,
+                style = MaterialTheme.typography.headlineSmall,
+            )
+            OutlinedButton(onClick = onFavorite, enabled = !favoriteBusy) {
                 if (favoriteBusy) {
                     CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
                     Spacer(Modifier.width(8.dp))
@@ -362,7 +651,8 @@ private fun ThreadHero(
                 if (thread.price > 0) Badge { Text("${thread.price} 积分") }
                 if (thread.hasAttachment) Badge { Text("附件") }
             }
-        }
+            HorizontalDivider()
+      }
     }
 }
 
