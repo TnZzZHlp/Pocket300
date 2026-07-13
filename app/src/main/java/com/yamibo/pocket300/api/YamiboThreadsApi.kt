@@ -269,7 +269,7 @@ private fun parseThreadImage(value: JSONObject): YamiboThreadImage {
         path = path,
         url = if (path.isEmpty() || isRemote) null else {
             val encoded = path.split('/').joinToString("/") {
-                URLEncoder.encode(it, StandardCharsets.UTF_8).replace("+", "%20")
+                URLEncoder.encode(it, StandardCharsets.UTF_8.name()).replace("+", "%20")
             }
             "$YAMIBO_ORIGIN/data/attachment/forum/$encoded"
         },
