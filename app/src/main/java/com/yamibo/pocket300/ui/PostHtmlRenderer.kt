@@ -28,6 +28,7 @@ import androidx.compose.ui.text.LinkAnnotation
 import androidx.compose.ui.text.Placeholder
 import androidx.compose.ui.text.PlaceholderVerticalAlign
 import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.TextLinkStyles
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.style.TextDecoration
@@ -49,7 +50,13 @@ private sealed interface PostRenderPart {
 private val postHtmlCache = LruCache<String, List<PostHtmlPart>>(64)
 
 @Composable
-internal fun PostHtml(html: String, threadId: Int, attachmentUrls: List<String>, onLink: (String) -> Unit) {
+internal fun PostHtml(
+    html: String,
+    threadId: Int,
+    attachmentUrls: List<String>,
+    onLink: (String) -> Unit,
+    textStyle: TextStyle = MaterialTheme.typography.bodyLarge,
+) {
     val parts = remember(html, attachmentUrls) {
         val htmlParts = postHtmlCache.get(html) ?: parsePostHtml(html).also { postHtmlCache.put(html, it) }
         val embeddedUrls = htmlParts.filterIsInstance<PostHtmlPart.Image>()
@@ -63,7 +70,7 @@ internal fun PostHtml(html: String, threadId: Int, attachmentUrls: List<String>,
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         renderParts.forEachIndexed { index, part ->
             when (part) {
-                is PostRenderPart.Inline -> PostInlineHtml(part.parts, threadId, onLink)
+                is PostRenderPart.Inline -> PostInlineHtml(part.parts, threadId, onLink, textStyle)
                 is PostRenderPart.Image -> {
                     val url = normalizePostImageUrl(part.url)
                     var failed by remember(url) { mutableStateOf(false) }
@@ -105,8 +112,12 @@ private fun groupPostHtmlParts(parts: List<PostHtmlPart>): List<PostRenderPart> 
 }
 
 @Composable
-private fun PostInlineHtml(parts: List<PostHtmlPart>, threadId: Int, onLink: (String) -> Unit) {
-    val style = MaterialTheme.typography.bodyLarge
+private fun PostInlineHtml(
+    parts: List<PostHtmlPart>,
+    threadId: Int,
+    onLink: (String) -> Unit,
+    style: TextStyle,
+) {
     val linkStyle = SpanStyle(
         color = MaterialTheme.colorScheme.primary,
         textDecoration = TextDecoration.Underline,

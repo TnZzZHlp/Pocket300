@@ -1,3 +1,34 @@
 <resources>
     <string name="app_name">Pocket300</string>
+    <string name="rating_details_title">评分详情</string>
+    <string name="rating_count">评分（%1$d）</string>
+    <string name="rating_view_all">查看全部 %1$d 条评分</string>
+    <string name="rating_empty">暂无评分记录</string>
+    <string name="reader_default_title">阅读主题</string>
+    <string name="reader_back">返回</string>
+    <string name="reader_favorite">收藏主题</string>
+    <string name="reader_unfavorite">取消收藏</string>
+    <string name="reader_settings">阅读设置</string>
+    <string name="reader_open">阅读模式</string>
+    <string name="reader_refresh">刷新</string>
+    <string name="reader_previous_page">向前阅读</string>
+    <string name="reader_next_page">向后阅读</string>
+    <string name="reader_progress">第 %1$d / %2$d 楼</string>
+    <string name="reader_page_progress">第 %1$d / %2$d 页</string>
+    <string name="reader_font_size">字号</string>
+    <string name="reader_font_smaller">减小字号</string>
+    <string name="reader_font_larger">增大字号</string>
+    <string name="reader_font_size_value">%1$d sp</string>
+    <string name="reader_line_height">行距</string>
+    <string name="reader_line_height_value">%1$.2f 倍</string>
+    <string name="reader_background">阅读背景</string>
+    <string name="reader_tone_system">跟随系统</string>
+    <string name="reader_tone_paper">米黄纸张</string>
+    <string name="reader_tone_mint">护眼绿</string>
+    <string name="reader_tone_night">夜间</string>
+    <string name="reader_reset">恢复默认</string>
+    <string name="reader_post_not_found">未找到要阅读的楼层</string>
+    <string name="reader_scroll_progress">阅读进度 %1$d%%</string>
+    <string name="reader_original_post">楼主</string>
+    <string name="reader_floor">第 %1$d 楼</string>
 </resources>
