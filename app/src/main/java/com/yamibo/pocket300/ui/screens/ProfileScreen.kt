@@ -25,8 +25,8 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuAnchorType
+import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -73,7 +73,12 @@ internal fun ProfileScreen(onAuthStateChanged: () -> Unit, onSettings: () -> Uni
     ScreenScaffold("我的", onSettings = onSettings) { padding ->
         when (val current = sessionState) {
             LoadState.Loading -> Loading(Modifier.padding(padding))
-            is LoadState.Failed -> EmptyState("无法读取登录状态", current.message, Modifier.padding(padding))
+            is LoadState.Failed -> EmptyState(
+                "无法读取登录状态",
+                current.message,
+                Modifier.padding(padding)
+            )
+
             is LoadState.Ready -> if (current.value == null) {
                 LoginPanel(Modifier.padding(padding)) {
                     sessionState = LoadState.Ready(it)
@@ -100,12 +105,18 @@ private fun LoginPanel(modifier: Modifier, onLoggedIn: (YamiboSession) -> Unit) 
     var password by rememberSaveable { mutableStateOf("") }
     var answer by rememberSaveable { mutableStateOf("") }
     var selectedQuestion by rememberSaveable { mutableStateOf(0) }
-    var questions by remember { mutableStateOf<List<SecurityQuestionOption>>(DEFAULT_SECURITY_QUESTIONS) }
+    var questions by remember {
+        mutableStateOf<List<SecurityQuestionOption>>(
+            DEFAULT_SECURITY_QUESTIONS
+        )
+    }
     var expanded by remember { mutableStateOf(false) }
     var submitting by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(Unit) {
-        questions = runCatching { api.auth.getLoginSecurityQuestions() }.getOrDefault(DEFAULT_SECURITY_QUESTIONS)
+        questions = runCatching { api.auth.getLoginSecurityQuestions() }.getOrDefault(
+            DEFAULT_SECURITY_QUESTIONS
+        )
     }
 
     LazyColumn(
@@ -117,15 +128,29 @@ private fun LoginPanel(modifier: Modifier, onLoggedIn: (YamiboSession) -> Unit) 
         item {
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
-                modifier = Modifier.fillMaxWidth().widthIn(max = 560.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .widthIn(max = 560.dp),
             ) {
-                Surface(Modifier.size(64.dp), shape = CircleShape, color = MaterialTheme.colorScheme.primaryContainer) {
+                Surface(
+                    Modifier.size(64.dp),
+                    shape = CircleShape,
+                    color = MaterialTheme.colorScheme.primaryContainer
+                ) {
                     Box(contentAlignment = Alignment.Center) {
-                        Text("百", style = MaterialTheme.typography.headlineMedium, color = MaterialTheme.colorScheme.onPrimaryContainer)
+                        Text(
+                            "百",
+                            style = MaterialTheme.typography.headlineMedium,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer
+                        )
                     }
                 }
                 Spacer(Modifier.height(14.dp))
-                Text("登录百合会", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold)
+                Text(
+                    "登录百合会",
+                    style = MaterialTheme.typography.headlineSmall,
+                    fontWeight = FontWeight.SemiBold
+                )
                 Spacer(Modifier.height(6.dp))
                 Text(
                     "连接账号后查看个人信息、私信和收藏内容。",
@@ -135,17 +160,27 @@ private fun LoginPanel(modifier: Modifier, onLoggedIn: (YamiboSession) -> Unit) 
             }
         }
         item {
-            ElevatedCard(Modifier.fillMaxWidth().widthIn(max = 560.dp), shape = RoundedCornerShape(24.dp)) {
+            ElevatedCard(
+                Modifier
+                    .fillMaxWidth()
+                    .widthIn(max = 560.dp),
+                shape = RoundedCornerShape(24.dp)
+            ) {
                 Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
                     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Text("账号登录", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
                         Text(
-                            "登录状态由原生网络层的 HttpOnly Cookie 保存。",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            "账号登录",
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.SemiBold
                         )
                     }
-                    OutlinedTextField(account, { account = it }, label = { Text("账号") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                    OutlinedTextField(
+                        account,
+                        { account = it },
+                        label = { Text("账号") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
                     OutlinedTextField(
                         password,
                         { password = it },
@@ -154,16 +189,22 @@ private fun LoginPanel(modifier: Modifier, onLoggedIn: (YamiboSession) -> Unit) 
                         visualTransformation = PasswordVisualTransformation(),
                         modifier = Modifier.fillMaxWidth(),
                     )
-                    ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = { expanded = it }) {
+                    ExposedDropdownMenuBox(
+                        expanded = expanded,
+                        onExpandedChange = { expanded = it }) {
                         OutlinedTextField(
                             value = questions.firstOrNull { it.id == selectedQuestion }?.label.orEmpty(),
                             onValueChange = {},
                             readOnly = true,
                             label = { Text("安全提问") },
                             trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded) },
-                            modifier = Modifier.menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable).fillMaxWidth(),
+                            modifier = Modifier
+                                .menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable)
+                                .fillMaxWidth(),
                         )
-                        ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+                        ExposedDropdownMenu(
+                            expanded = expanded,
+                            onDismissRequest = { expanded = false }) {
                             questions.forEach { question ->
                                 DropdownMenuItem(
                                     text = { Text(question.label) },
@@ -204,7 +245,8 @@ private fun LoginPanel(modifier: Modifier, onLoggedIn: (YamiboSession) -> Unit) 
         }
     }
     if (submitting) LaunchedEffect(account, password, selectedQuestion, answer) {
-        when (val result = load { api.auth.login(LoginInput(account, password, answer, selectedQuestion)) }) {
+        when (val result =
+            load { api.auth.login(LoginInput(account, password, answer, selectedQuestion)) }) {
             is LoadState.Ready -> onLoggedIn(result.value)
             is LoadState.Failed -> error = result.message
             LoadState.Loading -> Unit
@@ -230,7 +272,9 @@ private fun ProfileSummary(session: YamiboSession, modifier: Modifier, onLoggedO
         item {
             val loadedProfile = (profile as? LoadState.Ready)?.value
             Card(
-                modifier = Modifier.fillMaxWidth().widthIn(max = 720.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .widthIn(max = 720.dp),
                 shape = RoundedCornerShape(28.dp),
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
             ) {
@@ -239,29 +283,46 @@ private fun ProfileSummary(session: YamiboSession, modifier: Modifier, onLoggedO
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(16.dp),
                     ) {
-                        Surface(Modifier.size(72.dp), shape = CircleShape, color = MaterialTheme.colorScheme.surface) {
+                        Surface(
+                            Modifier.size(72.dp),
+                            shape = CircleShape,
+                            color = MaterialTheme.colorScheme.surface
+                        ) {
                             Box(contentAlignment = Alignment.Center) {
-                                Text(session.username.take(1), style = MaterialTheme.typography.headlineLarge)
+                                Text(
+                                    session.username.take(1),
+                                    style = MaterialTheme.typography.headlineLarge
+                                )
                                 loadedProfile?.avatarUrl?.let { avatarUrl ->
                                     AsyncImage(
                                         model = avatarUrl,
                                         contentDescription = "头像",
                                         contentScale = ContentScale.Crop,
-                                        modifier = Modifier.fillMaxSize().clip(CircleShape),
+                                        modifier = Modifier
+                                            .fillMaxSize()
+                                            .clip(CircleShape),
                                     )
                                 }
                             }
                         }
-                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Column(
+                            Modifier.weight(1f),
+                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
                             Text(
-                                loadedProfile?.displayName?.takeIf { it.isNotBlank() } ?: session.username,
+                                loadedProfile?.displayName?.takeIf { it.isNotBlank() }
+                                    ?: session.username,
                                 style = MaterialTheme.typography.headlineSmall,
                                 fontWeight = FontWeight.SemiBold,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
                             )
                             if (loadedProfile?.displayName != null && loadedProfile.displayName != session.username) {
-                                Text(session.username, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.72f))
+                                Text(
+                                    session.username,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.72f)
+                                )
                             }
                         }
                     }
@@ -269,19 +330,40 @@ private fun ProfileSummary(session: YamiboSession, modifier: Modifier, onLoggedO
                         color = MaterialTheme.colorScheme.surface.copy(alpha = 0.64f),
                         shape = RoundedCornerShape(16.dp),
                     ) {
-                        Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp)) {
+                        Row(Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 12.dp)) {
                             ProfileMetric("UID", session.uid.toString(), Modifier.weight(1f))
-                            ProfileMetric("阅读权限", session.readAccess.toString(), Modifier.weight(1f))
+                            ProfileMetric(
+                                "阅读权限",
+                                session.readAccess.toString(),
+                                Modifier.weight(1f)
+                            )
                         }
                     }
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
                         Button(onClick = { reload++ }, modifier = Modifier.weight(1f)) {
-                            Icon(Icons.Rounded.Refresh, contentDescription = null, Modifier.size(18.dp))
+                            Icon(
+                                Icons.Rounded.Refresh,
+                                contentDescription = null,
+                                Modifier.size(18.dp)
+                            )
                             Spacer(Modifier.size(8.dp))
                             Text("刷新资料")
                         }
-                        OutlinedButton(onClick = { loggingOut = true }, enabled = !loggingOut, modifier = Modifier.weight(1f)) {
-                            Icon(Icons.AutoMirrored.Rounded.Logout, contentDescription = null, Modifier.size(18.dp))
+                        OutlinedButton(
+                            onClick = { loggingOut = true },
+                            enabled = !loggingOut,
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Icon(
+                                Icons.AutoMirrored.Rounded.Logout,
+                                contentDescription = null,
+                                Modifier.size(18.dp)
+                            )
                             Spacer(Modifier.size(8.dp))
                             Text(if (loggingOut) "正在退出…" else "退出登录")
                         }
@@ -290,27 +372,67 @@ private fun ProfileSummary(session: YamiboSession, modifier: Modifier, onLoggedO
                 }
             }
         }
-        item { Box(Modifier.fillMaxWidth().widthIn(max = 720.dp)) { SectionLabel("个人资料") } }
+        item { Box(Modifier
+            .fillMaxWidth()
+            .widthIn(max = 720.dp)) { SectionLabel("个人资料") } }
         when (val current = profile) {
-            LoadState.Loading -> item { Box(Modifier.fillMaxWidth().widthIn(max = 720.dp).height(120.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator() } }
+            LoadState.Loading -> item {
+                Box(
+                    Modifier
+                        .fillMaxWidth()
+                        .widthIn(max = 720.dp)
+                        .height(120.dp),
+                    contentAlignment = Alignment.Center
+                ) { CircularProgressIndicator() }
+            }
+
             is LoadState.Failed -> item {
-                Card(Modifier.fillMaxWidth().widthIn(max = 720.dp)) {
-                    Text(current.message, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(16.dp))
+                Card(Modifier
+                    .fillMaxWidth()
+                    .widthIn(max = 720.dp)) {
+                    Text(
+                        current.message,
+                        color = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.padding(16.dp)
+                    )
                 }
             }
+
             is LoadState.Ready -> if (current.value.fields.isEmpty()) {
-                item { Text("资料页没有解析到可展示字段", color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                item {
+                    Text(
+                        "资料页没有解析到可展示字段",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
             } else {
                 item {
-                    Card(Modifier.fillMaxWidth().widthIn(max = 720.dp), shape = RoundedCornerShape(20.dp)) {
+                    Card(
+                        Modifier
+                            .fillMaxWidth()
+                            .widthIn(max = 720.dp),
+                        shape = RoundedCornerShape(20.dp)
+                    ) {
                         Column {
                             current.value.fields.forEachIndexed { index, field ->
-                                Column(Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                    Text(field.label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+                                Column(
+                                    Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 18.dp, vertical = 14.dp),
+                                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    Text(
+                                        field.label,
+                                        style = MaterialTheme.typography.labelMedium,
+                                        color = MaterialTheme.colorScheme.primary
+                                    )
                                     Text(field.value, style = MaterialTheme.typography.bodyLarge)
                                 }
                                 if (index < current.value.fields.lastIndex) {
-                                    HorizontalDivider(Modifier.padding(horizontal = 18.dp), color = MaterialTheme.colorScheme.outlineVariant)
+                                    HorizontalDivider(
+                                        Modifier.padding(horizontal = 18.dp),
+                                        color = MaterialTheme.colorScheme.outlineVariant
+                                    )
                                 }
                             }
                         }
@@ -330,7 +452,11 @@ private fun ProfileSummary(session: YamiboSession, modifier: Modifier, onLoggedO
 @Composable
 private fun ProfileMetric(label: String, value: String, modifier: Modifier = Modifier) {
     Column(modifier, verticalArrangement = Arrangement.spacedBy(2.dp)) {
-        Text(label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(
+            label,
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
         Text(value, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
     }
 }
