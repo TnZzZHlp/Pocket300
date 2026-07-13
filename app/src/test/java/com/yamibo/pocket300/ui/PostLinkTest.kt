@@ -24,6 +24,16 @@ class PostLinkTest {
         )
     }
 
+    @Test fun resolvesDiscuzFindPostRedirect() {
+        assertEquals(
+            PostLinkTarget.Thread(id = 558130, postId = 41265818),
+            resolvePostLink(
+                "https://bbs.yamibo.com/forum.php?mod=redirect&amp;goto=findpost&amp;ptid=558130" +
+                    "&amp;pid=41265818&amp;fromuid=619356",
+            ),
+        )
+    }
+
     @Test fun resolvesAbsoluteForumLink() {
         assertEquals(
             PostLinkTarget.Forum(300),
