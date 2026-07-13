@@ -22,7 +22,6 @@ jobs:
       RELEASE_STORE_PASSWORD: ${{ secrets.RELEASE_STORE_PASSWORD }}
       RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
       RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
-      RELEASE_KEYSTORE_PATH: ${{ runner.temp }}/pocket300-release.jks
 
     steps:
       - name: Check out repository
@@ -62,7 +61,10 @@ jobs:
 
       - name: Restore signing keystore
         shell: bash
-        run: printf '%s' "$RELEASE_KEYSTORE_BASE64" | base64 --decode > "$RELEASE_KEYSTORE_PATH"
+        run: |
+          keystore_path="$RUNNER_TEMP/pocket300-release.jks"
+          printf '%s' "$RELEASE_KEYSTORE_BASE64" | base64 --decode > "$keystore_path"
+          echo "RELEASE_KEYSTORE_PATH=$keystore_path" >> "$GITHUB_ENV"
 
       - name: Build signed release APK
         shell: bash
