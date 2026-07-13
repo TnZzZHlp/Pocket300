@@ -36,6 +36,7 @@
     <string name="reader_image_progress">第 %1$d / %2$d 张</string>
     <string name="reader_image_description">帖子图片，第 %1$d / %2$d 张</string>
     <string name="thread_original_poster_only">仅看楼主</string>
+    <string name="post_author_avatar">%1$s 的头像</string>
     <string name="settings_title">设置</string>
     <string name="settings_app_theme">应用主题</string>
     <string name="settings_theme_system">系统动态配色</string>

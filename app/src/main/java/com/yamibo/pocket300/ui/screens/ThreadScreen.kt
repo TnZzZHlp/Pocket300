@@ -79,6 +79,7 @@ import com.yamibo.pocket300.ui.ScreenScaffold
 import com.yamibo.pocket300.ui.api
 import com.yamibo.pocket300.ui.components.AutoLoadNextPage
 import com.yamibo.pocket300.ui.components.ListFooter
+import com.yamibo.pocket300.ui.components.PostAuthorAvatar
 import com.yamibo.pocket300.ui.load
 import com.yamibo.pocket300.ui.plainText
 import com.yamibo.pocket300.ui.resolvePostLink
@@ -479,14 +480,24 @@ private fun PostCard(
     }
     Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    Text(post.author.name, fontWeight = FontWeight.SemiBold)
-                    Text(
-                        post.createdAtText,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    PostAuthorAvatar(post.author, size = 40.dp)
+                    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Text(post.author.name, fontWeight = FontWeight.SemiBold)
+                        Text(
+                            post.createdAtText,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                 }
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Surface(
@@ -594,13 +605,7 @@ private fun ThreadHero(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                Surface(
-                    Modifier.size(40.dp),
-                    shape = CircleShape,
-                    color = MaterialTheme.colorScheme.primaryContainer
-                ) {
-                    Box(contentAlignment = Alignment.Center) { Text(thread.author.name.take(1)) }
-                }
+                PostAuthorAvatar(thread.author, size = 40.dp)
                 Column {
                     Text(thread.author.name, fontWeight = FontWeight.SemiBold)
                     Text(

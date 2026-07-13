@@ -17,6 +17,14 @@ class YamiboPostsApiTest {
         assertFalse(page.pagination.hasNextPage)
         val post = page.posts.single()
         assertTrue(post.isOriginalPost)
+        assertEquals(
+            "https://bbs.yamibo.com/uc_server/avatar.php?uid=42&size=small",
+            post.author.avatarUrl,
+        )
+        assertEquals(
+            "https://example.com/a.png",
+            post.comments.single().author.avatarUrl,
+        )
         assertTrue(page.thread.hasRatings)
         assertEquals(4, post.ratingCount)
         assertEquals("<p>不可信正文</p>", post.html)
