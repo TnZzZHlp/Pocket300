@@ -39,6 +39,7 @@ import com.yamibo.pocket300.ui.screens.ReaderScreen
 import com.yamibo.pocket300.ui.screens.RatingsScreen
 import com.yamibo.pocket300.ui.screens.ReadingHistoryScreen
 import com.yamibo.pocket300.ui.screens.SearchScreen
+import com.yamibo.pocket300.ui.screens.SettingsScreen
 import com.yamibo.pocket300.ui.screens.ThreadScreen
 import com.yamibo.pocket300.ui.theme.PocketTheme
 
@@ -90,7 +91,13 @@ fun Pocket300App() = PocketTheme {
                 )
             }
             composable("profile") {
-                ProfileScreen(onAuthStateChanged = { authStateVersion++ })
+                ProfileScreen(
+                    onAuthStateChanged = { authStateVersion++ },
+                    onSettings = { navController.navigate("settings") },
+                )
+            }
+            composable("settings") {
+                SettingsScreen(onBack = navController::navigateUp)
             }
             composable("search") {
                 SearchScreen(

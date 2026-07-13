@@ -31,4 +31,6 @@
     <string name="reader_scroll_progress">阅读进度 %1$d%%</string>
     <string name="reader_original_post">楼主</string>
     <string name="reader_floor">第 %1$d 楼</string>
+    <string name="thread_original_poster_only">仅看楼主</string>
+    <string name="settings_title">设置</string>
 </resources>

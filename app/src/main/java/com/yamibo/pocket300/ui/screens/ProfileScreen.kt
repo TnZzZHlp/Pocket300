@@ -66,11 +66,11 @@ import com.yamibo.pocket300.ui.load
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-internal fun ProfileScreen(onAuthStateChanged: () -> Unit) {
+internal fun ProfileScreen(onAuthStateChanged: () -> Unit, onSettings: () -> Unit) {
     var sessionState: LoadState<YamiboSession?> by remember { mutableStateOf(LoadState.Loading) }
     LaunchedEffect(Unit) { sessionState = load { api.auth.getCurrentSession() } }
 
-    ScreenScaffold("我的") { padding ->
+    ScreenScaffold("我的", onSettings = onSettings) { padding ->
         when (val current = sessionState) {
             LoadState.Loading -> Loading(Modifier.padding(padding))
             is LoadState.Failed -> EmptyState("无法读取登录状态", current.message, Modifier.padding(padding))

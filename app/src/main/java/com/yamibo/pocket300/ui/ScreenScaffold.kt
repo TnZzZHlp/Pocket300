@@ -10,6 +10,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Search
+import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -22,8 +23,10 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.yamibo.pocket300.R
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -33,6 +36,7 @@ internal fun ScreenScaffold(
     onBack: (() -> Unit)? = null,
     onRefresh: (() -> Unit)? = null,
     onSearch: (() -> Unit)? = null,
+    onSettings: (() -> Unit)? = null,
     content: @Composable (PaddingValues) -> Unit,
 ) = Scaffold(
     modifier = modifier,
@@ -45,6 +49,11 @@ internal fun ScreenScaffold(
             actions = {
                 if (onSearch != null) IconButton(onSearch) { Icon(Icons.Rounded.Search, "搜索") }
                 if (onRefresh != null) IconButton(onRefresh) { Icon(Icons.Rounded.Refresh, "刷新") }
+                if (onSettings != null) {
+                    IconButton(onSettings) {
+                        Icon(Icons.Rounded.Settings, stringResource(R.string.settings_title))
+                    }
+                }
             },
             colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surface),
         )

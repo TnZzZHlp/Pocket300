@@ -54,6 +54,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Modifier
@@ -87,6 +88,8 @@ import com.yamibo.pocket300.ui.components.ListFooter
 import com.yamibo.pocket300.ui.load
 import com.yamibo.pocket300.ui.plainText
 import com.yamibo.pocket300.ui.resolvePostLink
+import com.yamibo.pocket300.ui.viewmodels.ThreadViewModel
+import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.automirrored.rounded.MenuBook
@@ -105,9 +108,6 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-private data class ThreadContent(val page: YamiboThreadPostsPage, val posts: List<YamiboPost>)
-
-
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalSharedTransitionApi::class)
 @Composable
 internal fun ThreadScreen(
@@ -124,17 +124,17 @@ internal fun ThreadScreen(
     onReader: (Int, Int, Int) -> Unit,
     onThread: (PostLinkTarget.Thread) -> Unit,
 ) {
+    val viewModel: ThreadViewModel = viewModel()
     val context = LocalContext.current
     val historyDatabase = remember(context) { ReadingHistoryDatabase.getInstance(context) }
     var reload by remember { mutableStateOf(0) }
-    var pageNumber by remember(threadId, initialPostId, initialPage) {
+    var pageNumber by rememberSaveable(threadId, initialPostId, initialPage) {
         mutableStateOf(if (initialPostId > 0) initialPage.coerceAtLeast(1) else 1)
     }
-    var targetFloor by remember(threadId, initialFloor) { mutableStateOf(initialFloor) }
-    var targetPostId by remember(threadId, initialPostId) { mutableStateOf(initialPostId) }
-    var state: LoadState<ThreadContent> by remember { mutableStateOf(LoadState.Loading) }
+    var targetFloor by rememberSaveable(threadId, initialFloor) { mutableStateOf(initialFloor) }
+    var targetPostId by rememberSaveable(threadId, initialPostId) { mutableStateOf(initialPostId) }
     val listState = rememberLazyListState()
-    var restoredFloor by remember(threadId, initialFloor, initialPostId) {
+    var restoredFloor by rememberSaveable(threadId, initialFloor, initialPostId) {
         mutableStateOf(initialFloor <= 0 && initialPostId <= 0)
     }
     var favoriteId by remember(threadId, initialFavoriteId) {
@@ -142,22 +142,20 @@ internal fun ThreadScreen(
     }
     var isFavorited by remember(threadId, initialFavoriteId) { mutableStateOf(initialFavoriteId > 0) }
     var favoriteBusy by remember(threadId) { mutableStateOf(false) }
+    var originalPosterOnly by rememberSaveable(threadId) { mutableStateOf(false) }
     val coroutineScope = rememberCoroutineScope()
-    LaunchedEffect(threadId, reload, pageNumber) {
-        val previous = (state as? LoadState.Ready)?.value
-        state = if (pageNumber == 1) LoadState.Loading else state
-        when (val result = load { api.posts.getThreadPosts(GetThreadPostsInput(threadId, pageNumber)) }) {
-            is LoadState.Ready -> state = LoadState.Ready(
-                ThreadContent(
-                    result.value,
-                    if (pageNumber == 1) result.value.posts
-                    else (previous?.posts.orEmpty() + result.value.posts).distinctBy { it.id },
-                ),
-            )
-            is LoadState.Failed -> state = result
-            LoadState.Loading -> Unit
-        }
+    LaunchedEffect(threadId, reload, pageNumber, originalPosterOnly) {
+        val previous = (viewModel.state as? LoadState.Ready)?.value
+        val originalPosterId = previous?.page?.thread?.author?.id
+        viewModel.loadPosts(
+            GetThreadPostsInput(
+                threadId = threadId,
+                page = pageNumber,
+                authorId = originalPosterId.takeIf { originalPosterOnly },
+            ),
+        )
     }
+    val state = viewModel.state
     val loadedContent = (state as? LoadState.Ready)?.value
     val loadedThread = loadedContent?.page?.thread
     LaunchedEffect(loadedContent, targetFloor, targetPostId, restoredFloor) {
@@ -213,7 +211,7 @@ internal fun ThreadScreen(
         },
         title = loadedThread?.subject ?: "主题",
         onBack = onBack,
-        onRefresh = { pageNumber = 1; reload++ },
+        onRefresh = { viewModel.invalidate(); pageNumber = 1; reload++ },
     ) { padding ->
         LoadContent(state, padding) { content ->
             val page = content.page
@@ -232,6 +230,7 @@ internal fun ThreadScreen(
                         page = page,
                         isFavorited = isFavorited,
                         favoriteBusy = favoriteBusy,
+                        originalPosterOnly = originalPosterOnly,
                         onFavorite = {
                             if (!favoriteBusy) {
                                 favoriteBusy = true
@@ -271,6 +270,13 @@ internal fun ThreadScreen(
                                 }
                             }
                         },
+                        onOriginalPosterOnlyChange = { selected ->
+                            originalPosterOnly = selected
+                            pageNumber = 1
+                            targetFloor = 0
+                            targetPostId = 0
+                            restoredFloor = true
+                        },
                     )
                 }
                 page.poll?.let { poll -> item { PollCard(poll) } }
@@ -285,6 +291,7 @@ internal fun ThreadScreen(
                         },
                         onThread = { target ->
                             if (target.id == threadId && target.postId != null) {
+                                originalPosterOnly = false
                                 targetFloor = 0
                                 targetPostId = target.postId
                                 restoredFloor = false
@@ -608,7 +615,9 @@ private fun ThreadHero(
     page: YamiboThreadPostsPage,
     isFavorited: Boolean,
     favoriteBusy: Boolean,
+    originalPosterOnly: Boolean,
     onFavorite: () -> Unit,
+    onOriginalPosterOnlyChange: (Boolean) -> Unit,
 ) {
     val thread = page.thread
     ElevatedCard(Modifier.fillMaxWidth()) {
@@ -647,6 +656,12 @@ private fun ThreadHero(
                 Stat("权限", thread.readPermission)
             }
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FilterChip(
+                    selected = originalPosterOnly,
+                    onClick = { onOriginalPosterOnlyChange(!originalPosterOnly) },
+                    label = { Text(stringResource(R.string.thread_original_poster_only)) },
+                    enabled = thread.author.id != null,
+                )
                 if (thread.isClosed) Badge { Text("已关闭") }
                 if (thread.price > 0) Badge { Text("${thread.price} 积分") }
                 if (thread.hasAttachment) Badge { Text("附件") }
