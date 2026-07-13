@@ -3,6 +3,8 @@ plugins {
     alias(libs.plugins.compose.compiler)
 }
 
+val releaseKeystorePath = providers.environmentVariable("RELEASE_KEYSTORE_PATH").orNull
+
 android {
     namespace = "com.yamibo.pocket300"
     compileSdk {
@@ -15,15 +17,30 @@ android {
         applicationId = "com.yamibo.pocket300"
         minSdk = 26
         targetSdk = 36
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = providers.gradleProperty("versionCode").orNull?.toInt() ?: 1
+        versionName = providers.gradleProperty("versionName").orNull ?: "1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
+    signingConfigs {
+        if (releaseKeystorePath != null) {
+            create("release") {
+                storeFile = file(releaseKeystorePath)
+                storePassword = providers.environmentVariable("RELEASE_STORE_PASSWORD").get()
+                keyAlias = providers.environmentVariable("RELEASE_KEY_ALIAS").get()
+                keyPassword = providers.environmentVariable("RELEASE_KEY_PASSWORD").get()
+            }
+        }
+    }
+
     buildTypes {
+        debug {
+            applicationIdSuffix = ".debug"
+        }
         release {
             isMinifyEnabled = false
+            signingConfig = signingConfigs.findByName("release")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"

@@ -1,0 +1,96 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Build and publish release
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      RELEASE_KEYSTORE_BASE64: ${{ secrets.RELEASE_KEYSTORE_BASE64 }}
+      RELEASE_STORE_PASSWORD: ${{ secrets.RELEASE_STORE_PASSWORD }}
+      RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
+      RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
+      RELEASE_KEYSTORE_PATH: ${{ runner.temp }}/pocket300-release.jks
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Validate tag and signing secrets
+        shell: bash
+        run: |
+          if [[ ! "$GITHUB_REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+            echo "Tag must look like v1.2.3 or v1.2.3-beta.1" >&2
+            exit 1
+          fi
+          for name in RELEASE_KEYSTORE_BASE64 RELEASE_STORE_PASSWORD RELEASE_KEY_ALIAS RELEASE_KEY_PASSWORD; do
+            if [[ -z "${!name}" ]]; then
+              echo "Missing repository secret: $name" >&2
+              exit 1
+            fi
+          done
+
+      - name: Set up JDK
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK packages
+        run: sdkmanager "platforms;android-36.1" "build-tools;36.1.0"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v6
+
+      - name: Restore signing keystore
+        shell: bash
+        run: printf '%s' "$RELEASE_KEYSTORE_BASE64" | base64 --decode > "$RELEASE_KEYSTORE_PATH"
+
+      - name: Build signed release APK
+        shell: bash
+        run: |
+          version_code=$((1000 + GITHUB_RUN_NUMBER))
+          ./gradlew assembleRelease \
+            -PversionName="${GITHUB_REF_NAME#v}" \
+            -PversionCode="$version_code" \
+            --stacktrace
+
+      - name: Verify and package APK
+        shell: bash
+        run: |
+          apk="app/build/outputs/apk/release/app-release.apk"
+          output="Pocket300-${GITHUB_REF_NAME}.apk"
+          "$ANDROID_HOME/build-tools/36.1.0/apksigner" verify --verbose --print-certs "$apk"
+          cp "$apk" "$output"
+          sha256sum "$output" > "$output.sha256"
+
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          apk="Pocket300-${GITHUB_REF_NAME}.apk"
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" "$apk" "$apk.sha256" --clobber
+          else
+            args=(--verify-tag --generate-notes --title "Pocket300 ${GITHUB_REF_NAME}")
+            if [[ "$GITHUB_REF_NAME" == *-* ]]; then
+              args+=(--prerelease)
+            fi
+            gh release create "$GITHUB_REF_NAME" "$apk" "$apk.sha256" "${args[@]}"
+          fi
