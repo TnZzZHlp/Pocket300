@@ -1,9 +1,9 @@
 package com.yamibo.pocket300.ui.screens
 
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.AnimatedVisibilityScope
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionScope
+import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -237,7 +237,10 @@ internal fun ForumScreen(
                     }
                     if (stickyThreads.isNotEmpty()) {
                         item(key = "sticky-threads", contentType = "sticky-threads") {
-                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Column(
+                                modifier = Modifier.animateContentSize(),
+                                verticalArrangement = Arrangement.spacedBy(8.dp),
+                            ) {
                                 ElevatedCard(
                                     onClick = { stickyThreadsExpanded = !stickyThreadsExpanded },
                                     modifier = Modifier.fillMaxWidth(),
@@ -269,7 +272,7 @@ internal fun ForumScreen(
                                         )
                                     }
                                 }
-                                AnimatedVisibility(visible = stickyThreadsExpanded) {
+                                if (stickyThreadsExpanded) {
                                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                                         stickyThreads.forEach { thread ->
                                             ForumThreadCard(
