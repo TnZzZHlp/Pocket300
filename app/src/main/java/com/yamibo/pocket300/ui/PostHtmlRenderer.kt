@@ -57,15 +57,7 @@ internal fun PostHtml(
     onLink: (String) -> Unit,
     textStyle: TextStyle = MaterialTheme.typography.bodyLarge,
 ) {
-    val parts = remember(html, attachmentUrls) {
-        val htmlParts = postHtmlCache.get(html) ?: parsePostHtml(html).also { postHtmlCache.put(html, it) }
-        val embeddedUrls = htmlParts.filterIsInstance<PostHtmlPart.Image>()
-            .map { normalizePostImageUrl(it.url) }
-            .toSet()
-        htmlParts + attachmentUrls
-            .filterNot { normalizePostImageUrl(it) in embeddedUrls }
-            .map(PostHtmlPart::Image)
-    }
+    val parts = remember(html, attachmentUrls) { postHtmlParts(html, attachmentUrls) }
     val renderParts = remember(parts) { groupPostHtmlParts(parts) }
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         renderParts.forEachIndexed { index, part ->
@@ -81,15 +73,32 @@ internal fun PostHtml(
                         AsyncImage(
                             model = request,
                             contentDescription = "帖子图片 ${index + 1}",
-                            contentScale = ContentScale.Fit,
+                            contentScale = ContentScale.FillWidth,
                             onError = { failed = true },
-                            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp, max = 520.dp),
+                            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
                         )
                     }
                 }
             }
         }
     }
+}
+
+internal fun postImageUrls(html: String, attachmentUrls: List<String>): List<String> =
+    postHtmlParts(html, attachmentUrls)
+        .filterIsInstance<PostHtmlPart.Image>()
+        .filterNot { isSmileyImage(it.url) }
+        .map { normalizePostImageUrl(it.url) }
+        .distinct()
+
+private fun postHtmlParts(html: String, attachmentUrls: List<String>): List<PostHtmlPart> {
+    val htmlParts = postHtmlCache.get(html) ?: parsePostHtml(html).also { postHtmlCache.put(html, it) }
+    val embeddedUrls = htmlParts.filterIsInstance<PostHtmlPart.Image>()
+        .map { normalizePostImageUrl(it.url) }
+        .toSet()
+    return htmlParts + attachmentUrls
+        .filterNot { normalizePostImageUrl(it) in embeddedUrls }
+        .map(PostHtmlPart::Image)
 }
 
 private fun groupPostHtmlParts(parts: List<PostHtmlPart>): List<PostRenderPart> {
@@ -170,7 +179,7 @@ private fun PostInlineHtml(
 }
 
 @Composable
-private fun rememberPostImageRequest(url: String, threadId: Int): ImageRequest {
+internal fun rememberPostImageRequest(url: String, threadId: Int): ImageRequest {
     val context = LocalContext.current
     return remember(url, threadId) {
         ImageRequest.Builder(context)
@@ -257,7 +266,7 @@ private fun addPostText(parts: MutableList<PostHtmlPart>, spanned: Spanned, star
     }
 }
 
-private fun normalizePostImageUrl(source: String): String {
+internal fun normalizePostImageUrl(source: String): String {
     val value = source.trim().replace("&amp;", "&")
     return when {
         value.startsWith("//") -> "https:$value"

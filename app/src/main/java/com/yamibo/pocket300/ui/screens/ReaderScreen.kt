@@ -9,6 +9,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.PaddingValues
@@ -24,6 +25,8 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.automirrored.rounded.MenuBook
+import androidx.compose.material.icons.rounded.Image
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
@@ -45,6 +48,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
@@ -63,9 +67,13 @@ import com.yamibo.pocket300.ui.PostHtml
 import com.yamibo.pocket300.ui.PostLinkTarget
 import com.yamibo.pocket300.ui.ReaderPreferences
 import com.yamibo.pocket300.ui.ReaderPreferencesStore
+import com.yamibo.pocket300.ui.ReaderMode
 import com.yamibo.pocket300.ui.api
 import com.yamibo.pocket300.ui.load
+import com.yamibo.pocket300.ui.postImageUrls
+import com.yamibo.pocket300.ui.rememberPostImageRequest
 import com.yamibo.pocket300.ui.resolvePostLink
+import coil.compose.AsyncImage
 
 private data class ReaderContent(val thread: YamiboThreadDetails, val post: YamiboPost)
 
@@ -85,7 +93,10 @@ internal fun ReaderScreen(
     var state: LoadState<ReaderContent> by remember(threadId, postId) { mutableStateOf(LoadState.Loading) }
     var controlsVisible by remember { mutableStateOf(true) }
     var settingsVisible by remember { mutableStateOf(false) }
+    var readerMode by remember(threadId, postId) { mutableStateOf(preferencesStore.loadMode()) }
+    var imageIndex by remember(threadId, postId) { mutableStateOf(0) }
     val scrollState = rememberScrollState()
+    val imageScrollState = rememberScrollState()
     val uriHandler = LocalUriHandler.current
     val postNotFoundMessage = stringResource(R.string.reader_post_not_found)
 
@@ -157,8 +168,39 @@ internal fun ReaderScreen(
                             }
                         },
                         actions = {
-                            IconButton(onClick = { settingsVisible = true }) {
-                                Icon(Icons.Rounded.Settings, stringResource(R.string.reader_settings))
+                            val content = (state as? LoadState.Ready)?.value
+                            val attachmentUrls = content?.post?.attachments
+                                ?.filter { it.isImage }
+                                ?.map { it.url }
+                                .orEmpty()
+                            val images = content?.let {
+                                postImageUrls(it.post.html, attachmentUrls)
+                            }.orEmpty()
+                            val effectiveMode = if (images.isNotEmpty()) readerMode else ReaderMode.TEXT
+                            if (images.isNotEmpty()) {
+                                IconButton(onClick = {
+                                    val updatedMode = if (effectiveMode == ReaderMode.TEXT) {
+                                        ReaderMode.IMAGES
+                                    } else {
+                                        ReaderMode.TEXT
+                                    }
+                                    readerMode = updatedMode
+                                    preferencesStore.saveMode(updatedMode)
+                                }) {
+                                    if (effectiveMode == ReaderMode.TEXT) {
+                                        Icon(Icons.Rounded.Image, stringResource(R.string.reader_image_mode))
+                                    } else {
+                                        Icon(
+                                            Icons.AutoMirrored.Rounded.MenuBook,
+                                            stringResource(R.string.reader_text_mode),
+                                        )
+                                    }
+                                }
+                            }
+                            if (effectiveMode == ReaderMode.TEXT) {
+                                IconButton(onClick = { settingsVisible = true }) {
+                                    Icon(Icons.Rounded.Settings, stringResource(R.string.reader_settings))
+                                }
                             }
                         },
                         colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background),
@@ -182,18 +224,34 @@ internal fun ReaderScreen(
                             Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 10.dp),
                             verticalArrangement = Arrangement.spacedBy(6.dp),
                         ) {
-                            val progress = if (scrollState.maxValue == 0) 0f
-                            else scrollState.value.toFloat() / scrollState.maxValue
-                            LinearProgressIndicator(
-                                progress = { progress.coerceIn(0f, 1f) },
-                                modifier = Modifier.fillMaxWidth(),
-                            )
-                            Text(
-                                stringResource(R.string.reader_scroll_progress, (progress * 100).toInt()),
-                                modifier = Modifier.align(Alignment.End),
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
+                            val content = (state as? LoadState.Ready)?.value
+                            val attachmentUrls = content?.post?.attachments
+                                ?.filter { it.isImage }
+                                ?.map { it.url }
+                                .orEmpty()
+                            val imageCount = content?.let {
+                                postImageUrls(it.post.html, attachmentUrls).size
+                            } ?: 0
+                            if (readerMode == ReaderMode.IMAGES && imageCount > 0) {
+                                Text(
+                                    stringResource(R.string.reader_image_progress, imageIndex + 1, imageCount),
+                                    modifier = Modifier.align(Alignment.CenterHorizontally),
+                                    style = MaterialTheme.typography.labelMedium,
+                                )
+                            } else {
+                                val progress = if (scrollState.maxValue == 0) 0f
+                                else scrollState.value.toFloat() / scrollState.maxValue
+                                LinearProgressIndicator(
+                                    progress = { progress.coerceIn(0f, 1f) },
+                                    modifier = Modifier.fillMaxWidth(),
+                                )
+                                Text(
+                                    stringResource(R.string.reader_scroll_progress, (progress * 100).toInt()),
+                                    modifier = Modifier.align(Alignment.End),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
                         }
                     }
                 }
@@ -207,47 +265,113 @@ internal fun ReaderScreen(
                         is PostLinkTarget.External -> uriHandler.openUri(target.url)
                     }
                 }
-                Column(
-                    Modifier
-                        .fillMaxSize()
-                        .consumeWindowInsets(scaffoldPadding)
-                        .padding(top = contentTopPadding, bottom = contentBottomPadding)
-                        .verticalScroll(scrollState)
-                        .pointerInput(Unit) { detectTapGestures(onTap = { controlsVisible = !controlsVisible }) }
-                        .padding(horizontal = 22.dp, vertical = 28.dp),
-                    verticalArrangement = Arrangement.spacedBy(18.dp),
-                ) {
-                    Text(
-                        content.thread.subject,
-                        style = MaterialTheme.typography.headlineMedium,
-                        fontWeight = FontWeight.Bold,
-                    )
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                        Text(content.post.author.name, fontWeight = FontWeight.SemiBold)
-                        Text(
-                            if (content.post.isOriginalPost) stringResource(R.string.reader_original_post)
-                            else stringResource(R.string.reader_floor, content.post.number),
-                            color = MaterialTheme.colorScheme.primary,
+                val attachmentUrls = content.post.attachments.filter { it.isImage }.map { it.url }
+                val images = remember(content.post.html, attachmentUrls) {
+                    postImageUrls(content.post.html, attachmentUrls)
+                }
+                if (readerMode == ReaderMode.IMAGES && images.isNotEmpty()) {
+                    val currentImageIndex = imageIndex.coerceIn(images.indices)
+                    LaunchedEffect(currentImageIndex, images.size) { imageScrollState.scrollTo(0) }
+                    Box(
+                        Modifier
+                            .fillMaxSize()
+                            .consumeWindowInsets(scaffoldPadding)
+                            .padding(top = contentTopPadding, bottom = contentBottomPadding)
+                            .verticalScroll(imageScrollState)
+                            .pointerInput(images.size, currentImageIndex) {
+                                detectTapGestures(onTap = { offset ->
+                                    val action = readerImageTapAction(offset.x, size.width.toFloat())
+                                    when (action) {
+                                        ReaderImageTapAction.TOGGLE_CONTROLS -> controlsVisible = !controlsVisible
+                                        ReaderImageTapAction.NONE -> Unit
+                                        else -> imageIndex = readerImageIndexAfterTap(
+                                            currentIndex = currentImageIndex,
+                                            lastIndex = images.lastIndex,
+                                            action = action,
+                                        )
+                                    }
+                                })
+                            },
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        AsyncImage(
+                            model = rememberPostImageRequest(images[currentImageIndex], content.post.threadId),
+                            contentDescription = stringResource(
+                                R.string.reader_image_description,
+                                currentImageIndex + 1,
+                                images.size,
+                            ),
+                            contentScale = ContentScale.FillWidth,
+                            modifier = Modifier.fillMaxWidth(),
                         )
                     }
-                    Text(
-                        content.post.createdAtText,
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    HorizontalDivider()
-                    PostHtml(
-                        html = content.post.html,
-                        threadId = content.post.threadId,
-                        attachmentUrls = content.post.attachments.filter { it.isImage }.map { it.url },
-                        onLink = openLink,
-                        textStyle = MaterialTheme.typography.bodyLarge.copy(
-                            fontSize = preferences.fontSizeSp.sp,
-                            lineHeight = (preferences.fontSizeSp * preferences.lineHeightMultiplier).sp,
-                        ),
-                    )
+                } else {
+                    Column(
+                        Modifier
+                            .fillMaxSize()
+                            .consumeWindowInsets(scaffoldPadding)
+                            .padding(top = contentTopPadding, bottom = contentBottomPadding)
+                            .verticalScroll(scrollState)
+                            .pointerInput(Unit) { detectTapGestures { controlsVisible = !controlsVisible } }
+                            .padding(horizontal = 22.dp, vertical = 28.dp),
+                        verticalArrangement = Arrangement.spacedBy(18.dp),
+                    ) {
+                        Text(
+                            content.thread.subject,
+                            style = MaterialTheme.typography.headlineMedium,
+                            fontWeight = FontWeight.Bold,
+                        )
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                            Text(content.post.author.name, fontWeight = FontWeight.SemiBold)
+                            Text(
+                                if (content.post.isOriginalPost) stringResource(R.string.reader_original_post)
+                                else stringResource(R.string.reader_floor, content.post.number),
+                                color = MaterialTheme.colorScheme.primary,
+                            )
+                        }
+                        Text(
+                            content.post.createdAtText,
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        HorizontalDivider()
+                        PostHtml(
+                            html = content.post.html,
+                            threadId = content.post.threadId,
+                            attachmentUrls = attachmentUrls,
+                            onLink = openLink,
+                            textStyle = MaterialTheme.typography.bodyLarge.copy(
+                                fontSize = preferences.fontSizeSp.sp,
+                                lineHeight = (preferences.fontSizeSp * preferences.lineHeightMultiplier).sp,
+                            ),
+                        )
+                    }
                 }
             }
         }
     }
+}
+
+private const val READER_IMAGE_EDGE_FRACTION = 0.25f
+
+internal enum class ReaderImageTapAction { PREVIOUS, TOGGLE_CONTROLS, NEXT, NONE }
+
+internal fun readerImageTapAction(x: Float, width: Float): ReaderImageTapAction {
+    if (width <= 0f || x < 0f || x > width) return ReaderImageTapAction.NONE
+    val edgeWidth = width * READER_IMAGE_EDGE_FRACTION
+    return when {
+        x <= edgeWidth -> ReaderImageTapAction.PREVIOUS
+        x >= width - edgeWidth -> ReaderImageTapAction.NEXT
+        else -> ReaderImageTapAction.TOGGLE_CONTROLS
+    }
+}
+
+internal fun readerImageIndexAfterTap(
+    currentIndex: Int,
+    lastIndex: Int,
+    action: ReaderImageTapAction,
+): Int = when (action) {
+    ReaderImageTapAction.PREVIOUS -> (currentIndex - 1).coerceAtLeast(0)
+    ReaderImageTapAction.NEXT -> (currentIndex + 1).coerceAtMost(lastIndex)
+    else -> currentIndex
 }

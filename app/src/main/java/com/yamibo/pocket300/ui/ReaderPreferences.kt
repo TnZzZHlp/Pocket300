@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.core.content.edit
 
 internal enum class ReaderTone { SYSTEM, PAPER, MINT, NIGHT }
+internal enum class ReaderMode { TEXT, IMAGES }
 
 internal data class ReaderPreferences(
     val fontSizeSp: Float = 18f,
@@ -28,5 +29,13 @@ internal class ReaderPreferencesStore(context: Context) {
             putFloat("line_height_multiplier", value.lineHeightMultiplier)
             putString("tone", value.tone.name)
         }
+    }
+
+    fun loadMode(): ReaderMode = runCatching {
+        ReaderMode.valueOf(preferences.getString("mode", ReaderMode.TEXT.name).orEmpty())
+    }.getOrDefault(ReaderMode.TEXT)
+
+    fun saveMode(value: ReaderMode) {
+        preferences.edit { putString("mode", value.name) }
     }
 }

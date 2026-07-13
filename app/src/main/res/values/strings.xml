@@ -31,6 +31,10 @@
     <string name="reader_scroll_progress">阅读进度 %1$d%%</string>
     <string name="reader_original_post">楼主</string>
     <string name="reader_floor">第 %1$d 楼</string>
+    <string name="reader_image_mode">图片阅读器</string>
+    <string name="reader_text_mode">文字阅读器</string>
+    <string name="reader_image_progress">第 %1$d / %2$d 张</string>
+    <string name="reader_image_description">帖子图片，第 %1$d / %2$d 张</string>
     <string name="thread_original_poster_only">仅看楼主</string>
     <string name="settings_title">设置</string>
     <string name="settings_app_theme">应用主题</string>
