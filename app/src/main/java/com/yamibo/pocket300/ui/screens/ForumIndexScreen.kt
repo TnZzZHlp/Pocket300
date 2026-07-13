@@ -16,6 +16,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -31,10 +32,14 @@ import com.yamibo.pocket300.ui.viewmodels.ForumIndexViewModel
 internal fun ForumIndexScreen(
     sharedTransitionScope: SharedTransitionScope,
     animatedVisibilityScope: AnimatedVisibilityScope,
+    authStateVersion: Int,
     onForum: (YamiboForum) -> Unit,
     onSearch: () -> Unit,
 ) {
     val viewModel: ForumIndexViewModel = viewModel()
+    LaunchedEffect(authStateVersion) {
+        if (authStateVersion > 0) viewModel.refresh()
+    }
     ScreenScaffold("Pocket300", onRefresh = viewModel::refresh, onSearch = onSearch) { padding ->
         LoadContent(viewModel.state, padding) { index ->
             LazyColumn(
@@ -87,4 +92,3 @@ internal fun Stat(label: String, value: Int) = Column {
     Text(value.toString(), color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
     Text(label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
 }
-
