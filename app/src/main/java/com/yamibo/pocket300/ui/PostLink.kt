@@ -19,13 +19,15 @@ internal fun resolvePostLink(rawUrl: String): PostLinkTarget {
     val isYamibo = uri?.host?.lowercase()?.let { it == "yamibo.com" || it.endsWith(".yamibo.com") } == true
     if (isYamibo) {
         val query = uri.rawQuery.orEmpty().replace("&amp;", "&")
+        val postId = queryParameter(query, "pid")
+            ?: Regex("^pid(\\d+)$", RegexOption.IGNORE_CASE)
+                .matchEntire(uri.rawFragment.orEmpty())?.groupValues?.get(1)?.toIntOrNull()
         val threadId = queryParameter(query, "tid")
+            // Discuz permanent links to a floor use ptid instead of tid.
+            ?: queryParameter(query, "ptid").takeIf { postId != null }
             ?: Regex("(?:^|/)thread-(\\d+)(?:-|\\.|/|$)", RegexOption.IGNORE_CASE)
                 .find(uri.path.orEmpty())?.groupValues?.get(1)?.toIntOrNull()
         if (threadId != null) {
-            val postId = queryParameter(query, "pid")
-                ?: Regex("^pid(\\d+)$", RegexOption.IGNORE_CASE)
-                    .matchEntire(uri.rawFragment.orEmpty())?.groupValues?.get(1)?.toIntOrNull()
             return PostLinkTarget.Thread(
                 id = threadId,
                 postId = postId,
