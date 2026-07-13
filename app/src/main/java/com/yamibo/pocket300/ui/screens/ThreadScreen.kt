@@ -32,7 +32,6 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -627,7 +626,6 @@ private fun ThreadHero(
                 if (thread.price > 0) Badge { Text("${thread.price} 积分") }
                 if (thread.hasAttachment) Badge { Text("附件") }
             }
-            HorizontalDivider()
         }
     }
 }
