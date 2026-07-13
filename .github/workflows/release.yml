@@ -57,6 +57,9 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v6
 
+      - name: Make Gradle wrapper executable
+        run: chmod +x gradlew
+
       - name: Restore signing keystore
         shell: bash
         run: printf '%s' "$RELEASE_KEYSTORE_BASE64" | base64 --decode > "$RELEASE_KEYSTORE_PATH"

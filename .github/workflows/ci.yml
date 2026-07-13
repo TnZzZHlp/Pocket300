@@ -39,6 +39,9 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v6
 
+      - name: Make Gradle wrapper executable
+        run: chmod +x gradlew
+
       - name: Run unit tests, lint and debug build
         run: ./gradlew testDebugUnitTest lintDebug assembleDebug --stacktrace
 
