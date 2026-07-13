@@ -28,6 +28,38 @@ class YamiboPostsApiTest {
     }
 
     @Test
+    fun addsAuthorIdWhenRequestingOnlyOriginalPoster() {
+        assertEquals(
+            mapOf("module" to "viewthread", "page" to "2", "tid" to "1000", "authorid" to "42"),
+            threadPostsParameters(GetThreadPostsInput(threadId = 1000, page = 2, authorId = 42)),
+        )
+        assertFalse(threadPostsParameters(GetThreadPostsInput(1000)).containsKey("authorid"))
+    }
+
+    @Test
+    fun keepsOnlyRequestedAuthorAndUsesFilteredPageSizeForPagination() {
+        val fixture = JSONObject(FIXTURE)
+        fixture.put("ppp", "1")
+        fixture.getJSONArray("postlist").put(
+            JSONObject(fixture.getJSONArray("postlist").getJSONObject(0).toString())
+                .put("pid", "10")
+                .put("author", "bob")
+                .put("authorid", "43")
+                .put("first", "0")
+                .put("number", "2")
+                .put("position", "2"),
+        )
+
+        val page = parseThreadPosts(fixture, authorId = 42)
+
+        assertEquals(listOf(42), page.posts.map { it.author.id })
+        assertTrue(page.pagination.hasNextPage)
+
+        fixture.put("ppp", "20")
+        assertFalse(parseThreadPosts(fixture, authorId = 42).pagination.hasNextPage)
+    }
+
+    @Test
     fun acceptsUnsignedIntMaximumPollExpiration() {
         val fixture = JSONObject(FIXTURE)
         fixture.getJSONObject("special_poll").put("expirations", "4294967295")

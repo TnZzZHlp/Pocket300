@@ -5,7 +5,11 @@ import org.json.JSONObject
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import kotlin.math.ceil
 
-data class GetThreadPostsInput(val threadId: Int, val page: Int = 1)
+data class GetThreadPostsInput(
+    val threadId: Int,
+    val page: Int = 1,
+    val authorId: Int? = null,
+)
 
 data class YamiboPostAuthor(
     val avatarUrl: String?,
@@ -124,8 +128,9 @@ class YamiboPostsApi(private val client: YamiboClient) {
     suspend fun getThreadPosts(input: GetThreadPostsInput): YamiboThreadPostsPage {
         require(input.threadId > 0) { "threadId must be a positive integer" }
         require(input.page > 0) { "page must be a positive integer" }
+        require(input.authorId == null || input.authorId > 0) { "authorId must be a positive integer" }
         val response = client.requestMobileApi(
-            mapOf("module" to "viewthread", "page" to input.page.toString(), "tid" to input.threadId.toString()),
+            threadPostsParameters(input),
         )
         val serverCode = response.message?.code?.takeIf(String::isNotBlank) ?: response.error
         if (serverCode != null) {
@@ -141,6 +146,7 @@ class YamiboPostsApi(private val client: YamiboClient) {
         val page = parseThreadPosts(
             response.variables ?: invalidResponse("百合会未返回主题楼层数据"),
             input.page,
+            input.authorId,
         )
         val ratedPostIds = if (page.thread.hasRatings) {
             val threadPage = client.requestPage(
@@ -150,7 +156,7 @@ class YamiboPostsApi(private val client: YamiboClient) {
                     "mod" to "viewthread",
                     "page" to input.page.toString(),
                     "tid" to input.threadId.toString(),
-                ),
+                ) + input.authorId?.let { mapOf("authorid" to it.toString()) }.orEmpty(),
             )
             parseRatedPostIds(threadPage.html)
         } else {
@@ -198,6 +204,13 @@ class YamiboPostsApi(private val client: YamiboClient) {
     }
 }
 
+internal fun threadPostsParameters(input: GetThreadPostsInput): Map<String, String> = buildMap {
+    put("module", "viewthread")
+    put("page", input.page.toString())
+    put("tid", input.threadId.toString())
+    input.authorId?.let { put("authorid", it.toString()) }
+}
+
 internal fun parsePostPageUrl(url: String, expectedThreadId: Int): Int? {
     val parsed = url.toHttpUrlOrNull() ?: return null
     val queryThreadId = parsed.queryParameter("tid")?.toIntOrNull()
@@ -209,20 +222,27 @@ internal fun parsePostPageUrl(url: String, expectedThreadId: Int): Int? {
         ?: rewritten?.groupValues?.get(2)?.toIntOrNull()?.takeIf { it > 0 }
 }
 
-fun parseThreadPosts(variables: JSONObject, requestedPage: Int = 1): YamiboThreadPostsPage {
+fun parseThreadPosts(
+    variables: JSONObject,
+    requestedPage: Int = 1,
+    authorId: Int? = null,
+): YamiboThreadPostsPage {
     require(requestedPage > 0) { "requestedPage must be a positive integer" }
+    require(authorId == null || authorId > 0) { "authorId must be a positive integer" }
     val rawPosts = variables.opt("postlist") as? JSONArray ?: invalidResponse("百合会未返回主题楼层数据")
     val thread = parsePostThread(variables.opt("thread"))
     val pageSize = postScalarInt(variables.opt("ppp"), "ppp").takeIf { it > 0 }
         ?: invalidResponse("百合会返回了无效的主题分页数据")
     val comments = parseComments(variables.opt("comments"))
-    val posts = rawPosts.postObjects("百合会返回了无效的楼层数据").map { parsePost(it, comments) }
+    val posts = rawPosts.postObjects("百合会返回了无效的楼层数据")
+        .map { parsePost(it, comments) }
+        .filter { authorId == null || it.author.id == authorId }
     if (posts.any { it.threadId != thread.id }) invalidResponse("百合会楼层与主题 ID 不一致")
     val totalPosts = thread.replyCount + 1
     val totalPages = ceil(totalPosts.toDouble() / pageSize).toInt()
     return YamiboThreadPostsPage(
         pagination = YamiboThreadPostsPagination(
-            requestedPage < totalPages,
+            if (authorId == null) requestedPage < totalPages else posts.size >= pageSize,
             requestedPage,
             pageSize,
             totalPages,
