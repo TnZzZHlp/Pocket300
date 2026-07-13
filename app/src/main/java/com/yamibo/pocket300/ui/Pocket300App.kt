@@ -18,6 +18,9 @@ import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -32,6 +35,8 @@ import com.yamibo.pocket300.ui.screens.FavoritesScreen
 import com.yamibo.pocket300.ui.screens.ForumIndexScreen
 import com.yamibo.pocket300.ui.screens.ForumScreen
 import com.yamibo.pocket300.ui.screens.ProfileScreen
+import com.yamibo.pocket300.ui.screens.ReaderScreen
+import com.yamibo.pocket300.ui.screens.RatingsScreen
 import com.yamibo.pocket300.ui.screens.ReadingHistoryScreen
 import com.yamibo.pocket300.ui.screens.SearchScreen
 import com.yamibo.pocket300.ui.screens.ThreadScreen
@@ -52,6 +57,7 @@ private val tabs = listOf(
 @Composable
 fun Pocket300App() = PocketTheme {
     val navController = rememberNavController()
+    var authStateVersion by rememberSaveable { mutableIntStateOf(0) }
     val entry by navController.currentBackStackEntryAsState()
     val route = entry?.destination?.route.orEmpty()
     val isTopLevel = tabs.any { it.route == route }
@@ -64,6 +70,7 @@ fun Pocket300App() = PocketTheme {
                 ForumIndexScreen(
                     sharedTransitionScope = sharedTransitionScope,
                     animatedVisibilityScope = this,
+                    authStateVersion = authStateVersion,
                     onForum = { navController.navigate("forum/${it.id}") },
                     onSearch = { navController.navigate("search") },
                 )
@@ -82,7 +89,9 @@ fun Pocket300App() = PocketTheme {
                     },
                 )
             }
-            composable("profile") { ProfileScreen() }
+            composable("profile") {
+                ProfileScreen(onAuthStateChanged = { authStateVersion++ })
+            }
             composable("search") {
                 SearchScreen(
                     sharedTransitionScope = sharedTransitionScope,
@@ -124,11 +133,49 @@ fun Pocket300App() = PocketTheme {
                     animatedVisibilityScope = this,
                     onBack = navController::navigateUp,
                     onForum = { navController.navigate("forum/$it") },
+                    onRatings = { threadId, postId -> navController.navigate("ratings/$threadId/$postId") },
+                    onReader = { threadId, postId, page ->
+                        navController.navigate("reader/$threadId/$postId/$page")
+                    },
                     onThread = {
                         navController.navigate(
                             "thread/${it.id}?postId=${it.postId ?: 0}&page=${it.page ?: 0}",
                         )
                     },
+                )
+            }
+            composable(
+                route = "reader/{threadId}/{postId}/{page}",
+                arguments = listOf(
+                    navArgument("threadId") { type = NavType.IntType },
+                    navArgument("postId") { type = NavType.IntType },
+                    navArgument("page") { type = NavType.IntType },
+                ),
+            ) { backStack ->
+                ReaderScreen(
+                    threadId = backStack.arguments?.getInt("threadId") ?: return@composable,
+                    postId = backStack.arguments?.getInt("postId") ?: return@composable,
+                    initialPage = backStack.arguments?.getInt("page") ?: 1,
+                    onBack = navController::navigateUp,
+                    onForum = { navController.navigate("forum/$it") },
+                    onThread = {
+                        navController.navigate(
+                            "thread/${it.id}?postId=${it.postId ?: 0}&page=${it.page ?: 0}",
+                        )
+                    },
+                )
+            }
+            composable(
+                route = "ratings/{threadId}/{postId}",
+                arguments = listOf(
+                    navArgument("threadId") { type = NavType.IntType },
+                    navArgument("postId") { type = NavType.IntType },
+                ),
+            ) { backStack ->
+                RatingsScreen(
+                    threadId = backStack.arguments?.getInt("threadId") ?: return@composable,
+                    postId = backStack.arguments?.getInt("postId") ?: return@composable,
+                    onBack = navController::navigateUp,
                 )
             }
         }
