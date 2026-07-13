@@ -19,11 +19,14 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -56,14 +59,19 @@ private val tabs = listOf(
 
 @OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
-fun Pocket300App() = PocketTheme {
-    val navController = rememberNavController()
-    var authStateVersion by rememberSaveable { mutableIntStateOf(0) }
-    val entry by navController.currentBackStackEntryAsState()
-    val route = entry?.destination?.route.orEmpty()
-    val isTopLevel = tabs.any { it.route == route }
+fun Pocket300App() {
+    val context = LocalContext.current
+    val themePreferencesStore = remember(context) { AppThemePreferencesStore(context) }
+    var colorTheme by rememberSaveable { mutableStateOf(themePreferencesStore.load()) }
 
-    SharedTransitionLayout {
+    PocketTheme(colorTheme = colorTheme) {
+        val navController = rememberNavController()
+        var authStateVersion by rememberSaveable { mutableIntStateOf(0) }
+        val entry by navController.currentBackStackEntryAsState()
+        val route = entry?.destination?.route.orEmpty()
+        val isTopLevel = tabs.any { it.route == route }
+
+        SharedTransitionLayout {
       val sharedTransitionScope = this
       Box(Modifier.fillMaxSize()) {
         NavHost(navController, startDestination = "home", modifier = Modifier.fillMaxSize()) {
@@ -97,7 +105,14 @@ fun Pocket300App() = PocketTheme {
                 )
             }
             composable("settings") {
-                SettingsScreen(onBack = navController::navigateUp)
+                SettingsScreen(
+                    colorTheme = colorTheme,
+                    onColorThemeChange = { updated ->
+                        colorTheme = updated
+                        themePreferencesStore.save(updated)
+                    },
+                    onBack = navController::navigateUp,
+                )
             }
             composable("search") {
                 SearchScreen(
@@ -210,5 +225,6 @@ fun Pocket300App() = PocketTheme {
             }
         }
       }
+        }
     }
 }

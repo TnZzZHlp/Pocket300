@@ -33,4 +33,10 @@
     <string name="reader_floor">第 %1$d 楼</string>
     <string name="thread_original_poster_only">仅看楼主</string>
     <string name="settings_title">设置</string>
+    <string name="settings_app_theme">应用主题</string>
+    <string name="settings_theme_system">系统动态配色</string>
+    <string name="settings_theme_sakura">樱花粉</string>
+    <string name="settings_theme_violet">紫罗兰</string>
+    <string name="settings_theme_blue">海洋蓝</string>
+    <string name="settings_theme_green">青翠绿</string>
 </resources>
