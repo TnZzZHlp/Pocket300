@@ -1,13 +1,9 @@
 package com.yamibo.pocket300.ui.screens
 
 import android.widget.Toast
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.AnimatedVisibilityScope
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionScope
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -20,10 +16,15 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.MenuBook
+import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.Favorite
+import androidx.compose.material.icons.rounded.Remove
 import androidx.compose.material3.Badge
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -36,50 +37,44 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.OutlinedIconButton
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.Scaffold
+import androidx.compose.material3.OutlinedIconButton
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
-import androidx.compose.ui.Modifier
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
+import androidx.lifecycle.viewmodel.compose.viewModel
+import com.yamibo.pocket300.R
 import com.yamibo.pocket300.api.GetThreadPostsInput
 import com.yamibo.pocket300.api.YamiboPost
 import com.yamibo.pocket300.api.YamiboThreadPoll
 import com.yamibo.pocket300.api.YamiboThreadPostsPage
-import com.yamibo.pocket300.R
 import com.yamibo.pocket300.data.ReadingHistoryDatabase
 import com.yamibo.pocket300.ui.LoadContent
 import com.yamibo.pocket300.ui.LoadState
 import com.yamibo.pocket300.ui.PostHtml
 import com.yamibo.pocket300.ui.PostLinkTarget
 import com.yamibo.pocket300.ui.ReaderPreferences
-import com.yamibo.pocket300.ui.ReaderPreferencesStore
 import com.yamibo.pocket300.ui.ReaderTone
 import com.yamibo.pocket300.ui.ScreenScaffold
 import com.yamibo.pocket300.ui.api
@@ -89,24 +84,11 @@ import com.yamibo.pocket300.ui.load
 import com.yamibo.pocket300.ui.plainText
 import com.yamibo.pocket300.ui.resolvePostLink
 import com.yamibo.pocket300.ui.viewmodels.ThreadViewModel
-import androidx.lifecycle.viewmodel.compose.viewModel
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.ArrowBack
-import androidx.compose.material.icons.automirrored.rounded.MenuBook
-import androidx.compose.material.icons.rounded.Add
-import androidx.compose.material.icons.rounded.ChevronLeft
-import androidx.compose.material.icons.rounded.ChevronRight
-import androidx.compose.material.icons.rounded.Favorite
-import androidx.compose.material.icons.rounded.FavoriteBorder
-import androidx.compose.material.icons.rounded.Remove
-import androidx.compose.material.icons.rounded.Refresh
-import androidx.compose.material.icons.rounded.Settings
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
+import kotlin.time.Duration.Companion.milliseconds
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalSharedTransitionApi::class)
 @Composable
@@ -127,12 +109,15 @@ internal fun ThreadScreen(
     val viewModel: ThreadViewModel = viewModel()
     val context = LocalContext.current
     val historyDatabase = remember(context) { ReadingHistoryDatabase.getInstance(context) }
-    var reload by remember { mutableStateOf(0) }
+    var reload by remember { mutableIntStateOf(0) }
     var pageNumber by rememberSaveable(threadId, initialPostId, initialPage) {
-        mutableStateOf(if (initialPostId > 0) initialPage.coerceAtLeast(1) else 1)
+        mutableIntStateOf(if (initialPostId > 0) initialPage.coerceAtLeast(1) else 1)
     }
-    var targetFloor by rememberSaveable(threadId, initialFloor) { mutableStateOf(initialFloor) }
-    var targetPostId by rememberSaveable(threadId, initialPostId) { mutableStateOf(initialPostId) }
+    var targetFloor by rememberSaveable(threadId, initialFloor) { mutableIntStateOf(initialFloor) }
+    var targetPostId by rememberSaveable(
+        threadId,
+        initialPostId
+    ) { mutableIntStateOf(initialPostId) }
     val listState = rememberLazyListState()
     var restoredFloor by rememberSaveable(threadId, initialFloor, initialPostId) {
         mutableStateOf(initialFloor <= 0 && initialPostId <= 0)
@@ -140,7 +125,10 @@ internal fun ThreadScreen(
     var favoriteId by remember(threadId, initialFavoriteId) {
         mutableStateOf(initialFavoriteId.takeIf { it > 0 })
     }
-    var isFavorited by remember(threadId, initialFavoriteId) { mutableStateOf(initialFavoriteId > 0) }
+    var isFavorited by remember(
+        threadId,
+        initialFavoriteId
+    ) { mutableStateOf(initialFavoriteId > 0) }
     var favoriteBusy by remember(threadId) { mutableStateOf(false) }
     var originalPosterOnly by rememberSaveable(threadId) { mutableStateOf(false) }
     val coroutineScope = rememberCoroutineScope()
@@ -180,6 +168,7 @@ internal fun ThreadScreen(
                         restoredFloor = true
                     }
                 }
+
                 is LoadState.Failed -> restoredFloor = true
                 LoadState.Loading -> Unit
             }
@@ -187,27 +176,34 @@ internal fun ThreadScreen(
     }
     LaunchedEffect(loadedThread?.id, loadedThread?.subject) {
         loadedThread?.let { thread ->
-            withContext(Dispatchers.IO) { historyDatabase.record(thread, initialFloor.coerceAtLeast(1)) }
+            historyDatabase.record(
+                thread,
+                initialFloor.coerceAtLeast(1)
+            )
         }
     }
     LaunchedEffect(listState, loadedContent, restoredFloor) {
         val content = loadedContent ?: return@LaunchedEffect
         if (!restoredFloor) return@LaunchedEffect
         snapshotFlow {
-            val visiblePostIds = listState.layoutInfo.visibleItemsInfo.mapNotNull { it.key as? Int }.toSet()
+            val visiblePostIds =
+                listState.layoutInfo.visibleItemsInfo.mapNotNull { it.key as? Int }.toSet()
             content.posts.filter { it.id in visiblePostIds }.maxOfOrNull { it.number }
         }
             .distinctUntilChanged()
             .collectLatest { floor ->
                 val thread = loadedThread ?: return@collectLatest
                 floor ?: return@collectLatest
-                delay(300)
-                withContext(Dispatchers.IO) { historyDatabase.record(thread, floor) }
+                delay(300.milliseconds)
+                historyDatabase.record(thread, floor)
             }
     }
     ScreenScaffold(
         modifier = with(sharedTransitionScope) {
-            Modifier.sharedBounds(rememberSharedContentState("thread-$threadId"), animatedVisibilityScope)
+            Modifier.sharedBounds(
+                rememberSharedContentState("thread-$threadId"),
+                animatedVisibilityScope
+            )
         },
         title = loadedThread?.subject ?: "主题",
         onBack = onBack,
@@ -259,11 +255,13 @@ internal fun ThreadScreen(
                                                 Toast.LENGTH_SHORT,
                                             ).show()
                                         }
+
                                         is LoadState.Failed -> Toast.makeText(
                                             context,
                                             result.message,
                                             Toast.LENGTH_SHORT,
                                         ).show()
+
                                         LoadState.Loading -> Unit
                                     }
                                     favoriteBusy = false
@@ -314,114 +312,38 @@ internal fun ThreadScreen(
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun ReaderTopBar(
-    title: String,
-    isFavorited: Boolean,
-    favoriteBusy: Boolean,
-    onBack: () -> Unit,
-    onFavorite: () -> Unit,
-    onSettings: () -> Unit,
-    onRefresh: () -> Unit,
-) {
-    TopAppBar(
-        title = { Text(title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-        navigationIcon = {
-            IconButton(onClick = onBack) {
-                Icon(Icons.AutoMirrored.Rounded.ArrowBack, stringResource(R.string.reader_back))
-            }
-        },
-        actions = {
-            IconButton(onClick = onFavorite, enabled = !favoriteBusy) {
-                if (favoriteBusy) {
-                    CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
-                } else {
-                    Icon(
-                        if (isFavorited) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder,
-                        stringResource(if (isFavorited) R.string.reader_unfavorite else R.string.reader_favorite),
-                        tint = if (isFavorited) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
-                    )
-                }
-            }
-            IconButton(onClick = onSettings) {
-                Icon(Icons.Rounded.Settings, stringResource(R.string.reader_settings))
-            }
-            IconButton(onClick = onRefresh) {
-                Icon(Icons.Rounded.Refresh, stringResource(R.string.reader_refresh))
-            }
-        },
-        colors = TopAppBarDefaults.topAppBarColors(
-            containerColor = MaterialTheme.colorScheme.background,
-            scrolledContainerColor = MaterialTheme.colorScheme.background,
-        ),
-    )
-}
-
-@Composable
-private fun ReaderProgressBar(
-    currentFloor: Int,
-    maximumFloor: Int,
-    pageSize: Int,
-    seekFloor: Float,
-    onSeek: (Float) -> Unit,
-    onSeekFinished: () -> Unit,
-    onPrevious: () -> Unit,
-    onNext: () -> Unit,
-) {
-    val totalPages = ((maximumFloor + pageSize - 1) / pageSize).coerceAtLeast(1)
-    val page = ((currentFloor - 1) / pageSize) + 1
-    Surface(color = MaterialTheme.colorScheme.surface, tonalElevation = 4.dp) {
-        Column(Modifier.padding(horizontal = 8.dp, vertical = 6.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                IconButton(onClick = onPrevious, enabled = currentFloor > 1) {
-                    Icon(Icons.Rounded.ChevronLeft, stringResource(R.string.reader_previous_page))
-                }
-                Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text(
-                        stringResource(R.string.reader_progress, currentFloor, maximumFloor),
-                        style = MaterialTheme.typography.labelLarge,
-                    )
-                    Text(
-                        stringResource(R.string.reader_page_progress, page, totalPages),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-                IconButton(onClick = onNext, enabled = currentFloor < maximumFloor) {
-                    Icon(Icons.Rounded.ChevronRight, stringResource(R.string.reader_next_page))
-                }
-            }
-            Slider(
-                value = seekFloor,
-                onValueChange = onSeek,
-                onValueChangeFinished = onSeekFinished,
-                valueRange = 1f..maximumFloor.toFloat().coerceAtLeast(1f),
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
-            )
-        }
-    }
-}
-
 @Composable
 internal fun ReaderSettingsSheet(
     preferences: ReaderPreferences,
     onChange: (ReaderPreferences) -> Unit,
 ) {
     Column(
-        Modifier.fillMaxWidth().padding(start = 24.dp, end = 24.dp, bottom = 32.dp),
+        Modifier
+            .fillMaxWidth()
+            .padding(start = 24.dp, end = 24.dp, bottom = 32.dp),
         verticalArrangement = Arrangement.spacedBy(20.dp),
     ) {
         Text(stringResource(R.string.reader_settings), style = MaterialTheme.typography.titleLarge)
         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Text(stringResource(R.string.reader_font_size), style = MaterialTheme.typography.labelLarge)
+            Text(
+                stringResource(R.string.reader_font_size),
+                style = MaterialTheme.typography.labelLarge
+            )
             Row(
                 Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 OutlinedIconButton(
-                    onClick = { onChange(preferences.copy(fontSizeSp = (preferences.fontSizeSp - 1f).coerceAtLeast(14f))) },
+                    onClick = {
+                        onChange(
+                            preferences.copy(
+                                fontSizeSp = (preferences.fontSizeSp - 1f).coerceAtLeast(
+                                    14f
+                                )
+                            )
+                        )
+                    },
                     enabled = preferences.fontSizeSp > 14f,
                 ) { Icon(Icons.Rounded.Remove, stringResource(R.string.reader_font_smaller)) }
                 Text(
@@ -429,16 +351,30 @@ internal fun ReaderSettingsSheet(
                     style = MaterialTheme.typography.titleMedium,
                 )
                 OutlinedIconButton(
-                    onClick = { onChange(preferences.copy(fontSizeSp = (preferences.fontSizeSp + 1f).coerceAtMost(26f))) },
+                    onClick = {
+                        onChange(
+                            preferences.copy(
+                                fontSizeSp = (preferences.fontSizeSp + 1f).coerceAtMost(
+                                    26f
+                                )
+                            )
+                        )
+                    },
                     enabled = preferences.fontSizeSp < 26f,
                 ) { Icon(Icons.Rounded.Add, stringResource(R.string.reader_font_larger)) }
             }
         }
         Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                Text(stringResource(R.string.reader_line_height), style = MaterialTheme.typography.labelLarge)
                 Text(
-                    stringResource(R.string.reader_line_height_value, preferences.lineHeightMultiplier),
+                    stringResource(R.string.reader_line_height),
+                    style = MaterialTheme.typography.labelLarge
+                )
+                Text(
+                    stringResource(
+                        R.string.reader_line_height_value,
+                        preferences.lineHeightMultiplier
+                    ),
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
@@ -450,7 +386,10 @@ internal fun ReaderSettingsSheet(
             )
         }
         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Text(stringResource(R.string.reader_background), style = MaterialTheme.typography.labelLarge)
+            Text(
+                stringResource(R.string.reader_background),
+                style = MaterialTheme.typography.labelLarge
+            )
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 ReaderTone.entries.forEach { tone ->
                     FilterChip(
@@ -493,6 +432,7 @@ internal fun ReaderTheme(tone: ReaderTone, content: @Composable () -> Unit) {
             surfaceVariant = Color(0xFFE9E0D2),
             onSurfaceVariant = Color(0xFF655C51),
         )
+
         ReaderTone.MINT -> lightColorScheme(
             primary = Color(0xFF3F6655),
             onPrimary = Color.White,
@@ -505,6 +445,7 @@ internal fun ReaderTheme(tone: ReaderTone, content: @Composable () -> Unit) {
             surfaceVariant = Color(0xFFDCE9DC),
             onSurfaceVariant = Color(0xFF526158),
         )
+
         ReaderTone.NIGHT -> darkColorScheme(
             primary = Color(0xFFD6B98C),
             onPrimary = Color(0xFF402D10),
@@ -575,8 +516,14 @@ private fun PostCard(
                 onLink = openLink,
             )
             if (post.ratings.isNotEmpty()) {
-                Surface(color = MaterialTheme.colorScheme.secondaryContainer, shape = MaterialTheme.shapes.medium) {
-                    Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Surface(
+                    color = MaterialTheme.colorScheme.secondaryContainer,
+                    shape = MaterialTheme.shapes.medium
+                ) {
+                    Column(
+                        Modifier.padding(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
                         Text(
                             stringResource(R.string.rating_count, post.ratingCount),
                             style = MaterialTheme.typography.titleMedium,
@@ -584,7 +531,10 @@ private fun PostCard(
                         )
                         post.ratings.take(3).forEach { rating -> RatingRow(rating) }
                         if (post.ratingCount > 3) {
-                            TextButton(onClick = onRatings, modifier = Modifier.align(Alignment.End)) {
+                            TextButton(
+                                onClick = onRatings,
+                                modifier = Modifier.align(Alignment.End)
+                            ) {
                                 Text(stringResource(R.string.rating_view_all, post.ratingCount))
                             }
                         }
@@ -592,8 +542,14 @@ private fun PostCard(
                 }
             }
             if (post.comments.isNotEmpty()) {
-                Surface(color = MaterialTheme.colorScheme.surfaceContainerHigh, shape = MaterialTheme.shapes.medium) {
-                    Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Surface(
+                    color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                    shape = MaterialTheme.shapes.medium
+                ) {
+                    Column(
+                        Modifier.padding(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
                         post.comments.forEach { comment ->
                             Text(
                                 "${comment.author.name}：${plainText(comment.message)}",
@@ -603,7 +559,6 @@ private fun PostCard(
                     }
                 }
             }
-            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.65f))
         }
     }
 }
@@ -621,7 +576,7 @@ private fun ThreadHero(
 ) {
     val thread = page.thread
     ElevatedCard(Modifier.fillMaxWidth()) {
-      Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
             Text(
                 thread.subject,
                 style = MaterialTheme.typography.headlineSmall,
@@ -636,8 +591,15 @@ private fun ThreadHero(
                 }
                 Text(if (isFavorited) "取消收藏" else "收藏主题")
             }
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                Surface(Modifier.size(40.dp), shape = CircleShape, color = MaterialTheme.colorScheme.primaryContainer) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Surface(
+                    Modifier.size(40.dp),
+                    shape = CircleShape,
+                    color = MaterialTheme.colorScheme.primaryContainer
+                ) {
                     Box(contentAlignment = Alignment.Center) { Text(thread.author.name.take(1)) }
                 }
                 Column {
@@ -652,8 +614,7 @@ private fun ThreadHero(
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                 Stat("楼层", thread.replyCount + 1)
                 Stat("热度", thread.heat)
-                Stat("推荐", thread.recommendationCount)
-                Stat("权限", thread.readPermission)
+                Stat("阅读权限", thread.readPermission)
             }
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 FilterChip(
@@ -667,7 +628,7 @@ private fun ThreadHero(
                 if (thread.hasAttachment) Badge { Text("附件") }
             }
             HorizontalDivider()
-      }
+        }
     }
 }
 
@@ -694,7 +655,10 @@ private fun PollCard(poll: YamiboThreadPoll) {
                     Text("${option.voteCount} 票", style = MaterialTheme.typography.labelSmall)
                 }
             }
-            if (!poll.resultsVisible) Text("投票后才可查看完整结果", style = MaterialTheme.typography.labelMedium)
+            if (!poll.resultsVisible) Text(
+                "投票后才可查看完整结果",
+                style = MaterialTheme.typography.labelMedium
+            )
         }
     }
 }

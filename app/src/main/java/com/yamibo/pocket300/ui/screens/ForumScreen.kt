@@ -88,7 +88,13 @@ internal fun ForumScreen(
         threadLoadError = null
         if (pageNumber == 1 && previous == null) state = LoadState.Loading
         when (val result = load {
-            api.threads.getForumThreads(GetForumThreadsInput(forumId, pageNumber, typeId = selectedTypeId))
+            api.threads.getForumThreads(
+                GetForumThreadsInput(
+                    forumId,
+                    pageNumber,
+                    typeId = selectedTypeId
+                )
+            )
         }) {
             is LoadState.Ready -> {
                 val content = ForumContent(
@@ -99,14 +105,20 @@ internal fun ForumScreen(
                 state = LoadState.Ready(content)
                 forumSnapshots[forumId] = ForumSnapshot(content, pageNumber, selectedTypeId)
             }
-            is LoadState.Failed -> if (previous == null) state = result else threadLoadError = result.message
+
+            is LoadState.Failed -> if (previous == null) state = result else threadLoadError =
+                result.message
+
             LoadState.Loading -> Unit
         }
         refreshingThreads = false
     }
     ScreenScaffold(
         modifier = with(sharedTransitionScope) {
-            Modifier.sharedBounds(rememberSharedContentState("forum-$forumId"), animatedVisibilityScope)
+            Modifier.sharedBounds(
+                rememberSharedContentState("forum-$forumId"),
+                animatedVisibilityScope
+            )
         },
         title = (state as? LoadState.Ready)?.value?.page?.forum?.name ?: "板块",
         onBack = onBack,
@@ -126,16 +138,21 @@ internal fun ForumScreen(
             ) {
                 item {
                     ElevatedCard(Modifier.fillMaxWidth()) {
-                        Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                        Column(
+                            Modifier.padding(18.dp),
+                            verticalArrangement = Arrangement.spacedBy(14.dp)
+                        ) {
                             Text(page.forum.name, style = MaterialTheme.typography.headlineSmall)
                             Text(
                                 page.forum.description.ifBlank { "暂无板块简介" },
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
-                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                            Row(
+                                Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
                                 Stat("主题", page.pagination.totalThreads)
                                 Stat("帖子", page.forum.postCount)
-                                Stat("页码", page.pagination.page)
                             }
                         }
                     }
@@ -177,7 +194,9 @@ internal fun ForumScreen(
                 if (refreshingThreads) {
                     item {
                         Box(
-                            Modifier.fillMaxWidth().height(120.dp),
+                            Modifier
+                                .fillMaxWidth()
+                                .height(120.dp),
                             contentAlignment = Alignment.Center,
                         ) { CircularProgressIndicator() }
                     }
@@ -186,7 +205,9 @@ internal fun ForumScreen(
                         item {
                             Text(
                                 message,
-                                modifier = Modifier.fillMaxWidth().padding(20.dp),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(20.dp),
                                 color = MaterialTheme.colorScheme.error,
                             )
                         }
