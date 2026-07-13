@@ -15,7 +15,7 @@ class YamiboFavoritesApi(private val client: YamiboClient) {
     suspend fun getFavoriteThreads(page: Int = 1): List<YamiboFavoriteThread> {
         require(page > 0) { "page must be a positive integer" }
         val response = client.requestMobileApi(
-            mapOf("module" to "favthread", "page" to page.toString()),
+            favoriteThreadListParameters(page),
         )
         response.message?.let { message ->
             val loginRequired = message.code.startsWith("to_login") ||
@@ -46,7 +46,38 @@ class YamiboFavoritesApi(private val client: YamiboClient) {
             ),
         )
     }
+
+    suspend fun removeThread(favoriteId: Int) {
+        require(favoriteId > 0) { "favoriteId must be a positive integer" }
+        val session = YamiboAuthApi(client).getCurrentSession()
+            ?: throw YamiboApiException(YamiboApiErrorCode.SERVER_ERROR, "请先登录百合会", "not_authenticated")
+        if (session.formHash.isBlank()) invalidResponse("百合会未返回取消收藏所需的校验值")
+        client.requestPage(
+            "/home.php",
+            removeFavoriteParameters(favoriteId),
+            removeFavoriteForm(session.formHash),
+        )
+    }
 }
+
+internal fun favoriteThreadListParameters(page: Int): Map<String, String> = mapOf(
+    "module" to "myfavthread",
+    "page" to page.toString(),
+)
+
+internal fun removeFavoriteParameters(favoriteId: Int): Map<String, String> = mapOf(
+    "ac" to "favorite",
+    "favid" to favoriteId.toString(),
+    "mobile" to "2",
+    "mod" to "spacecp",
+    "op" to "delete",
+    "type" to "thread",
+)
+
+internal fun removeFavoriteForm(formHash: String): Map<String, String> = mapOf(
+    "deletesubmit" to "1",
+    "formhash" to formHash,
+)
 
 internal fun parseFavoriteThreads(variables: JSONObject): List<YamiboFavoriteThread> {
     val raw = variables.opt("list")
