@@ -5,6 +5,31 @@ import org.junit.Assert.assertEquals
 import org.junit.Test
 
 class YamiboFavoritesApiTest {
+    @Test fun requestsFavoriteThreadListModule() {
+        assertEquals(
+            mapOf("module" to "myfavthread", "page" to "2"),
+            favoriteThreadListParameters(2),
+        )
+    }
+
+    @Test fun buildsRemoveFavoriteParameters() {
+        assertEquals(
+            mapOf(
+                "ac" to "favorite",
+                "favid" to "9",
+                "mobile" to "2",
+                "mod" to "spacecp",
+                "op" to "delete",
+                "type" to "thread",
+            ),
+            removeFavoriteParameters(9),
+        )
+        assertEquals(
+            mapOf("deletesubmit" to "1", "formhash" to "hash"),
+            removeFavoriteForm("hash"),
+        )
+    }
+
     @Test fun parsesFavoriteThreads() {
         val favorites = parseFavoriteThreads(
             JSONObject(

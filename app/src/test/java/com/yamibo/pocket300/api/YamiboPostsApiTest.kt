@@ -61,6 +61,41 @@ class YamiboPostsApiTest {
         }
     }
 
+    @Test
+    fun removesHiddenSpamFromPostHtml() {
+        val html = """正文<span style="display:none">+ v% [0 P+ _; u3 {$ y9 r</span>结尾"""
+
+        assertEquals("正文结尾", sanitizePostHtml(html))
+        assertEquals(
+            "可见",
+            sanitizePostHtml("""<SPAN class='noise' STYLE='color:red; display : none'>乱码</SPAN>可见"""),
+        )
+        assertEquals(
+            "前后",
+            sanitizePostHtml("""前<font class="jammer">, M0 J# x0 L/ B- S&nbsp;&nbsp;n: O</font>后"""),
+        )
+        assertEquals("正文", sanitizePostHtml("""<i class='foo jammer bar'>干扰</i>正文"""))
+    }
+
+    @Test
+    fun parsesPostPageFromFindPostRedirect() {
+        assertEquals(
+            32,
+            parsePostPageUrl(
+                "https://bbs.yamibo.com/forum.php?mod=viewthread&tid=558130&page=32#pid41265818",
+                558130,
+            ),
+        )
+        assertEquals(
+            32,
+            parsePostPageUrl("https://bbs.yamibo.com/thread-558130-32-1.html#pid41265818", 558130),
+        )
+        assertEquals(
+            null,
+            parsePostPageUrl("https://bbs.yamibo.com/forum.php?mod=viewthread&tid=1&page=32", 558130),
+        )
+    }
+
     private companion object {
         val FIXTURE = """
           {
