@@ -31,6 +31,7 @@ import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -277,7 +278,9 @@ fun Pocket300App() = PocketTheme {
                 )
             }
             composable("favorites") {
-                FavoritesScreen(onThread = { navController.navigate("thread/${it.threadId}") })
+                FavoritesScreen {
+                    navController.navigate("thread/${it.threadId}?favoriteId=${it.favoriteId}")
+                }
             }
             composable("history") {
                 ReadingHistoryScreen(
@@ -311,12 +314,13 @@ fun Pocket300App() = PocketTheme {
                 )
             }
             composable(
-                route = "thread/{threadId}?floor={floor}&postId={postId}&page={page}",
+                route = "thread/{threadId}?floor={floor}&postId={postId}&page={page}&favoriteId={favoriteId}",
                 arguments = listOf(
                     navArgument("threadId") { type = NavType.IntType },
                     navArgument("floor") { type = NavType.IntType; defaultValue = 0 },
                     navArgument("postId") { type = NavType.IntType; defaultValue = 0 },
                     navArgument("page") { type = NavType.IntType; defaultValue = 0 },
+                    navArgument("favoriteId") { type = NavType.IntType; defaultValue = 0 },
                 ),
             ) { backStack ->
                 ThreadScreen(
@@ -324,6 +328,7 @@ fun Pocket300App() = PocketTheme {
                     initialFloor = backStack.arguments?.getInt("floor") ?: 0,
                     initialPostId = backStack.arguments?.getInt("postId") ?: 0,
                     initialPage = backStack.arguments?.getInt("page") ?: 0,
+                    initialFavoriteId = backStack.arguments?.getInt("favoriteId") ?: 0,
                     sharedTransitionScope = sharedTransitionScope,
                     animatedVisibilityScope = this,
                     onBack = navController::navigateUp,
@@ -445,6 +450,7 @@ private fun ForumScreen(
     var restoreCachedPage by remember(forumId) { mutableStateOf(cachedSnapshot != null) }
     var refreshingThreads by remember { mutableStateOf(false) }
     var threadLoadError by remember { mutableStateOf<String?>(null) }
+    val listState = rememberLazyListState()
     LaunchedEffect(forumId, reload, pageNumber, selectedTypeId) {
         if (restoreCachedPage && reload == 0) {
             restoreCachedPage = false
@@ -481,7 +487,16 @@ private fun ForumScreen(
     ) { padding ->
         LoadContent(state, padding) { content ->
             val page = content.page
-            LazyColumn(contentPadding = PaddingValues(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            AutoLoadNextPage(
+                listState = listState,
+                hasNextPage = page.pagination.hasNextPage,
+                onLoadMore = { pageNumber = page.pagination.page + 1 },
+            )
+            LazyColumn(
+                state = listState,
+                contentPadding = PaddingValues(12.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
                 item {
                     ElevatedCard(Modifier.fillMaxWidth()) {
                         Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
@@ -595,6 +610,7 @@ private fun ThreadScreen(
     initialFloor: Int,
     initialPostId: Int,
     initialPage: Int,
+    initialFavoriteId: Int,
     sharedTransitionScope: SharedTransitionScope,
     animatedVisibilityScope: AnimatedVisibilityScope,
     onBack: () -> Unit,
@@ -607,12 +623,17 @@ private fun ThreadScreen(
     var pageNumber by remember(threadId, initialPostId, initialPage) {
         mutableStateOf(if (initialPostId > 0) initialPage.coerceAtLeast(1) else 1)
     }
+    var targetFloor by remember(threadId, initialFloor) { mutableStateOf(initialFloor) }
+    var targetPostId by remember(threadId, initialPostId) { mutableStateOf(initialPostId) }
     var state: LoadState<ThreadContent> by remember { mutableStateOf(LoadState.Loading) }
     val listState = rememberLazyListState()
     var restoredFloor by remember(threadId, initialFloor, initialPostId) {
         mutableStateOf(initialFloor <= 0 && initialPostId <= 0)
     }
-    var isFavorited by remember(threadId) { mutableStateOf(false) }
+    var favoriteId by remember(threadId, initialFavoriteId) {
+        mutableStateOf(initialFavoriteId.takeIf { it > 0 })
+    }
+    var isFavorited by remember(threadId, initialFavoriteId) { mutableStateOf(initialFavoriteId > 0) }
     var favoriteBusy by remember(threadId) { mutableStateOf(false) }
     val coroutineScope = rememberCoroutineScope()
     LaunchedEffect(threadId, reload, pageNumber) {
@@ -632,20 +653,31 @@ private fun ThreadScreen(
     }
     val loadedContent = (state as? LoadState.Ready)?.value
     val loadedThread = loadedContent?.page?.thread
-    LaunchedEffect(loadedContent, initialFloor, restoredFloor) {
+    LaunchedEffect(loadedContent, targetFloor, targetPostId, restoredFloor) {
         val content = loadedContent ?: return@LaunchedEffect
         if (restoredFloor) return@LaunchedEffect
         val postIndex = content.posts.indexOfFirst {
-            if (initialPostId > 0) it.id == initialPostId else it.number == initialFloor
+            if (targetPostId > 0) it.id == targetPostId else it.number == targetFloor
         }
         if (postIndex >= 0) {
             val headerCount = 1 + if (content.page.poll == null) 0 else 1
             listState.scrollToItem(headerCount + postIndex)
             restoredFloor = true
-        } else if (initialPostId <= 0 && pageNumber == 1) {
-            pageNumber = ((initialFloor - 1) / content.page.pagination.pageSize) + 1
+        } else if (targetPostId <= 0 && pageNumber == 1) {
+            pageNumber = ((targetFloor - 1) / content.page.pagination.pageSize) + 1
         } else {
-            restoredFloor = true
+            when (val resolved = load { api.posts.findPostPage(threadId, targetPostId) }) {
+                is LoadState.Ready -> {
+                    val resolvedPage = resolved.value
+                    if (resolvedPage != null && resolvedPage != pageNumber) {
+                        pageNumber = resolvedPage
+                    } else {
+                        restoredFloor = true
+                    }
+                }
+                is LoadState.Failed -> restoredFloor = true
+                LoadState.Loading -> Unit
+            }
         }
     }
     LaunchedEffect(loadedThread?.id, loadedThread?.subject) {
@@ -678,6 +710,11 @@ private fun ThreadScreen(
     ) { padding ->
         LoadContent(state, padding) { content ->
             val page = content.page
+            AutoLoadNextPage(
+                listState = listState,
+                hasNextPage = page.pagination.hasNextPage,
+                onLoadMore = { pageNumber = page.pagination.page + 1 },
+            )
             LazyColumn(
                 state = listState,
                 contentPadding = PaddingValues(12.dp),
@@ -689,13 +726,32 @@ private fun ThreadScreen(
                         isFavorited = isFavorited,
                         favoriteBusy = favoriteBusy,
                         onFavorite = {
-                            if (!isFavorited && !favoriteBusy) {
+                            if (!favoriteBusy) {
                                 favoriteBusy = true
                                 coroutineScope.launch {
-                                    when (val result = load { api.favorites.addThread(threadId) }) {
+                                    val wasFavorited = isFavorited
+                                    val currentFavoriteId = favoriteId
+                                    val result = if (wasFavorited) {
+                                        load {
+                                            val id = currentFavoriteId
+                                                ?: api.favorites.getFavoriteThreads()
+                                                    .firstOrNull { it.threadId == threadId }
+                                                    ?.favoriteId
+                                                ?: error("未找到收藏记录，请刷新后重试")
+                                            api.favorites.removeThread(id)
+                                        }
+                                    } else {
+                                        load { api.favorites.addThread(threadId) }
+                                    }
+                                    when (result) {
                                         is LoadState.Ready -> {
-                                            isFavorited = true
-                                            Toast.makeText(context, "已收藏", Toast.LENGTH_SHORT).show()
+                                            isFavorited = !wasFavorited
+                                            if (wasFavorited) favoriteId = null
+                                            Toast.makeText(
+                                                context,
+                                                if (wasFavorited) "已取消收藏" else "已收藏",
+                                                Toast.LENGTH_SHORT,
+                                            ).show()
                                         }
                                         is LoadState.Failed -> Toast.makeText(
                                             context,
@@ -712,7 +768,20 @@ private fun ThreadScreen(
                 }
                 page.poll?.let { poll -> item { PollCard(poll) } }
                 items(content.posts, key = { it.id }, contentType = { "post" }) { post ->
-                    PostCard(post, onForum, onThread)
+                    PostCard(
+                        post = post,
+                        onForum = onForum,
+                        onThread = { target ->
+                            if (target.id == threadId && target.postId != null) {
+                                targetFloor = 0
+                                targetPostId = target.postId
+                                restoredFloor = false
+                                pageNumber = target.page?.coerceAtLeast(1) ?: 1
+                            } else {
+                                onThread(target)
+                            }
+                        },
+                    )
                 }
                 item {
                     ListFooter(
@@ -1004,7 +1073,7 @@ private fun ThreadHero(
             Text(thread.subject, style = MaterialTheme.typography.headlineSmall)
             OutlinedButton(
                 onClick = onFavorite,
-                enabled = !isFavorited && !favoriteBusy,
+                enabled = !favoriteBusy,
             ) {
                 if (favoriteBusy) {
                     CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
@@ -1013,7 +1082,7 @@ private fun ThreadHero(
                     Icon(Icons.Rounded.Favorite, contentDescription = null)
                     Spacer(Modifier.width(8.dp))
                 }
-                Text(if (isFavorited) "已收藏" else "收藏主题")
+                Text(if (isFavorited) "取消收藏" else "收藏主题")
             }
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 Surface(Modifier.size(40.dp), shape = CircleShape, color = MaterialTheme.colorScheme.primaryContainer) {
@@ -1089,6 +1158,28 @@ private fun ListFooter(count: Int, hasNextPage: Boolean, onLoadMore: () -> Unit)
     }
 }
 
+@Composable
+private fun AutoLoadNextPage(
+    listState: LazyListState,
+    hasNextPage: Boolean,
+    onLoadMore: () -> Unit,
+) {
+    LaunchedEffect(listState, hasNextPage) {
+        snapshotFlow {
+            val layoutInfo = listState.layoutInfo
+            val lastVisibleIndex = layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: -1
+            hasNextPage &&
+                listState.isScrollInProgress &&
+                listState.lastScrolledForward &&
+                lastVisibleIndex == layoutInfo.totalItemsCount - 1
+        }
+            .distinctUntilChanged()
+            .collect { shouldLoad ->
+                if (shouldLoad) onLoadMore()
+            }
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalSharedTransitionApi::class)
 @Composable
 private fun SearchScreen(
@@ -1147,7 +1238,14 @@ private fun SearchResults(
         EmptyState("没有搜索结果", "没有找到与“${content.page.keyword}”相关的主题。")
         return
     }
+    val listState = rememberLazyListState()
+    AutoLoadNextPage(
+        listState = listState,
+        hasNextPage = content.page.pagination.hasNextPage,
+        onLoadMore = onLoadMore,
+    )
     LazyColumn(
+        state = listState,
         contentPadding = PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
