@@ -6,6 +6,7 @@ package com.yamibo.pocket300.api
  */
 class YamiboApi(client: YamiboClient = YamiboClient()) {
     val auth = YamiboAuthApi(client)
+    val favorites = YamiboFavoritesApi(client)
     val forums = YamiboForumsApi(client)
     val messages = YamiboMessagesApi(client)
     val posts = YamiboPostsApi(client)
