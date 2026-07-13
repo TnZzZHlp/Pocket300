@@ -138,18 +138,24 @@ internal fun ForumScreen(
             ) {
                 item {
                     ElevatedCard(Modifier.fillMaxWidth()) {
-                        Column(
+                        Row(
                             Modifier.padding(18.dp),
-                            verticalArrangement = Arrangement.spacedBy(14.dp)
+                            horizontalArrangement = Arrangement.spacedBy(18.dp),
+                            verticalAlignment = Alignment.Top,
                         ) {
-                            Text(page.forum.name, style = MaterialTheme.typography.headlineSmall)
-                            Text(
-                                page.forum.description.ifBlank { "暂无板块简介" },
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                            Row(
-                                Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween
+                            Column(
+                                modifier = Modifier.weight(1f),
+                                verticalArrangement = Arrangement.spacedBy(10.dp),
+                            ) {
+                                Text(page.forum.name, style = MaterialTheme.typography.headlineSmall)
+                                Text(
+                                    page.forum.description.ifBlank { "暂无板块简介" },
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                            Column(
+                                horizontalAlignment = Alignment.Start,
+                                verticalArrangement = Arrangement.spacedBy(14.dp),
                             ) {
                                 Stat("主题", page.pagination.totalThreads)
                                 Stat("帖子", page.forum.postCount)
@@ -236,4 +242,3 @@ internal fun ForumScreen(
         }
     }
 }
-
