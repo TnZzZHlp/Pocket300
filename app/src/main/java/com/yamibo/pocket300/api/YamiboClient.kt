@@ -105,6 +105,7 @@ class YamiboClient(
     suspend fun requestPage(
         path: String,
         parameters: Map<String, String> = emptyMap(),
+        form: Map<String, String>? = null,
     ): YamiboPageResponse = withContext(Dispatchers.IO) {
         require(path.startsWith('/') && !path.startsWith("//")) {
             "path must be an absolute Yamibo path"
@@ -113,7 +114,15 @@ class YamiboClient(
         val url = base.newBuilder().apply {
             parameters.forEach { (key, value) -> addQueryParameter(key, value) }
         }.build()
-        val response = execute(Request.Builder().url(url).build())
+        val request = Request.Builder().url(url).apply {
+            if (form != null) {
+                val body = FormBody.Builder().apply {
+                    form.forEach { (key, value) -> add(key, value) }
+                }.build()
+                post(body)
+            }
+        }.build()
+        val response = execute(request)
         YamiboPageResponse(response.body, response.url)
     }
 
