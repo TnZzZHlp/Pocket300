@@ -54,12 +54,12 @@ internal fun RatingsScreen(threadId: Int, postId: Int, onBack: () -> Unit) {
                 )
             } else {
                 LazyColumn(
-                    contentPadding = PaddingValues(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     items(ratings, key = { "${it.userId}-${it.creditName}" }) { rating ->
                         Card {
-                            RatingRow(rating, Modifier.padding(16.dp))
+                            RatingRow(rating, Modifier.padding(horizontal = 12.dp, vertical = 10.dp))
                         }
                     }
                 }
@@ -76,7 +76,7 @@ internal fun RatingRow(
     supportingStyle: TextStyle = MaterialTheme.typography.bodyMedium,
     metadataStyle: TextStyle = MaterialTheme.typography.labelSmall,
 ) {
-    Column(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+    Column(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(2.dp)) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
             Text(rating.username, style = contentStyle, fontWeight = FontWeight.SemiBold)
             Text(

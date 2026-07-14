@@ -546,31 +546,34 @@ private fun PostCard(
                     shape = MaterialTheme.shapes.medium
                 ) {
                     Column(
-                        Modifier.padding(12.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                        Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
-                        Text(
-                            stringResource(R.string.rating_count, post.ratingCount),
-                            style = typography.heading,
-                        )
-                        post.ratings.take(3).forEach { rating ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                stringResource(R.string.rating_count, post.ratingCount),
+                                style = typography.heading,
+                            )
+                            if (post.ratingCount > 2) {
+                                TextButton(onClick = onRatings) {
+                                    Text(
+                                        stringResource(R.string.rating_view_all, post.ratingCount),
+                                        style = typography.action,
+                                    )
+                                }
+                            }
+                        }
+                        post.ratings.take(2).forEach { rating ->
                             RatingRow(
                                 rating = rating,
                                 contentStyle = typography.body,
                                 supportingStyle = typography.supporting,
                                 metadataStyle = typography.metadata,
                             )
-                        }
-                        if (post.ratingCount > 3) {
-                            TextButton(
-                                onClick = onRatings,
-                                modifier = Modifier.align(Alignment.End)
-                            ) {
-                                Text(
-                                    stringResource(R.string.rating_view_all, post.ratingCount),
-                                    style = typography.action,
-                                )
-                            }
                         }
                     }
                 }
