@@ -19,6 +19,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.yamibo.pocket300.R
@@ -68,20 +69,27 @@ internal fun RatingsScreen(threadId: Int, postId: Int, onBack: () -> Unit) {
 }
 
 @Composable
-internal fun RatingRow(rating: YamiboPostRating, modifier: Modifier = Modifier) {
+internal fun RatingRow(
+    rating: YamiboPostRating,
+    modifier: Modifier = Modifier,
+    contentStyle: TextStyle = MaterialTheme.typography.bodyLarge,
+    supportingStyle: TextStyle = MaterialTheme.typography.bodyMedium,
+    metadataStyle: TextStyle = MaterialTheme.typography.labelSmall,
+) {
     Column(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            Text(rating.username, fontWeight = FontWeight.SemiBold)
+            Text(rating.username, style = contentStyle, fontWeight = FontWeight.SemiBold)
             Text(
                 "${rating.creditName} ${if (rating.score > 0) "+" else ""}${rating.score} ${rating.unit}".trim(),
+                style = contentStyle,
                 color = MaterialTheme.colorScheme.primary,
                 fontWeight = FontWeight.SemiBold,
             )
         }
-        if (rating.reason.isNotEmpty()) Text(rating.reason, style = MaterialTheme.typography.bodyMedium)
+        if (rating.reason.isNotEmpty()) Text(rating.reason, style = supportingStyle)
         Text(
             rating.createdAtText,
-            style = MaterialTheme.typography.labelSmall,
+            style = metadataStyle,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }
