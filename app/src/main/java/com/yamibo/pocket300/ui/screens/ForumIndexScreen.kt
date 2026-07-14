@@ -4,28 +4,45 @@ import androidx.compose.animation.AnimatedVisibilityScope
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionScope
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material3.ElevatedCard
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.ArrowForward
+import androidx.compose.material.icons.rounded.Forum
+import androidx.compose.material.icons.rounded.LocalFireDepartment
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.yamibo.pocket300.R
 import com.yamibo.pocket300.api.YamiboForum
+import com.yamibo.pocket300.api.YamiboForumIndex
 import com.yamibo.pocket300.ui.LoadContent
 import com.yamibo.pocket300.ui.ScreenScaffold
 import com.yamibo.pocket300.ui.viewmodels.ForumIndexViewModel
+import java.text.NumberFormat
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalSharedTransitionApi::class)
 @Composable
@@ -40,55 +57,240 @@ internal fun ForumIndexScreen(
     LaunchedEffect(authStateVersion) {
         if (authStateVersion > 0) viewModel.refresh()
     }
-    ScreenScaffold("Pocket300", onRefresh = viewModel::refresh, onSearch = onSearch) { padding ->
+    ScreenScaffold(
+        title = stringResource(R.string.home_title),
+        onRefresh = viewModel::refresh,
+        onSearch = onSearch,
+    ) { padding ->
         LoadContent(viewModel.state, padding) { index ->
-            LazyColumn(
-                contentPadding = PaddingValues(start = 16.dp, top = 16.dp, end = 16.dp, bottom = 104.dp),
-                verticalArrangement = Arrangement.spacedBy(20.dp),
-            ) {
-                index.categories.forEach { category ->
-                    item { Text(category.name, style = MaterialTheme.typography.titleLarge) }
-                    items(category.forums, key = { it.id }) { forum ->
-                        ForumCard(
-                            forum = forum,
-                            onClick = onForum,
-                            modifier = with(sharedTransitionScope) {
-                                Modifier.sharedBounds(
-                                    rememberSharedContentState("forum-${forum.id}"),
-                                    animatedVisibilityScope,
-                                )
-                            },
+            ForumIndexContent(
+                index = index,
+                sharedTransitionScope = sharedTransitionScope,
+                animatedVisibilityScope = animatedVisibilityScope,
+                onForum = onForum,
+            )
+        }
+    }
+}
+
+@OptIn(ExperimentalSharedTransitionApi::class)
+@Composable
+private fun ForumIndexContent(
+    index: YamiboForumIndex,
+    sharedTransitionScope: SharedTransitionScope,
+    animatedVisibilityScope: AnimatedVisibilityScope,
+    onForum: (YamiboForum) -> Unit,
+) {
+    LazyColumn(
+        contentPadding = PaddingValues(start = 16.dp, top = 12.dp, end = 16.dp, bottom = 104.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        item(key = "overview") {
+            OverviewCard(index, Modifier.padding(bottom = 14.dp))
+        }
+        index.categories.forEachIndexed { categoryIndex, category ->
+            item(key = "category-${category.id}") {
+                CategoryHeader(
+                    name = category.name,
+                    count = category.forums.size,
+                    modifier = Modifier.padding(top = if (categoryIndex == 0) 0.dp else 14.dp),
+                )
+            }
+            items(category.forums, key = { it.id }) { forum ->
+                ForumCard(
+                    forum = forum,
+                    onClick = onForum,
+                    modifier = with(sharedTransitionScope) {
+                        Modifier.sharedBounds(
+                            rememberSharedContentState("forum-${forum.id}"),
+                            animatedVisibilityScope,
                         )
-                    }
-                }
+                    },
+                )
             }
         }
+    }
+}
+
+@Composable
+private fun OverviewCard(index: YamiboForumIndex, modifier: Modifier = Modifier) {
+    val todayPosts = index.forums.sumOf(YamiboForum::todayPostCount)
+    val threadCount = index.forums.sumOf(YamiboForum::threadCount)
+    Card(
+        modifier = modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 20.dp, vertical = 18.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(
+                    text = stringResource(R.string.home_overview_title),
+                    style = MaterialTheme.typography.titleLarge,
+                    color = MaterialTheme.colorScheme.onPrimaryContainer,
+                )
+                Text(
+                    text = stringResource(R.string.home_overview_subtitle),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.72f),
+                )
+            }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                OverviewStat(stringResource(R.string.home_stat_today), todayPosts, emphasized = true)
+                OverviewStat(stringResource(R.string.home_stat_forums), index.forums.size)
+                OverviewStat(stringResource(R.string.home_stat_threads), threadCount)
+            }
+        }
+    }
+}
+
+@Composable
+private fun OverviewStat(label: String, value: Int, emphasized: Boolean = false) {
+    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            if (emphasized) {
+                Icon(
+                    imageVector = Icons.Rounded.LocalFireDepartment,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp),
+                    tint = MaterialTheme.colorScheme.tertiary,
+                )
+                Spacer(Modifier.width(4.dp))
+            }
+            Text(
+                text = formatCount(value),
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onPrimaryContainer,
+            )
+        }
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f),
+        )
+    }
+}
+
+@Composable
+private fun CategoryHeader(name: String, count: Int, modifier: Modifier = Modifier) {
+    Row(
+        modifier = modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = name,
+            modifier = Modifier.weight(1f),
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.Bold,
+        )
+        Text(
+            text = stringResource(R.string.home_forum_count, count),
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
     }
 }
 
 @Composable
 private fun ForumCard(forum: YamiboForum, onClick: (YamiboForum) -> Unit, modifier: Modifier = Modifier) {
-    ElevatedCard(onClick = { onClick(forum) }, modifier = modifier.fillMaxWidth()) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Text(forum.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-            Text(
-                forum.description.ifBlank { "暂无简介" },
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-            )
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                Stat("主题", forum.threadCount)
-                Stat("帖子", forum.postCount)
-                Stat("今日", forum.todayPostCount)
+    Card(
+        onClick = { onClick(forum) },
+        modifier = modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
+    ) {
+        Row(
+            modifier = Modifier.padding(14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Surface(
+                modifier = Modifier.size(44.dp),
+                shape = RoundedCornerShape(14.dp),
+                color = MaterialTheme.colorScheme.secondaryContainer,
+                contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(Icons.Rounded.Forum, contentDescription = null, modifier = Modifier.size(22.dp))
+                }
             }
+            Spacer(Modifier.width(12.dp))
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = forum.name,
+                        modifier = Modifier.weight(1f, fill = false),
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    if (forum.todayPostCount > 0) {
+                        Spacer(Modifier.width(8.dp))
+                        TodayBadge(forum.todayPostCount)
+                    }
+                }
+                Text(
+                    text = forum.description.ifBlank { stringResource(R.string.home_no_description) },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    text = stringResource(
+                        R.string.home_forum_stats,
+                        formatCount(forum.threadCount),
+                        formatCount(forum.postCount),
+                    ),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Icon(
+                imageVector = Icons.AutoMirrored.Rounded.ArrowForward,
+                contentDescription = stringResource(R.string.home_open_forum, forum.name),
+                modifier = Modifier.size(20.dp),
+                tint = MaterialTheme.colorScheme.outline,
+            )
         }
     }
 }
 
 @Composable
-internal fun Stat(label: String, value: Int) = Column {
-    Text(value.toString(), color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
-    Text(label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+private fun TodayBadge(count: Int) {
+    Surface(
+        shape = RoundedCornerShape(50),
+        color = MaterialTheme.colorScheme.tertiaryContainer,
+        contentColor = MaterialTheme.colorScheme.onTertiaryContainer,
+    ) {
+        Text(
+            text = stringResource(R.string.home_today_badge, formatCount(count)),
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+            style = MaterialTheme.typography.labelSmall,
+            fontWeight = FontWeight.Bold,
+        )
+    }
 }
+
+@Composable
+internal fun Stat(label: String, value: Int) = Column {
+    Text(
+        text = formatCount(value),
+        color = MaterialTheme.colorScheme.primary,
+        fontWeight = FontWeight.Bold,
+    )
+    Text(
+        text = label,
+        style = MaterialTheme.typography.labelMedium,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+}
+
+private fun formatCount(value: Int): String = NumberFormat.getIntegerInstance().format(value)

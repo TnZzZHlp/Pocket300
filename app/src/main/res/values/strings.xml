@@ -1,5 +1,16 @@
 <resources>
     <string name="app_name">Pocket300</string>
+    <string name="home_title">Pocket300</string>
+    <string name="home_overview_title">论坛概览</string>
+    <string name="home_overview_subtitle">快速了解社区动态</string>
+    <string name="home_stat_today">今日新帖</string>
+    <string name="home_stat_forums">板块</string>
+    <string name="home_stat_threads">主题</string>
+    <string name="home_forum_count">%1$d 个板块</string>
+    <string name="home_no_description">暂无板块简介</string>
+    <string name="home_forum_stats">%1$s 主题  ·  %2$s 帖子</string>
+    <string name="home_today_badge">今日 +%1$s</string>
+    <string name="home_open_forum">进入%1$s</string>
     <string name="rating_details_title">评分详情</string>
     <string name="rating_count">评分（%1$d）</string>
     <string name="rating_view_all">查看全部 %1$d 条评分</string>
