@@ -8,6 +8,8 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -46,6 +48,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.ContentScale
@@ -102,7 +105,6 @@ internal fun ReaderScreen(
     var readerMode by remember(threadId, postId) { mutableStateOf(preferencesStore.loadMode()) }
     var imageIndex by remember(threadId, postId) { mutableStateOf(0) }
     val scrollState = rememberScrollState()
-    val imageScrollState = rememberScrollState()
     val uriHandler = LocalUriHandler.current
     val postNotFoundMessage = stringResource(R.string.reader_post_not_found)
 
@@ -278,39 +280,57 @@ internal fun ReaderScreen(
                 }
                 if (readerMode == ReaderMode.IMAGES && images.isNotEmpty()) {
                     val currentImageIndex = imageIndex.coerceIn(images.indices)
-                    LaunchedEffect(currentImageIndex, images.size) { imageScrollState.scrollTo(0) }
-                    Box(
-                        Modifier
+                    val pagerState = rememberPagerState(initialPage = currentImageIndex) { images.size }
+                    LaunchedEffect(pagerState) {
+                        snapshotFlow { pagerState.currentPage }.collect { page -> imageIndex = page }
+                    }
+                    LaunchedEffect(currentImageIndex) {
+                        if (pagerState.currentPage != currentImageIndex) {
+                            pagerState.animateScrollToPage(currentImageIndex)
+                        }
+                    }
+                    HorizontalPager(
+                        state = pagerState,
+                        modifier = Modifier
                             .fillMaxSize()
                             .consumeWindowInsets(scaffoldPadding)
-                            .padding(top = contentTopPadding, bottom = contentBottomPadding)
-                            .verticalScroll(imageScrollState)
-                            .pointerInput(images.size, currentImageIndex) {
-                                detectTapGestures(onTap = { offset ->
-                                    val action = readerImageTapAction(offset.x, size.width.toFloat())
-                                    when (action) {
-                                        ReaderImageTapAction.TOGGLE_CONTROLS -> controlsVisible = !controlsVisible
-                                        ReaderImageTapAction.NONE -> Unit
-                                        else -> imageIndex = readerImageIndexAfterTap(
-                                            currentIndex = currentImageIndex,
-                                            lastIndex = images.lastIndex,
-                                            action = action,
-                                        )
-                                    }
-                                })
-                            },
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        AsyncImage(
-                            model = rememberPostImageRequest(images[currentImageIndex], content.post.threadId),
-                            contentDescription = stringResource(
-                                R.string.reader_image_description,
-                                currentImageIndex + 1,
-                                images.size,
-                            ),
-                            contentScale = ContentScale.FillWidth,
-                            modifier = Modifier.fillMaxWidth(),
-                        )
+                            .padding(top = contentTopPadding, bottom = contentBottomPadding),
+                        key = { images[it] },
+                    ) { page ->
+                        val pageScrollState = rememberScrollState()
+                        Box(
+                            Modifier
+                                .fillMaxSize()
+                                .verticalScroll(pageScrollState)
+                                .pointerInput(images.size, page) {
+                                    detectTapGestures(onTap = { offset ->
+                                        val action = readerImageTapAction(offset.x, size.width.toFloat())
+                                        when (action) {
+                                            ReaderImageTapAction.TOGGLE_CONTROLS -> {
+                                                controlsVisible = !controlsVisible
+                                            }
+                                            ReaderImageTapAction.NONE -> Unit
+                                            else -> imageIndex = readerImageIndexAfterTap(
+                                                currentIndex = page,
+                                                lastIndex = images.lastIndex,
+                                                action = action,
+                                            )
+                                        }
+                                    })
+                                },
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            AsyncImage(
+                                model = rememberPostImageRequest(images[page], content.post.threadId),
+                                contentDescription = stringResource(
+                                    R.string.reader_image_description,
+                                    page + 1,
+                                    images.size,
+                                ),
+                                contentScale = ContentScale.FillWidth,
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                        }
                     }
                 } else {
                     Column(
