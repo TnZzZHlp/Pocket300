@@ -1,9 +1,11 @@
 package com.yamibo.pocket300.ui.screens
 
 import androidx.compose.animation.AnimatedVisibilityScope
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionScope
-import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -238,8 +240,7 @@ internal fun ForumScreen(
                     if (stickyThreads.isNotEmpty()) {
                         item(key = "sticky-threads", contentType = "sticky-threads") {
                             Column(
-                                modifier = Modifier.animateContentSize(),
-                                verticalArrangement = Arrangement.spacedBy(8.dp),
+                                modifier = Modifier.fillMaxWidth(),
                             ) {
                                 ElevatedCard(
                                     onClick = { stickyThreadsExpanded = !stickyThreadsExpanded },
@@ -272,8 +273,15 @@ internal fun ForumScreen(
                                         )
                                     }
                                 }
-                                if (stickyThreadsExpanded) {
-                                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                AnimatedVisibility(
+                                    visible = stickyThreadsExpanded,
+                                    enter = expandVertically(expandFrom = Alignment.Top),
+                                    exit = shrinkVertically(shrinkTowards = Alignment.Top),
+                                ) {
+                                    Column(
+                                        modifier = Modifier.padding(top = 8.dp),
+                                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                                    ) {
                                         stickyThreads.forEach { thread ->
                                             ForumThreadCard(
                                                 thread = thread,
