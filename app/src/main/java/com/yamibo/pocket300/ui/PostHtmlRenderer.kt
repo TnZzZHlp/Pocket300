@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.text.InlineTextContent
 import androidx.compose.foundation.text.appendInlineContent
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -59,24 +60,26 @@ internal fun PostHtml(
 ) {
     val parts = remember(html, attachmentUrls) { postHtmlParts(html, attachmentUrls) }
     val renderParts = remember(parts) { groupPostHtmlParts(parts) }
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        renderParts.forEachIndexed { index, part ->
-            when (part) {
-                is PostRenderPart.Inline -> PostInlineHtml(part.parts, threadId, onLink, textStyle)
-                is PostRenderPart.Image -> {
-                    val url = normalizePostImageUrl(part.url)
-                    var failed by remember(url) { mutableStateOf(false) }
-                    val request = rememberPostImageRequest(url, threadId)
-                    if (failed) {
-                        Text("图片加载失败", color = MaterialTheme.colorScheme.error)
-                    } else {
-                        AsyncImage(
-                            model = request,
-                            contentDescription = "帖子图片 ${index + 1}",
-                            contentScale = ContentScale.FillWidth,
-                            onError = { failed = true },
-                            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
-                        )
+    SelectionContainer {
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            renderParts.forEachIndexed { index, part ->
+                when (part) {
+                    is PostRenderPart.Inline -> PostInlineHtml(part.parts, threadId, onLink, textStyle)
+                    is PostRenderPart.Image -> {
+                        val url = normalizePostImageUrl(part.url)
+                        var failed by remember(url) { mutableStateOf(false) }
+                        val request = rememberPostImageRequest(url, threadId)
+                        if (failed) {
+                            Text("图片加载失败", color = MaterialTheme.colorScheme.error)
+                        } else {
+                            AsyncImage(
+                                model = request,
+                                contentDescription = "帖子图片 ${index + 1}",
+                                contentScale = ContentScale.FillWidth,
+                                onError = { failed = true },
+                                modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+                            )
+                        }
                     }
                 }
             }
