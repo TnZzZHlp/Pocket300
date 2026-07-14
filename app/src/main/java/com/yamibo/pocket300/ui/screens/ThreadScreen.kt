@@ -21,6 +21,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.MenuBook
+import androidx.compose.material.icons.outlined.FavoriteBorder
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.Remove
@@ -632,7 +633,11 @@ private fun ThreadHero(
                         CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
                     } else {
                         Icon(
-                            imageVector = Icons.Rounded.Favorite,
+                            imageVector = if (isFavorited) {
+                                Icons.Rounded.Favorite
+                            } else {
+                                Icons.Outlined.FavoriteBorder
+                            },
                             contentDescription = stringResource(
                                 if (isFavorited) R.string.reader_unfavorite else R.string.reader_favorite
                             ),
