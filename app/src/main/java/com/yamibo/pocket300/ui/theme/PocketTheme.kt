@@ -140,5 +140,9 @@ internal fun PocketTheme(colorTheme: AppColorTheme = AppColorTheme.BEIGE, conten
         AppColorTheme.BLUE -> if (dark) BlueDarkColors else BlueLightColors
         AppColorTheme.GREEN -> if (dark) GreenDarkColors else GreenLightColors
     }
-    MaterialTheme(colorScheme = colors, content = content)
+    MaterialTheme(
+        colorScheme = colors,
+        typography = PocketTypography,
+        content = content,
+    )
 }

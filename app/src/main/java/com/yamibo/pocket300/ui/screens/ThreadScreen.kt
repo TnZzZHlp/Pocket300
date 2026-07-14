@@ -44,6 +44,7 @@ import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -58,7 +59,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -82,6 +82,8 @@ import com.yamibo.pocket300.ui.components.PostAuthorAvatar
 import com.yamibo.pocket300.ui.load
 import com.yamibo.pocket300.ui.plainText
 import com.yamibo.pocket300.ui.resolvePostLink
+import com.yamibo.pocket300.ui.theme.ThreadTypography
+import com.yamibo.pocket300.ui.theme.rememberThreadTypography
 import com.yamibo.pocket300.ui.viewmodels.ThreadViewModel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
@@ -118,6 +120,7 @@ internal fun ThreadScreen(
         initialPostId
     ) { mutableIntStateOf(initialPostId) }
     val listState = rememberLazyListState()
+    val threadTypography = rememberThreadTypography()
     var restoredFloor by rememberSaveable(threadId, initialFloor, initialPostId) {
         mutableStateOf(initialFloor <= 0 && initialPostId <= 0)
     }
@@ -130,6 +133,9 @@ internal fun ThreadScreen(
     ) { mutableStateOf(initialFavoriteId > 0) }
     var favoriteBusy by remember(threadId) { mutableStateOf(false) }
     var originalPosterOnly by rememberSaveable(threadId) { mutableStateOf(false) }
+    val showThreadTitle by remember {
+        derivedStateOf { shouldShowThreadTitle(listState.firstVisibleItemIndex) }
+    }
     val coroutineScope = rememberCoroutineScope()
     LaunchedEffect(threadId, reload, pageNumber, originalPosterOnly) {
         val previous = (viewModel.state as? LoadState.Ready)?.value
@@ -204,7 +210,7 @@ internal fun ThreadScreen(
                 animatedVisibilityScope
             )
         },
-        title = loadedThread?.subject ?: "主题",
+        title = loadedThread?.subject.takeIf { showThreadTitle }.orEmpty(),
         onBack = onBack,
         onRefresh = { viewModel.invalidate(); pageNumber = 1; reload++ },
     ) { padding ->
@@ -226,6 +232,7 @@ internal fun ThreadScreen(
                         isFavorited = isFavorited,
                         favoriteBusy = favoriteBusy,
                         originalPosterOnly = originalPosterOnly,
+                        typography = threadTypography,
                         onFavorite = {
                             if (!favoriteBusy) {
                                 favoriteBusy = true
@@ -276,10 +283,11 @@ internal fun ThreadScreen(
                         },
                     )
                 }
-                page.poll?.let { poll -> item { PollCard(poll) } }
+                page.poll?.let { poll -> item { PollCard(poll, threadTypography) } }
                 items(content.posts, key = { it.id }, contentType = { "post" }) { post ->
                     PostCard(
                         post = post,
+                        typography = threadTypography,
                         onForum = onForum,
                         onRatings = { onRatings(post.threadId, post.id) },
                         onReader = {
@@ -313,6 +321,9 @@ internal fun ThreadScreen(
         }
     }
 }
+
+internal fun shouldShowThreadTitle(firstVisibleItemIndex: Int): Boolean =
+    firstVisibleItemIndex > 0
 
 @Composable
 internal fun ReaderSettingsSheet(
@@ -467,6 +478,7 @@ internal fun ReaderTheme(tone: ReaderTone, content: @Composable () -> Unit) {
 @Composable
 private fun PostCard(
     post: YamiboPost,
+    typography: ThreadTypography,
     onForum: (Int) -> Unit,
     onRatings: () -> Unit,
     onReader: () -> Unit,
@@ -493,10 +505,10 @@ private fun PostCard(
                 ) {
                     PostAuthorAvatar(post.author, size = 40.dp)
                     Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                        Text(post.author.name, fontWeight = FontWeight.SemiBold)
+                        Text(post.author.name, style = typography.byline)
                         Text(
                             post.createdAtText,
-                            style = MaterialTheme.typography.labelSmall,
+                            style = typography.metadata,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
@@ -509,7 +521,7 @@ private fun PostCard(
                         Text(
                             if (post.isOriginalPost) "楼主" else "${post.number} 楼",
                             modifier = Modifier.padding(horizontal = 11.dp, vertical = 6.dp),
-                            style = MaterialTheme.typography.labelMedium,
+                            style = typography.label,
                             color = MaterialTheme.colorScheme.onPrimaryContainer,
                         )
                     }
@@ -526,6 +538,7 @@ private fun PostCard(
                 threadId = post.threadId,
                 attachmentUrls = post.attachments.filter { it.isImage }.map { it.url },
                 onLink = openLink,
+                textStyle = typography.body,
             )
             if (post.ratings.isNotEmpty()) {
                 Surface(
@@ -538,16 +551,25 @@ private fun PostCard(
                     ) {
                         Text(
                             stringResource(R.string.rating_count, post.ratingCount),
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.SemiBold,
+                            style = typography.heading,
                         )
-                        post.ratings.take(3).forEach { rating -> RatingRow(rating) }
+                        post.ratings.take(3).forEach { rating ->
+                            RatingRow(
+                                rating = rating,
+                                contentStyle = typography.body,
+                                supportingStyle = typography.supporting,
+                                metadataStyle = typography.metadata,
+                            )
+                        }
                         if (post.ratingCount > 3) {
                             TextButton(
                                 onClick = onRatings,
                                 modifier = Modifier.align(Alignment.End)
                             ) {
-                                Text(stringResource(R.string.rating_view_all, post.ratingCount))
+                                Text(
+                                    stringResource(R.string.rating_view_all, post.ratingCount),
+                                    style = typography.action,
+                                )
                             }
                         }
                     }
@@ -565,7 +587,7 @@ private fun PostCard(
                         post.comments.forEach { comment ->
                             Text(
                                 "${comment.author.name}：${plainText(comment.message)}",
-                                style = MaterialTheme.typography.bodyMedium,
+                                style = typography.supporting,
                             )
                         }
                     }
@@ -580,6 +602,7 @@ private fun PostCard(
 @Composable
 private fun ThreadHero(
     page: YamiboThreadPostsPage,
+    typography: ThreadTypography,
     isFavorited: Boolean,
     favoriteBusy: Boolean,
     originalPosterOnly: Boolean,
@@ -597,8 +620,7 @@ private fun ThreadHero(
                 Text(
                     text = thread.subject,
                     modifier = Modifier.weight(1f),
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold,
+                    style = typography.heading,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                 )
@@ -628,12 +650,11 @@ private fun ThreadHero(
                 Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                     Text(
                         text = thread.author.name,
-                        style = MaterialTheme.typography.bodyMedium,
-                        fontWeight = FontWeight.SemiBold,
+                        style = typography.byline,
                     )
                     Text(
                         "${thread.replyCount} 回复 · ${thread.viewCount} 浏览 · 热度 ${thread.heat}",
-                        style = MaterialTheme.typography.labelSmall,
+                        style = typography.metadata,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
@@ -645,43 +666,55 @@ private fun ThreadHero(
                 FilterChip(
                     selected = originalPosterOnly,
                     onClick = { onOriginalPosterOnlyChange(!originalPosterOnly) },
-                    label = { Text(stringResource(R.string.thread_original_poster_only)) },
+                    label = {
+                        Text(
+                            stringResource(R.string.thread_original_poster_only),
+                            style = typography.action,
+                        )
+                    },
                     enabled = thread.author.id != null,
                 )
-                if (thread.isClosed) Badge { Text("已关闭") }
-                if (thread.price > 0) Badge { Text("${thread.price} 积分") }
-                if (thread.hasAttachment) Badge { Text("附件") }
+                if (thread.isClosed) Badge { Text("已关闭", style = typography.metadata) }
+                if (thread.price > 0) Badge {
+                    Text("${thread.price} 积分", style = typography.metadata)
+                }
+                if (thread.hasAttachment) Badge { Text("附件", style = typography.metadata) }
             }
         }
     }
 }
 
 @Composable
-private fun PollCard(poll: YamiboThreadPoll) {
+private fun PollCard(poll: YamiboThreadPoll, typography: ThreadTypography) {
     Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-            Text("投票", style = MaterialTheme.typography.titleLarge)
+            Text("投票", style = typography.heading)
             Text(
                 "${if (poll.multiple) "最多选 ${poll.maxChoices} 项" else "单选"} · ${poll.voterCount} 人参与",
+                style = typography.supporting,
                 color = MaterialTheme.colorScheme.onSecondaryContainer,
             )
             poll.options.forEach { option ->
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                        Text(plainText(option.text), Modifier.weight(1f))
+                        Text(
+                            text = plainText(option.text),
+                            modifier = Modifier.weight(1f),
+                            style = typography.body,
+                        )
                         Spacer(Modifier.width(12.dp))
-                        Text("${"%.1f".format(option.percentage)}%")
+                        Text("${"%.1f".format(option.percentage)}%", style = typography.label)
                     }
                     LinearProgressIndicator(
                         progress = { (option.percentage / 100.0).toFloat().coerceIn(0f, 1f) },
                         modifier = Modifier.fillMaxWidth(),
                     )
-                    Text("${option.voteCount} 票", style = MaterialTheme.typography.labelSmall)
+                    Text("${option.voteCount} 票", style = typography.metadata)
                 }
             }
             if (!poll.resultsVisible) Text(
                 "投票后才可查看完整结果",
-                style = MaterialTheme.typography.labelMedium
+                style = typography.label
             )
         }
     }
