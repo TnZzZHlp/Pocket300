@@ -35,7 +35,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedIconButton
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
@@ -60,6 +59,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.yamibo.pocket300.R
@@ -588,40 +588,60 @@ private fun ThreadHero(
 ) {
     val thread = page.thread
     ElevatedCard(Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-            Text(
-                thread.subject,
-                style = MaterialTheme.typography.headlineSmall,
-            )
-            OutlinedButton(onClick = onFavorite, enabled = !favoriteBusy) {
-                if (favoriteBusy) {
-                    CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
-                    Spacer(Modifier.width(8.dp))
-                } else {
-                    Icon(Icons.Rounded.Favorite, contentDescription = null)
-                    Spacer(Modifier.width(8.dp))
+        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Text(
+                    text = thread.subject,
+                    modifier = Modifier.weight(1f),
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                IconButton(onClick = onFavorite, enabled = !favoriteBusy) {
+                    if (favoriteBusy) {
+                        CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
+                    } else {
+                        Icon(
+                            imageVector = Icons.Rounded.Favorite,
+                            contentDescription = stringResource(
+                                if (isFavorited) R.string.reader_unfavorite else R.string.reader_favorite
+                            ),
+                            tint = if (isFavorited) {
+                                MaterialTheme.colorScheme.primary
+                            } else {
+                                MaterialTheme.colorScheme.onSurfaceVariant
+                            },
+                        )
+                    }
                 }
-                Text(if (isFavorited) "取消收藏" else "收藏主题")
             }
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                PostAuthorAvatar(thread.author, size = 40.dp)
-                Column {
-                    Text(thread.author.name, fontWeight = FontWeight.SemiBold)
+                PostAuthorAvatar(thread.author, size = 32.dp)
+                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                     Text(
-                        "${thread.replyCount} 回复 · ${thread.viewCount} 浏览",
-                        style = MaterialTheme.typography.labelMedium,
+                        text = thread.author.name,
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                    Text(
+                        "${thread.replyCount} 回复 · ${thread.viewCount} 浏览 · 热度 ${thread.heat}",
+                        style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
             }
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                Stat("楼层", thread.replyCount + 1)
-                Stat("热度", thread.heat)
-            }
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
                 FilterChip(
                     selected = originalPosterOnly,
                     onClick = { onOriginalPosterOnlyChange(!originalPosterOnly) },
