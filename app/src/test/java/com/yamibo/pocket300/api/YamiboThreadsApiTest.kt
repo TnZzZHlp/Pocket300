@@ -1,5 +1,6 @@
 package com.yamibo.pocket300.api
 
+import org.json.JSONArray
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -31,6 +32,15 @@ class YamiboThreadsApiTest {
     fun rejectsInvalidPagination() {
         val fixture = JSONObject(FIXTURE).put("page", "0")
         parseForumThreads(fixture)
+    }
+
+    @Test
+    fun acceptsEmptyArrayForMissingGroupIcons() {
+        val fixture = JSONObject(FIXTURE).put("groupiconid", JSONArray())
+
+        val page = parseForumThreads(fixture)
+
+        assertNull(page.threads.single().author.groupIconId)
     }
 
     private companion object {

@@ -289,6 +289,8 @@ private fun parseThreadAuthor(name: String, rawId: Any?, icons: Map<Int, String>
 
 private fun parseGroupIcons(raw: Any?): Map<Int, String> {
     if (raw == null || raw == JSONObject.NULL) return emptyMap()
+    // Discuz serializes an empty PHP associative array as [] instead of {}.
+    if (raw is JSONArray && raw.length() == 0) return emptyMap()
     val value = raw as? JSONObject ?: invalidResponse("百合会返回了无效的用户组图标数据")
     return value.keys().asSequence().associate { rawId ->
         val id = rawId.toIntOrNull()?.takeIf { it > 0 }
