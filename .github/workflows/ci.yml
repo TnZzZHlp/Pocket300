@@ -19,6 +19,11 @@ jobs:
     name: Test, lint and build
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    env:
+      RELEASE_KEYSTORE_BASE64: ${{ github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && secrets.RELEASE_KEYSTORE_BASE64 || '' }}
+      RELEASE_STORE_PASSWORD: ${{ github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && secrets.RELEASE_STORE_PASSWORD || '' }}
+      RELEASE_KEY_ALIAS: ${{ github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && secrets.RELEASE_KEY_ALIAS || '' }}
+      RELEASE_KEY_PASSWORD: ${{ github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && secrets.RELEASE_KEY_PASSWORD || '' }}
 
     steps:
       - name: Check out repository
@@ -37,6 +42,25 @@ jobs:
 
       - name: Make Gradle wrapper executable
         run: chmod +x gradlew
+
+      - name: Validate signing secrets
+        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+        shell: bash
+        run: |
+          for name in RELEASE_KEYSTORE_BASE64 RELEASE_STORE_PASSWORD RELEASE_KEY_ALIAS RELEASE_KEY_PASSWORD; do
+            if [[ -z "${!name}" ]]; then
+              echo "Missing repository secret: $name" >&2
+              exit 1
+            fi
+          done
+
+      - name: Restore release signing keystore
+        if: env.RELEASE_KEYSTORE_BASE64 != ''
+        shell: bash
+        run: |
+          keystore_path="$RUNNER_TEMP/pocket300-release.jks"
+          printf '%s' "$RELEASE_KEYSTORE_BASE64" | base64 --decode > "$keystore_path"
+          echo "RELEASE_KEYSTORE_PATH=$keystore_path" >> "$GITHUB_ENV"
 
       - name: Run unit tests, lint and debug build
         run: ./gradlew testDebugUnitTest lintDebug assembleDebug --stacktrace
