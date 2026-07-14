@@ -37,6 +37,8 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.yamibo.pocket300.R
 import com.yamibo.pocket300.api.YamiboApi
+import com.yamibo.pocket300.ui.screens.CustomListDetailScreen
+import com.yamibo.pocket300.ui.screens.CustomListEditorScreen
 import com.yamibo.pocket300.ui.screens.FavoritesScreen
 import com.yamibo.pocket300.ui.screens.ForumIndexScreen
 import com.yamibo.pocket300.ui.screens.ForumScreen
@@ -53,7 +55,7 @@ import com.yamibo.pocket300.ui.theme.PocketTheme
 
 internal val api = YamiboApi()
 
-private data class Tab(val route: String, @StringRes val label: Int, val icon: ImageVector)
+private data class Tab(val route: String, @param:StringRes val label: Int, val icon: ImageVector)
 
 private val tabs = listOf(
     Tab("home", R.string.tab_forum, Icons.Rounded.Forum),
@@ -100,7 +102,45 @@ fun Pocket300App() {
                 )
             }
             composable("list") {
-                ListScreen()
+                ListScreen(
+                    onCreate = { navController.navigate("custom-list/new") },
+                    onOpen = { navController.navigate("custom-list/$it") },
+                )
+            }
+            composable("custom-list/new") {
+                CustomListEditorScreen(
+                    listId = null,
+                    onBack = navController::navigateUp,
+                    onSaved = { listId ->
+                        navController.navigate("custom-list/$listId") {
+                            popUpTo("custom-list/new") { inclusive = true }
+                        }
+                    },
+                    onDeleted = navController::navigateUp,
+                )
+            }
+            composable(
+                route = "custom-list/{listId}",
+                arguments = listOf(navArgument("listId") { type = NavType.LongType }),
+            ) { backStack ->
+                val listId = backStack.arguments?.getLong("listId") ?: return@composable
+                CustomListDetailScreen(
+                    listId = listId,
+                    onBack = navController::navigateUp,
+                    onEdit = { navController.navigate("custom-list/$listId/edit") },
+                    onThread = { navController.navigate("thread/${it.threadId}") },
+                )
+            }
+            composable(
+                route = "custom-list/{listId}/edit",
+                arguments = listOf(navArgument("listId") { type = NavType.LongType }),
+            ) { backStack ->
+                CustomListEditorScreen(
+                    listId = backStack.arguments?.getLong("listId") ?: return@composable,
+                    onBack = navController::navigateUp,
+                    onSaved = { navController.navigateUp() },
+                    onDeleted = { navController.popBackStack("list", inclusive = false) },
+                )
             }
             composable("history") {
                 ReadingHistoryScreen(
