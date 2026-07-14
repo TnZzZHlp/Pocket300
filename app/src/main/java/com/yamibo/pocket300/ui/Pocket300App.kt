@@ -87,9 +87,13 @@ fun Pocket300App() {
                 )
             }
             composable("favorites") {
-                FavoritesScreen {
-                    navController.navigate("thread/${it.threadId}?favoriteId=${it.favoriteId}")
-                }
+                FavoritesScreen(
+                    sharedTransitionScope = sharedTransitionScope,
+                    animatedVisibilityScope = this,
+                    onThread = {
+                        navController.navigate("thread/${it.threadId}?favoriteId=${it.favoriteId}")
+                    },
+                )
             }
             composable("history") {
                 ReadingHistoryScreen(

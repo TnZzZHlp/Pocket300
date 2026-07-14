@@ -1,5 +1,8 @@
 package com.yamibo.pocket300.ui.screens
 
+import androidx.compose.animation.AnimatedVisibilityScope
+import androidx.compose.animation.ExperimentalSharedTransitionApi
+import androidx.compose.animation.SharedTransitionScope
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -29,9 +32,13 @@ import com.yamibo.pocket300.ui.api
 import com.yamibo.pocket300.ui.load
 import com.yamibo.pocket300.ui.plainText
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalSharedTransitionApi::class)
 @Composable
-internal fun FavoritesScreen(onThread: (YamiboFavoriteThread) -> Unit) {
+internal fun FavoritesScreen(
+    sharedTransitionScope: SharedTransitionScope,
+    animatedVisibilityScope: AnimatedVisibilityScope,
+    onThread: (YamiboFavoriteThread) -> Unit,
+) {
     var reload by remember { mutableStateOf(0) }
     var state: LoadState<List<YamiboFavoriteThread>> by remember { mutableStateOf(LoadState.Loading) }
     LaunchedEffect(reload) { state = load { api.favorites.getFavoriteThreads() } }
@@ -45,7 +52,15 @@ internal fun FavoritesScreen(onThread: (YamiboFavoriteThread) -> Unit) {
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     items(favorites, key = { it.favoriteId }) { favorite ->
-                        Card(onClick = { onThread(favorite) }, modifier = Modifier.fillMaxWidth()) {
+                        Card(
+                            onClick = { onThread(favorite) },
+                            modifier = with(sharedTransitionScope) {
+                                Modifier.sharedBounds(
+                                    rememberSharedContentState("thread-${favorite.threadId}"),
+                                    animatedVisibilityScope,
+                                )
+                            }.fillMaxWidth(),
+                        ) {
                             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                                 Text(favorite.title, style = MaterialTheme.typography.titleMedium)
                                 favorite.description.takeIf(String::isNotBlank)?.let {
