@@ -7,17 +7,19 @@ import org.junit.Test
 
 class ThreadTypographyTest {
     @Test
-    fun headingAndBodyShareTheSameBaseSize() {
-        val typography = threadTypography(Typography())
+    fun threadContentUsesTheStandardMediumBodyStyle() {
+        val appTypography = Typography()
+        val typography = threadTypography(appTypography)
 
-        assertEquals(typography.body.fontSize, typography.heading.fontSize)
-        assertEquals(typography.body.lineHeight, typography.heading.lineHeight)
+        assertEquals(appTypography.bodyMedium, typography.body)
+        assertEquals(appTypography.titleMedium, typography.heading)
     }
 
     @Test
     fun appTypographyUsesTheSharedContentScale() {
-        assertEquals(16.sp, PocketTypography.bodyLarge.fontSize)
-        assertEquals(24.sp, PocketTypography.bodyLarge.lineHeight)
-        assertEquals(PocketTypography.bodyLarge.fontSize, PocketTypography.titleMedium.fontSize)
+        assertEquals(14.sp, PocketTypography.bodyLarge.fontSize)
+        assertEquals(14.sp, PocketTypography.bodyMedium.fontSize)
+        assertEquals(22.sp, PocketTypography.bodyLarge.lineHeight)
+        assertEquals(20.sp, PocketTypography.bodyMedium.lineHeight)
     }
 }
