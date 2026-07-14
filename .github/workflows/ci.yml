@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -52,10 +52,22 @@ jobs:
           if-no-files-found: ignore
           retention-days: 14
 
-      - name: Upload debug APK
-        uses: actions/upload-artifact@v6
-        with:
-          name: pocket300-debug
-          path: app/build/outputs/apk/debug/app-debug.apk
-          if-no-files-found: error
-          retention-days: 14
+      - name: Publish debug APK
+        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          apk="Pocket300-debug.apk"
+          cp app/build/outputs/apk/debug/app-debug.apk "$apk"
+          if gh release view continuous >/dev/null 2>&1; then
+            gh release upload continuous "$apk" --clobber
+            gh release edit continuous \
+              --notes "Latest debug build from commit ${GITHUB_SHA}."
+          else
+            gh release create continuous "$apk" \
+              --target "$GITHUB_SHA" \
+              --title "Pocket300 continuous build" \
+              --notes "Latest debug build from commit ${GITHUB_SHA}." \
+              --prerelease
+          fi
