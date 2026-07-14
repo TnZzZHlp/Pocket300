@@ -1,6 +1,13 @@
 <resources>
     <string name="app_name">Pocket300</string>
     <string name="home_title">Pocket300</string>
+    <string name="tab_forum">论坛</string>
+    <string name="tab_list">列表</string>
+    <string name="tab_favorites">收藏</string>
+    <string name="tab_profile">我的</string>
+    <string name="list_title">列表</string>
+    <string name="profile_reading_history">阅读历史</string>
+    <string name="profile_reading_history_description">查看最近阅读过的主题</string>
     <string name="home_overview_title">论坛概览</string>
     <string name="home_overview_subtitle">快速了解社区动态</string>
     <string name="home_stat_today">今日新帖</string>

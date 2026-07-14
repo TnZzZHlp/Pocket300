@@ -17,6 +17,8 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.Logout
+import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
+import androidx.compose.material.icons.rounded.History
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -46,11 +48,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
+import com.yamibo.pocket300.R
 import com.yamibo.pocket300.api.DEFAULT_SECURITY_QUESTIONS
 import com.yamibo.pocket300.api.LoginInput
 import com.yamibo.pocket300.api.SecurityQuestionOption
@@ -66,7 +70,11 @@ import com.yamibo.pocket300.ui.load
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-internal fun ProfileScreen(onAuthStateChanged: () -> Unit, onSettings: () -> Unit) {
+internal fun ProfileScreen(
+    onAuthStateChanged: () -> Unit,
+    onHistory: () -> Unit,
+    onSettings: () -> Unit,
+) {
     var sessionState: LoadState<YamiboSession?> by remember { mutableStateOf(LoadState.Loading) }
     LaunchedEffect(Unit) { sessionState = load { api.auth.getCurrentSession() } }
 
@@ -80,7 +88,7 @@ internal fun ProfileScreen(onAuthStateChanged: () -> Unit, onSettings: () -> Uni
             )
 
             is LoadState.Ready -> if (current.value == null) {
-                LoginPanel(Modifier.padding(padding)) {
+                LoginPanel(Modifier.padding(padding), onHistory) {
                     sessionState = LoadState.Ready(it)
                     onAuthStateChanged()
                 }
@@ -88,6 +96,7 @@ internal fun ProfileScreen(onAuthStateChanged: () -> Unit, onSettings: () -> Uni
                 ProfileSummary(
                     session = current.value,
                     modifier = Modifier.padding(padding),
+                    onHistory = onHistory,
                     onLoggedOut = {
                         sessionState = LoadState.Ready(null)
                         onAuthStateChanged()
@@ -100,7 +109,11 @@ internal fun ProfileScreen(onAuthStateChanged: () -> Unit, onSettings: () -> Uni
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun LoginPanel(modifier: Modifier, onLoggedIn: (YamiboSession) -> Unit) {
+private fun LoginPanel(
+    modifier: Modifier,
+    onHistory: () -> Unit,
+    onLoggedIn: (YamiboSession) -> Unit,
+) {
     var account by rememberSaveable { mutableStateOf("") }
     var password by rememberSaveable { mutableStateOf("") }
     var answer by rememberSaveable { mutableStateOf("") }
@@ -243,6 +256,7 @@ private fun LoginPanel(modifier: Modifier, onLoggedIn: (YamiboSession) -> Unit) 
                 }
             }
         }
+        item { ProfileHistoryItem(onHistory) }
     }
     if (submitting) LaunchedEffect(account, password, selectedQuestion, answer) {
         when (val result =
@@ -256,7 +270,12 @@ private fun LoginPanel(modifier: Modifier, onLoggedIn: (YamiboSession) -> Unit) 
 }
 
 @Composable
-private fun ProfileSummary(session: YamiboSession, modifier: Modifier, onLoggedOut: () -> Unit) {
+private fun ProfileSummary(
+    session: YamiboSession,
+    modifier: Modifier,
+    onHistory: () -> Unit,
+    onLoggedOut: () -> Unit,
+) {
     var reload by remember { mutableStateOf(0) }
     var profile: LoadState<YamiboUserProfile> by remember { mutableStateOf(LoadState.Loading) }
     var loggingOut by remember { mutableStateOf(false) }
@@ -372,6 +391,7 @@ private fun ProfileSummary(session: YamiboSession, modifier: Modifier, onLoggedO
                 }
             }
         }
+        item { ProfileHistoryItem(onHistory) }
         item { Box(Modifier
             .fillMaxWidth()
             .widthIn(max = 720.dp)) { SectionLabel("个人资料") } }
@@ -446,6 +466,47 @@ private fun ProfileSummary(session: YamiboSession, modifier: Modifier, onLoggedO
             .onSuccess { onLoggedOut() }
             .onFailure { error = it.message ?: "退出失败" }
         loggingOut = false
+    }
+}
+
+@Composable
+private fun ProfileHistoryItem(onClick: () -> Unit) {
+    Card(
+        onClick = onClick,
+        modifier = Modifier
+            .fillMaxWidth()
+            .widthIn(max = 720.dp),
+        shape = RoundedCornerShape(20.dp),
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 18.dp, vertical = 16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(16.dp),
+        ) {
+            Icon(
+                Icons.Rounded.History,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+            )
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(
+                    stringResource(R.string.profile_reading_history),
+                    style = MaterialTheme.typography.titleMedium,
+                )
+                Text(
+                    stringResource(R.string.profile_reading_history_description),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Icon(
+                Icons.AutoMirrored.Rounded.KeyboardArrowRight,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
     }
 }
 
