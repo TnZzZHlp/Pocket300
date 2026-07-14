@@ -75,14 +75,13 @@ jobs:
             -PversionCode="$version_code" \
             --stacktrace
 
-      - name: Verify and package APK
+      - name: Verify and prepare APK
         shell: bash
         run: |
           apk="app/build/outputs/apk/release/app-release.apk"
           output="Pocket300-${GITHUB_REF_NAME}.apk"
           "$ANDROID_HOME/build-tools/36.1.0/apksigner" verify --verbose --print-certs "$apk"
           cp "$apk" "$output"
-          sha256sum "$output" > "$output.sha256"
 
       - name: Publish GitHub Release
         env:
@@ -91,11 +90,11 @@ jobs:
         run: |
           apk="Pocket300-${GITHUB_REF_NAME}.apk"
           if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
-            gh release upload "$GITHUB_REF_NAME" "$apk" "$apk.sha256" --clobber
+            gh release upload "$GITHUB_REF_NAME" "$apk" --clobber
           else
             args=(--verify-tag --generate-notes --title "Pocket300 ${GITHUB_REF_NAME}")
             if [[ "$GITHUB_REF_NAME" == *-* ]]; then
               args+=(--prerelease)
             fi
-            gh release create "$GITHUB_REF_NAME" "$apk" "$apk.sha256" "${args[@]}"
+            gh release create "$GITHUB_REF_NAME" "$apk" "${args[@]}"
           fi
