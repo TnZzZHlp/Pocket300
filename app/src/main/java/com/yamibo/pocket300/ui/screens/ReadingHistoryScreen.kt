@@ -44,6 +44,7 @@ private val historyTimeFormatter: DateTimeFormatter = DateTimeFormatter.ofPatter
 internal fun ReadingHistoryScreen(
     sharedTransitionScope: SharedTransitionScope,
     animatedVisibilityScope: AnimatedVisibilityScope,
+    onBack: () -> Unit,
     onThread: (ReadingHistoryEntry) -> Unit,
 ) {
     val context = LocalContext.current
@@ -53,7 +54,7 @@ internal fun ReadingHistoryScreen(
     LaunchedEffect(reload) {
         state = load { withContext(Dispatchers.IO) { database.getAll() } }
     }
-    ScreenScaffold("阅读历史", onRefresh = { reload++ }) { padding ->
+    ScreenScaffold("阅读历史", onBack = onBack, onRefresh = { reload++ }) { padding ->
         LoadContent(state, padding) { entries ->
             if (entries.isEmpty()) {
                 EmptyState("还没有阅读记录", "打开主题后会自动记录在这里。")

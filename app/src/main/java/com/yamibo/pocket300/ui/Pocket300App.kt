@@ -1,5 +1,6 @@
 package com.yamibo.pocket300.ui
 
+import androidx.annotation.StringRes
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionLayout
@@ -8,10 +9,10 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.List
 import androidx.compose.material.icons.rounded.AccountCircle
 import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.Forum
-import androidx.compose.material.icons.rounded.History
 import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
@@ -27,16 +28,21 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import com.yamibo.pocket300.R
 import com.yamibo.pocket300.api.YamiboApi
+import com.yamibo.pocket300.ui.screens.CustomListDetailScreen
+import com.yamibo.pocket300.ui.screens.CustomListEditorScreen
 import com.yamibo.pocket300.ui.screens.FavoritesScreen
 import com.yamibo.pocket300.ui.screens.ForumIndexScreen
 import com.yamibo.pocket300.ui.screens.ForumScreen
+import com.yamibo.pocket300.ui.screens.ListScreen
 import com.yamibo.pocket300.ui.screens.ProfileScreen
 import com.yamibo.pocket300.ui.screens.ReaderContent
 import com.yamibo.pocket300.ui.screens.ReaderScreen
@@ -49,13 +55,13 @@ import com.yamibo.pocket300.ui.theme.PocketTheme
 
 internal val api = YamiboApi()
 
-private data class Tab(val route: String, val label: String, val icon: ImageVector)
+private data class Tab(val route: String, @param:StringRes val label: Int, val icon: ImageVector)
 
 private val tabs = listOf(
-    Tab("home", "论坛", Icons.Rounded.Forum),
-    Tab("history", "历史", Icons.Rounded.History),
-    Tab("favorites", "收藏", Icons.Rounded.Favorite),
-    Tab("profile", "我的", Icons.Rounded.AccountCircle),
+    Tab("home", R.string.tab_forum, Icons.Rounded.Forum),
+    Tab("list", R.string.tab_list, Icons.AutoMirrored.Rounded.List),
+    Tab("favorites", R.string.tab_favorites, Icons.Rounded.Favorite),
+    Tab("profile", R.string.tab_profile, Icons.Rounded.AccountCircle),
 )
 
 @OptIn(ExperimentalSharedTransitionApi::class)
@@ -95,10 +101,52 @@ fun Pocket300App() {
                     },
                 )
             }
+            composable("list") {
+                ListScreen(
+                    onCreate = { navController.navigate("custom-list/new") },
+                    onOpen = { navController.navigate("custom-list/$it") },
+                )
+            }
+            composable("custom-list/new") {
+                CustomListEditorScreen(
+                    listId = null,
+                    onBack = navController::navigateUp,
+                    onSaved = { listId ->
+                        navController.navigate("custom-list/$listId") {
+                            popUpTo("custom-list/new") { inclusive = true }
+                        }
+                    },
+                    onDeleted = navController::navigateUp,
+                )
+            }
+            composable(
+                route = "custom-list/{listId}",
+                arguments = listOf(navArgument("listId") { type = NavType.LongType }),
+            ) { backStack ->
+                val listId = backStack.arguments?.getLong("listId") ?: return@composable
+                CustomListDetailScreen(
+                    listId = listId,
+                    onBack = navController::navigateUp,
+                    onEdit = { navController.navigate("custom-list/$listId/edit") },
+                    onThread = { navController.navigate("thread/${it.threadId}") },
+                )
+            }
+            composable(
+                route = "custom-list/{listId}/edit",
+                arguments = listOf(navArgument("listId") { type = NavType.LongType }),
+            ) { backStack ->
+                CustomListEditorScreen(
+                    listId = backStack.arguments?.getLong("listId") ?: return@composable,
+                    onBack = navController::navigateUp,
+                    onSaved = { navController.navigateUp() },
+                    onDeleted = { navController.popBackStack("list", inclusive = false) },
+                )
+            }
             composable("history") {
                 ReadingHistoryScreen(
                     sharedTransitionScope = sharedTransitionScope,
                     animatedVisibilityScope = this,
+                    onBack = navController::navigateUp,
                     onThread = {
                         navController.navigate("thread/${it.threadId}?floor=${it.lastReadFloor}")
                     },
@@ -107,6 +155,7 @@ fun Pocket300App() {
             composable("profile") {
                 ProfileScreen(
                     onAuthStateChanged = { authStateVersion++ },
+                    onHistory = { navController.navigate("history") },
                     onSettings = { navController.navigate("settings") },
                 )
             }
@@ -229,7 +278,7 @@ fun Pocket300App() {
                             }
                         },
                         icon = { Icon(tab.icon, contentDescription = null) },
-                        label = { Text(tab.label) },
+                        label = { Text(stringResource(tab.label)) },
                     )
                 }
             }
