@@ -19,8 +19,9 @@ Run from repository root with the Gradle wrapper:
 - `.\gradlew.bat testDebugUnitTest` - Run local JUnit tests
 - `.\gradlew.bat lintDebug` - Run Android lint
 - `.\gradlew.bat installDebug` - Install debug build on connected device
+- `.\gradlew.bat testDebugUnitTest lintDebug assembleDebug` - Full CI verification (run before push)
 
-Use `./gradlew` on macOS/Linux. Open the repository root in Android Studio for Compose previews and interactive debugging.
+Use `./gradlew` on macOS/Linux. JDK 17 required (AGP 9.x). Open the repository root in Android Studio for Compose previews and interactive debugging.
 
 ## Release Builds
 
@@ -30,6 +31,8 @@ Use `./gradlew` on macOS/Linux. Open the repository root in Android Studio for C
 - `ANDROID_SDK_ROOT` or `sdk.dir` in `local.properties`
 
 Run: `.\build-release.ps1` - prompts for keystore password and outputs to `app\build\outputs\apk\release\app-release-signed.apk`.
+
+CI releases are triggered by tags matching `v*` (e.g., `v1.2.3`, `v1.0.0-beta.1`). Pushing such a tag builds and publishes a signed release APK to GitHub Releases.
 
 ## Coding Conventions
 
