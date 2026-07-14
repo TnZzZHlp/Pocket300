@@ -75,7 +75,7 @@ import com.yamibo.pocket300.ui.rememberPostImageRequest
 import com.yamibo.pocket300.ui.resolvePostLink
 import coil.compose.AsyncImage
 
-private data class ReaderContent(val thread: YamiboThreadDetails, val post: YamiboPost)
+internal data class ReaderContent(val thread: YamiboThreadDetails, val post: YamiboPost)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -83,6 +83,7 @@ internal fun ReaderScreen(
     threadId: Int,
     postId: Int,
     initialPage: Int,
+    initialContent: ReaderContent?,
     onBack: () -> Unit,
     onForum: (Int) -> Unit,
     onThread: (PostLinkTarget.Thread) -> Unit,
@@ -90,7 +91,12 @@ internal fun ReaderScreen(
     val context = LocalContext.current
     val preferencesStore = remember(context) { ReaderPreferencesStore(context) }
     var preferences by remember { mutableStateOf(preferencesStore.load()) }
-    var state: LoadState<ReaderContent> by remember(threadId, postId) { mutableStateOf(LoadState.Loading) }
+    val reusableContent = initialContent?.takeUnless {
+        needsReaderContentLoad(it.thread.id, it.post.id, threadId, postId)
+    }
+    var state: LoadState<ReaderContent> by remember(threadId, postId, reusableContent) {
+        mutableStateOf(reusableContent?.let { LoadState.Ready(it) } ?: LoadState.Loading)
+    }
     var controlsVisible by remember { mutableStateOf(true) }
     var settingsVisible by remember { mutableStateOf(false) }
     var readerMode by remember(threadId, postId) { mutableStateOf(preferencesStore.loadMode()) }
@@ -100,7 +106,8 @@ internal fun ReaderScreen(
     val uriHandler = LocalUriHandler.current
     val postNotFoundMessage = stringResource(R.string.reader_post_not_found)
 
-    LaunchedEffect(threadId, postId, initialPage) {
+    LaunchedEffect(threadId, postId, initialPage, reusableContent) {
+        if (reusableContent != null) return@LaunchedEffect
         state = load {
             var page = api.posts.getThreadPosts(GetThreadPostsInput(threadId, initialPage.coerceAtLeast(1)))
             var post = page.posts.firstOrNull { it.id == postId }
@@ -351,6 +358,13 @@ internal fun ReaderScreen(
         }
     }
 }
+
+internal fun needsReaderContentLoad(
+    cachedThreadId: Int?,
+    cachedPostId: Int?,
+    threadId: Int,
+    postId: Int,
+): Boolean = cachedThreadId != threadId || cachedPostId != postId
 
 private const val READER_IMAGE_EDGE_FRACTION = 0.25f
 

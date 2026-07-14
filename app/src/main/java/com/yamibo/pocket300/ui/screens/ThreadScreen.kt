@@ -102,7 +102,7 @@ internal fun ThreadScreen(
     onBack: () -> Unit,
     onForum: (Int) -> Unit,
     onRatings: (Int, Int) -> Unit,
-    onReader: (Int, Int, Int) -> Unit,
+    onReader: (ReaderContent, Int) -> Unit,
     onThread: (PostLinkTarget.Thread) -> Unit,
 ) {
     val viewModel: ThreadViewModel = viewModel()
@@ -284,7 +284,10 @@ internal fun ThreadScreen(
                         onRatings = { onRatings(post.threadId, post.id) },
                         onReader = {
                             val postPage = ((post.position - 1) / page.pagination.pageSize) + 1
-                            onReader(post.threadId, post.id, postPage.coerceAtLeast(1))
+                            onReader(
+                                ReaderContent(thread = page.thread, post = post),
+                                postPage.coerceAtLeast(1),
+                            )
                         },
                         onThread = { target ->
                             if (target.id == threadId && target.postId != null) {

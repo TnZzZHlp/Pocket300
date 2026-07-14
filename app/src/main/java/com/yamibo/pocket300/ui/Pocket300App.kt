@@ -38,6 +38,7 @@ import com.yamibo.pocket300.ui.screens.FavoritesScreen
 import com.yamibo.pocket300.ui.screens.ForumIndexScreen
 import com.yamibo.pocket300.ui.screens.ForumScreen
 import com.yamibo.pocket300.ui.screens.ProfileScreen
+import com.yamibo.pocket300.ui.screens.ReaderContent
 import com.yamibo.pocket300.ui.screens.ReaderScreen
 import com.yamibo.pocket300.ui.screens.RatingsScreen
 import com.yamibo.pocket300.ui.screens.ReadingHistoryScreen
@@ -67,6 +68,7 @@ fun Pocket300App() {
     PocketTheme(colorTheme = colorTheme) {
         val navController = rememberNavController()
         var authStateVersion by rememberSaveable { mutableIntStateOf(0) }
+        var readerContent by remember { mutableStateOf<ReaderContent?>(null) }
         val entry by navController.currentBackStackEntryAsState()
         val route = entry?.destination?.route.orEmpty()
         val isTopLevel = tabs.any { it.route == route }
@@ -156,8 +158,11 @@ fun Pocket300App() {
                     onBack = navController::navigateUp,
                     onForum = { navController.navigate("forum/$it") },
                     onRatings = { threadId, postId -> navController.navigate("ratings/$threadId/$postId") },
-                    onReader = { threadId, postId, page ->
-                        navController.navigate("reader/$threadId/$postId/$page")
+                    onReader = { content, page ->
+                        readerContent = content
+                        navController.navigate(
+                            "reader/${content.thread.id}/${content.post.id}/$page",
+                        )
                     },
                     onThread = {
                         navController.navigate(
@@ -178,6 +183,7 @@ fun Pocket300App() {
                     threadId = backStack.arguments?.getInt("threadId") ?: return@composable,
                     postId = backStack.arguments?.getInt("postId") ?: return@composable,
                     initialPage = backStack.arguments?.getInt("page") ?: 1,
+                    initialContent = readerContent,
                     onBack = navController::navigateUp,
                     onForum = { navController.navigate("forum/$it") },
                     onThread = {
