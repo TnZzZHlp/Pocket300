@@ -43,6 +43,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -55,11 +56,15 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import com.yamibo.pocket300.R
 import com.yamibo.pocket300.api.GetThreadPostsInput
 import com.yamibo.pocket300.api.YamiboPost
@@ -106,7 +111,25 @@ internal fun ReaderScreen(
     var imageIndex by remember(threadId, postId) { mutableStateOf(0) }
     val scrollState = rememberScrollState()
     val uriHandler = LocalUriHandler.current
+    val view = LocalView.current
     val postNotFoundMessage = stringResource(R.string.reader_post_not_found)
+
+    LaunchedEffect(view, controlsVisible) {
+        val controller = ViewCompat.getWindowInsetsController(view) ?: return@LaunchedEffect
+        if (controlsVisible) {
+            controller.show(WindowInsetsCompat.Type.statusBars())
+        } else {
+            controller.systemBarsBehavior =
+                WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            controller.hide(WindowInsetsCompat.Type.statusBars())
+        }
+    }
+    DisposableEffect(view) {
+        onDispose {
+            ViewCompat.getWindowInsetsController(view)
+                ?.show(WindowInsetsCompat.Type.statusBars())
+        }
+    }
 
     LaunchedEffect(threadId, postId, initialPage, reusableContent) {
         if (reusableContent != null) return@LaunchedEffect
