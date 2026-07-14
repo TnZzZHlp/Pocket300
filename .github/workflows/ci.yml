@@ -22,7 +22,7 @@ jobs:
     env:
       RELEASE_KEYSTORE_BASE64: ${{ github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && secrets.RELEASE_KEYSTORE_BASE64 || '' }}
       RELEASE_STORE_PASSWORD: ${{ github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && secrets.RELEASE_STORE_PASSWORD || '' }}
-      RELEASE_KEY_ALIAS: ${{ github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && secrets.RELEASE_KEY_ALIAS || '' }}
+      RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS || 'pocket300' }}
       RELEASE_KEY_PASSWORD: ${{ github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && secrets.RELEASE_KEY_PASSWORD || '' }}
 
     steps:
@@ -47,7 +47,7 @@ jobs:
         if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
         shell: bash
         run: |
-          for name in RELEASE_KEYSTORE_BASE64 RELEASE_STORE_PASSWORD RELEASE_KEY_ALIAS RELEASE_KEY_PASSWORD; do
+          for name in RELEASE_KEYSTORE_BASE64 RELEASE_STORE_PASSWORD RELEASE_KEY_PASSWORD; do
             if [[ -z "${!name}" ]]; then
               echo "Missing repository secret: $name" >&2
               exit 1
