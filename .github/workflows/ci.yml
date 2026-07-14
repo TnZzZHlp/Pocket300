@@ -15,7 +15,7 @@ concurrency:
 
 jobs:
   verify:
-    name: Test, lint and build
+    name: CI
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
