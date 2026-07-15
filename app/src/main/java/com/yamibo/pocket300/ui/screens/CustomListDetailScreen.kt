@@ -1,5 +1,8 @@
 package com.yamibo.pocket300.ui.screens
 
+import androidx.compose.animation.AnimatedVisibilityScope
+import androidx.compose.animation.ExperimentalSharedTransitionApi
+import androidx.compose.animation.SharedTransitionScope
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -51,9 +54,12 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
+@OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
 internal fun CustomListDetailScreen(
     listId: Long,
+    sharedTransitionScope: SharedTransitionScope,
+    animatedVisibilityScope: AnimatedVisibilityScope,
     onBack: () -> Unit,
     onEdit: () -> Unit,
     onThread: (CustomListThread) -> Unit,
@@ -188,6 +194,12 @@ internal fun CustomListDetailScreen(
                                     CustomListThreadCard(
                                         thread = thread,
                                         onClick = onThread,
+                                        modifier = with(sharedTransitionScope) {
+                                            Modifier.sharedBounds(
+                                                rememberSharedContentState("thread-${thread.threadId}"),
+                                                animatedVisibilityScope,
+                                            )
+                                        },
                                         onExclude = {
                                             scope.launch {
                                                 withContext(Dispatchers.IO) {
@@ -288,11 +300,12 @@ private fun CustomListThreadCard(
     thread: CustomListThread,
     onClick: (CustomListThread) -> Unit,
     onExclude: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     val histories = LocalReadingHistory.current
     Card(
         onClick = { onClick(thread) },
-        modifier = Modifier.fillMaxWidth().dimIfRead(thread.threadId, histories),
+        modifier = modifier.fillMaxWidth().dimIfRead(thread.threadId, histories),
     ) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
             Column(
