@@ -40,8 +40,10 @@ import com.yamibo.pocket300.data.CustomListThread
 import com.yamibo.pocket300.data.CustomThreadList
 import com.yamibo.pocket300.ui.EmptyState
 import com.yamibo.pocket300.ui.Loading
+import com.yamibo.pocket300.ui.LocalReadingHistory
 import com.yamibo.pocket300.ui.ScreenScaffold
 import com.yamibo.pocket300.ui.api
+import com.yamibo.pocket300.ui.dimIfRead
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -185,7 +187,11 @@ private fun CustomListThreadCard(
     onClick: (CustomListThread) -> Unit,
     onExclude: () -> Unit,
 ) {
-    Card(onClick = { onClick(thread) }, modifier = Modifier.fillMaxWidth()) {
+    val histories = LocalReadingHistory.current
+    Card(
+        onClick = { onClick(thread) },
+        modifier = Modifier.fillMaxWidth().dimIfRead(thread.threadId, histories),
+    ) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
             Column(
                 Modifier.weight(1f).padding(start = 16.dp, top = 16.dp, bottom = 16.dp),

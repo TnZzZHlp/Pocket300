@@ -14,10 +14,14 @@ import androidx.compose.material.icons.rounded.AccountCircle
 import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.Forum
 import androidx.compose.material3.Icon
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -37,6 +41,8 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.yamibo.pocket300.R
 import com.yamibo.pocket300.api.YamiboApi
+import com.yamibo.pocket300.data.ReadingHistoryDatabase
+import com.yamibo.pocket300.data.ReadingHistoryEntry
 import com.yamibo.pocket300.ui.screens.CustomListDetailScreen
 import com.yamibo.pocket300.ui.screens.CustomListEditorScreen
 import com.yamibo.pocket300.ui.screens.FavoritesScreen
@@ -64,11 +70,15 @@ private val tabs = listOf(
     Tab("profile", R.string.tab_profile, Icons.Rounded.AccountCircle),
 )
 
+private data class PendingThreadNavigation(val route: String, val history: ReadingHistoryEntry)
+
 @OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
 fun Pocket300App() {
     val context = LocalContext.current
     val themePreferencesStore = remember(context) { AppThemePreferencesStore(context) }
+    val historyDatabase = remember(context) { ReadingHistoryDatabase.getInstance(context) }
+    val readingHistory by historyDatabase.entries.collectAsState()
     var colorTheme by rememberSaveable { mutableStateOf(themePreferencesStore.load()) }
 
     PocketTheme(colorTheme = colorTheme) {
@@ -78,7 +88,18 @@ fun Pocket300App() {
         val entry by navController.currentBackStackEntryAsState()
         val route = entry?.destination?.route.orEmpty()
         val isTopLevel = tabs.any { it.route == route }
+        var pendingThread by remember { mutableStateOf<PendingThreadNavigation?>(null) }
 
+        fun openThread(threadId: Int, route: String) {
+            val history = readingHistory[threadId]
+            if (history != null && history.lastReadFloor > 1) {
+                pendingThread = PendingThreadNavigation(route, history)
+            } else {
+                navController.navigate(route)
+            }
+        }
+
+        CompositionLocalProvider(LocalReadingHistory provides readingHistory) {
         SharedTransitionLayout {
       val sharedTransitionScope = this
       Box(Modifier.fillMaxSize()) {
@@ -97,7 +118,10 @@ fun Pocket300App() {
                     sharedTransitionScope = sharedTransitionScope,
                     animatedVisibilityScope = this,
                     onThread = {
-                        navController.navigate("thread/${it.threadId}?favoriteId=${it.favoriteId}")
+                        openThread(
+                            it.threadId,
+                            "thread/${it.threadId}?favoriteId=${it.favoriteId}",
+                        )
                     },
                 )
             }
@@ -128,7 +152,7 @@ fun Pocket300App() {
                     listId = listId,
                     onBack = navController::navigateUp,
                     onEdit = { navController.navigate("custom-list/$listId/edit") },
-                    onThread = { navController.navigate("thread/${it.threadId}") },
+                    onThread = { openThread(it.threadId, "thread/${it.threadId}") },
                 )
             }
             composable(
@@ -148,7 +172,7 @@ fun Pocket300App() {
                     animatedVisibilityScope = this,
                     onBack = navController::navigateUp,
                     onThread = {
-                        navController.navigate("thread/${it.threadId}?floor=${it.lastReadFloor}")
+                        openThread(it.threadId, "thread/${it.threadId}")
                     },
                 )
             }
@@ -174,7 +198,7 @@ fun Pocket300App() {
                     sharedTransitionScope = sharedTransitionScope,
                     animatedVisibilityScope = this,
                     onBack = navController::navigateUp,
-                    onThread = { navController.navigate("thread/${it.id}") },
+                    onThread = { openThread(it.id, "thread/${it.id}") },
                 )
             }
             composable(
@@ -187,7 +211,7 @@ fun Pocket300App() {
                     animatedVisibilityScope = this,
                     onBack = navController::navigateUp,
                     onForum = { navController.navigate("forum/$it") },
-                    onThread = { navController.navigate("thread/${it.id}") },
+                    onThread = { openThread(it.id, "thread/${it.id}") },
                 )
             }
             composable(
@@ -283,7 +307,43 @@ fun Pocket300App() {
                 }
             }
         }
+        pendingThread?.let { pending ->
+            AlertDialog(
+                onDismissRequest = { pendingThread = null },
+                title = { Text(stringResource(R.string.thread_resume_title)) },
+                text = {
+                    Text(
+                        stringResource(
+                            R.string.thread_resume_message,
+                            pending.history.lastReadFloor,
+                        ),
+                    )
+                },
+                dismissButton = {
+                    TextButton(
+                        onClick = {
+                            pendingThread = null
+                            navController.navigate(pending.route)
+                        },
+                    ) { Text(stringResource(R.string.thread_start_from_beginning)) }
+                },
+                confirmButton = {
+                    TextButton(
+                        onClick = {
+                            pendingThread = null
+                            navController.navigate(
+                                routeWithLastReadFloor(
+                                    pending.route,
+                                    pending.history.lastReadFloor,
+                                ),
+                            )
+                        },
+                    ) { Text(stringResource(R.string.thread_jump_to_last_read)) }
+                },
+            )
+        }
       }
+        }
         }
     }
 }

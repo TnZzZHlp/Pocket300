@@ -32,7 +32,9 @@ import com.yamibo.pocket300.api.YamiboSearchThread
 import com.yamibo.pocket300.ui.EmptyState
 import com.yamibo.pocket300.ui.LoadState
 import com.yamibo.pocket300.ui.Loading
+import com.yamibo.pocket300.ui.LocalReadingHistory
 import com.yamibo.pocket300.ui.ScreenScaffold
+import com.yamibo.pocket300.ui.dimIfRead
 import com.yamibo.pocket300.ui.components.AutoLoadNextPage
 import com.yamibo.pocket300.ui.components.ListFooter
 import com.yamibo.pocket300.ui.viewmodels.SearchContent
@@ -144,7 +146,11 @@ private fun SearchThreadCard(
     onClick: (YamiboSearchThread) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    Card(onClick = { onClick(thread) }, modifier = modifier.fillMaxWidth()) {
+    val histories = LocalReadingHistory.current
+    Card(
+        onClick = { onClick(thread) },
+        modifier = modifier.fillMaxWidth().dimIfRead(thread.id, histories),
+    ) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(thread.forum.name, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
             Text(thread.subject, style = MaterialTheme.typography.titleMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)

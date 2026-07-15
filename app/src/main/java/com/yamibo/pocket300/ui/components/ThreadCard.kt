@@ -12,10 +12,16 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.yamibo.pocket300.api.YamiboThread
+import com.yamibo.pocket300.ui.LocalReadingHistory
+import com.yamibo.pocket300.ui.dimIfRead
 
 @Composable
 internal fun ThreadCard(thread: YamiboThread, onClick: (YamiboThread) -> Unit, modifier: Modifier = Modifier) {
-    Card(onClick = { onClick(thread) }, modifier = modifier.fillMaxWidth()) {
+    val histories = LocalReadingHistory.current
+    Card(
+        onClick = { onClick(thread) },
+        modifier = modifier.fillMaxWidth().dimIfRead(thread.id, histories),
+    ) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             if (thread.typeName != null) Text(thread.typeName, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
             Text(thread.subject, style = MaterialTheme.typography.titleMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)

@@ -29,10 +29,12 @@ import com.yamibo.pocket300.api.YamiboFavoriteThread
 import com.yamibo.pocket300.ui.EmptyState
 import com.yamibo.pocket300.ui.LoadContent
 import com.yamibo.pocket300.ui.LoadState
+import com.yamibo.pocket300.ui.LocalReadingHistory
 import com.yamibo.pocket300.ui.ScreenScaffold
 import com.yamibo.pocket300.ui.api
 import com.yamibo.pocket300.ui.load
 import com.yamibo.pocket300.ui.plainText
+import com.yamibo.pocket300.ui.dimIfRead
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalSharedTransitionApi::class)
@@ -42,6 +44,7 @@ internal fun FavoritesScreen(
     animatedVisibilityScope: AnimatedVisibilityScope,
     onThread: (YamiboFavoriteThread) -> Unit,
 ) {
+    val histories = LocalReadingHistory.current
     var reload by remember { mutableStateOf(0) }
     val listState = rememberLazyListState()
     val coroutineScope = rememberCoroutineScope()
@@ -69,7 +72,7 @@ internal fun FavoritesScreen(
                                     rememberSharedContentState("thread-${favorite.threadId}"),
                                     animatedVisibilityScope,
                                 )
-                            }.fillMaxWidth(),
+                            }.fillMaxWidth().dimIfRead(favorite.threadId, histories),
                         ) {
                             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                                 Text(favorite.title, style = MaterialTheme.typography.titleMedium)
