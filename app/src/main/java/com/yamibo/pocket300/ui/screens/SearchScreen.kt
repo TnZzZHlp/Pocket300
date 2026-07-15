@@ -197,7 +197,7 @@ private fun SearchForm(
             )
             Button(
                 onClick = onSubmit,
-                modifier = Modifier.heightIn(min = 56.dp),
+                modifier = Modifier.padding(top = 8.dp).heightIn(min = 56.dp),
             ) {
                 Text(stringResource(R.string.search_action))
             }
