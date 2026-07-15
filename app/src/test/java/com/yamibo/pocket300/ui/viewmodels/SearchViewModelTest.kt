@@ -3,6 +3,7 @@ package com.yamibo.pocket300.ui.viewmodels
 import com.yamibo.pocket300.api.YamiboThreadSearchType
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class SearchViewModelTest {
@@ -30,5 +31,35 @@ class SearchViewModelTest {
     fun acceptsTextAndPositiveUserIdQueries() {
         assertNull(validateSearchQuery("  百合  ", YamiboThreadSearchType.KEYWORD))
         assertNull(validateSearchQuery("300", YamiboThreadSearchType.USER_ID))
+    }
+
+    @Test
+    fun buildsForumRequestWhenForumIdIsPresent() {
+        val request = buildThreadSearchRequest(
+            keyword = "百合",
+            page = 2,
+            searchId = 300,
+            type = YamiboThreadSearchType.TITLE,
+            forumId = 12,
+        )
+
+        assertTrue(request is ThreadSearchRequest.Forum)
+        val input = (request as ThreadSearchRequest.Forum).input
+        assertEquals(12, input.forumId)
+        assertEquals(2, input.page)
+        assertEquals(300, input.searchId)
+    }
+
+    @Test
+    fun buildsSiteRequestWithoutForumId() {
+        val request = buildThreadSearchRequest(
+            keyword = "百合",
+            page = 1,
+            searchId = null,
+            type = YamiboThreadSearchType.KEYWORD,
+            forumId = null,
+        )
+
+        assertTrue(request is ThreadSearchRequest.Site)
     }
 }
