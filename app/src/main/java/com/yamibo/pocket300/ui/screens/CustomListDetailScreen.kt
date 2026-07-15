@@ -9,12 +9,14 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Block
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -25,6 +27,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -60,6 +63,7 @@ internal fun CustomListDetailScreen(
     val repository = remember(database) { CustomListRepository(database, api.search) }
     val scope = rememberCoroutineScope()
     val listState = rememberLazyListState()
+    val histories = LocalReadingHistory.current
     val syncFailedMessage = stringResource(R.string.custom_list_sync_failed)
     var list by remember(listId) { mutableStateOf<CustomThreadList?>(null) }
     var threads by remember(listId) { mutableStateOf<List<CustomListThread>>(emptyList()) }
@@ -67,6 +71,16 @@ internal fun CustomListDetailScreen(
     var syncing by remember(listId) { mutableStateOf(false) }
     var progress by remember(listId) { mutableStateOf<CustomListSyncProgress?>(null) }
     var error by remember(listId) { mutableStateOf<String?>(null) }
+    var readFilter by rememberSaveable(listId) { mutableStateOf(ThreadReadFilter.ALL) }
+    var publicationOrder by rememberSaveable(listId) {
+        mutableStateOf(ThreadPublicationOrder.NEWEST_FIRST)
+    }
+    val displayedThreads = filterAndSortCustomListThreads(
+        threads = threads,
+        readThreadIds = histories.keys,
+        readFilter = readFilter,
+        publicationOrder = publicationOrder,
+    )
 
     suspend fun loadLocal(): CustomThreadList? = withContext(Dispatchers.IO) {
         database.getList(listId).also { loaded ->
@@ -150,32 +164,120 @@ internal fun CustomListDetailScreen(
                         Modifier.weight(1f),
                     )
                 } else {
-                    LazyColumn(
-                        state = listState,
-                        modifier = Modifier.weight(1f),
-                        contentPadding = PaddingValues(16.dp),
-                        verticalArrangement = Arrangement.spacedBy(12.dp),
-                    ) {
-                        items(threads, key = CustomListThread::threadId) { thread ->
-                            CustomListThreadCard(
-                                thread = thread,
-                                onClick = onThread,
-                                onExclude = {
-                                    scope.launch {
-                                        withContext(Dispatchers.IO) {
-                                            database.excludeThread(listId, thread.threadId)
-                                        }
-                                        threads = threads.filterNot { it.threadId == thread.threadId }
-                                        list = list?.copy(
-                                            threadCount = (list?.threadCount ?: 1).minus(1).coerceAtLeast(0),
-                                            excludedCount = (list?.excludedCount ?: 0) + 1,
-                                        )
-                                    }
-                                },
+                    Column(Modifier.weight(1f)) {
+                        CustomListDisplayControls(
+                            readFilter = readFilter,
+                            onReadFilterChange = { readFilter = it },
+                            publicationOrder = publicationOrder,
+                            onPublicationOrderChange = { publicationOrder = it },
+                        )
+                        if (displayedThreads.isEmpty() && !syncing) {
+                            EmptyState(
+                                stringResource(R.string.custom_list_filter_empty_title),
+                                stringResource(R.string.custom_list_filter_empty_message),
+                                Modifier.weight(1f),
                             )
+                        } else {
+                            LazyColumn(
+                                state = listState,
+                                modifier = Modifier.weight(1f),
+                                contentPadding = PaddingValues(16.dp),
+                                verticalArrangement = Arrangement.spacedBy(12.dp),
+                            ) {
+                                items(displayedThreads, key = CustomListThread::threadId) { thread ->
+                                    CustomListThreadCard(
+                                        thread = thread,
+                                        onClick = onThread,
+                                        onExclude = {
+                                            scope.launch {
+                                                withContext(Dispatchers.IO) {
+                                                    database.excludeThread(listId, thread.threadId)
+                                                }
+                                                threads = threads.filterNot {
+                                                    it.threadId == thread.threadId
+                                                }
+                                                list = list?.copy(
+                                                    threadCount = (list?.threadCount ?: 1)
+                                                        .minus(1).coerceAtLeast(0),
+                                                    excludedCount = (list?.excludedCount ?: 0) + 1,
+                                                )
+                                            }
+                                        },
+                                    )
+                                }
+                            }
                         }
                     }
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun CustomListDisplayControls(
+    readFilter: ThreadReadFilter,
+    onReadFilterChange: (ThreadReadFilter) -> Unit,
+    publicationOrder: ThreadPublicationOrder,
+    onPublicationOrderChange: (ThreadPublicationOrder) -> Unit,
+) {
+    Column(
+        modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        Text(
+            stringResource(R.string.custom_list_read_filter),
+            modifier = Modifier.padding(horizontal = 16.dp),
+            style = MaterialTheme.typography.labelLarge,
+        )
+        LazyRow(
+            contentPadding = PaddingValues(horizontal = 16.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            item {
+                FilterChip(
+                    selected = readFilter == ThreadReadFilter.ALL,
+                    onClick = { onReadFilterChange(ThreadReadFilter.ALL) },
+                    label = { Text(stringResource(R.string.custom_list_read_all)) },
+                )
+            }
+            item {
+                FilterChip(
+                    selected = readFilter == ThreadReadFilter.READ,
+                    onClick = { onReadFilterChange(ThreadReadFilter.READ) },
+                    label = { Text(stringResource(R.string.custom_list_read_only)) },
+                )
+            }
+            item {
+                FilterChip(
+                    selected = readFilter == ThreadReadFilter.UNREAD,
+                    onClick = { onReadFilterChange(ThreadReadFilter.UNREAD) },
+                    label = { Text(stringResource(R.string.custom_list_unread_only)) },
+                )
+            }
+        }
+        Text(
+            stringResource(R.string.custom_list_publication_order),
+            modifier = Modifier.padding(horizontal = 16.dp),
+            style = MaterialTheme.typography.labelLarge,
+        )
+        LazyRow(
+            contentPadding = PaddingValues(horizontal = 16.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            item {
+                FilterChip(
+                    selected = publicationOrder == ThreadPublicationOrder.NEWEST_FIRST,
+                    onClick = { onPublicationOrderChange(ThreadPublicationOrder.NEWEST_FIRST) },
+                    label = { Text(stringResource(R.string.custom_list_newest_first)) },
+                )
+            }
+            item {
+                FilterChip(
+                    selected = publicationOrder == ThreadPublicationOrder.OLDEST_FIRST,
+                    onClick = { onPublicationOrderChange(ThreadPublicationOrder.OLDEST_FIRST) },
+                    label = { Text(stringResource(R.string.custom_list_oldest_first)) },
+                )
             }
         }
     }
