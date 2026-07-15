@@ -80,6 +80,7 @@ internal fun ForumScreen(
     animatedVisibilityScope: AnimatedVisibilityScope,
     onBack: () -> Unit,
     onForum: (Int) -> Unit,
+    onSearch: () -> Unit,
     onThread: (YamiboThread) -> Unit,
 ) {
     val cachedSnapshot = remember(forumId) { forumSnapshots[forumId] }
@@ -141,6 +142,7 @@ internal fun ForumScreen(
         },
         title = (state as? LoadState.Ready)?.value?.page?.forum?.name ?: "板块",
         onBack = onBack,
+        onSearch = onSearch,
         onRefresh = { pageNumber = 1; reload++ },
         onTopBarDoubleClick = { coroutineScope.launch { listState.animateScrollToItem(0) } },
     ) { padding ->

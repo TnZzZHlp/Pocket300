@@ -195,7 +195,12 @@ fun Pocket300App() {
                     onBack = navController::navigateUp,
                 )
             }
-            composable("search") {
+            composable(
+                route = "search?forumId={forumId}",
+                arguments = listOf(
+                    navArgument("forumId") { type = NavType.IntType; defaultValue = 0 },
+                ),
+            ) {
                 SearchScreen(
                     sharedTransitionScope = sharedTransitionScope,
                     animatedVisibilityScope = this,
@@ -207,12 +212,14 @@ fun Pocket300App() {
                 route = "forum/{forumId}",
                 arguments = listOf(navArgument("forumId") { type = NavType.IntType }),
             ) { backStack ->
+                val forumId = backStack.arguments?.getInt("forumId") ?: return@composable
                 ForumScreen(
-                    forumId = backStack.arguments?.getInt("forumId") ?: return@composable,
+                    forumId = forumId,
                     sharedTransitionScope = sharedTransitionScope,
                     animatedVisibilityScope = this,
                     onBack = navController::navigateUp,
                     onForum = { navController.navigate("forum/$it") },
+                    onSearch = { navController.navigate("search?forumId=$forumId") },
                     onThread = { openThread(it.id, "thread/${it.id}") },
                 )
             }

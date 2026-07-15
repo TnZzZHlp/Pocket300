@@ -3,8 +3,10 @@ package com.yamibo.pocket300.ui.viewmodels
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.yamibo.pocket300.api.SearchForumThreadsInput
 import com.yamibo.pocket300.api.SearchSiteThreadsInput
 import com.yamibo.pocket300.api.YamiboSearchPage
 import com.yamibo.pocket300.api.YamiboSearchThread
@@ -24,6 +26,23 @@ internal data class SearchContent(
 
 internal enum class SearchQueryError { EMPTY, INVALID_USER_ID }
 
+internal sealed interface ThreadSearchRequest {
+    data class Site(val input: SearchSiteThreadsInput) : ThreadSearchRequest
+    data class Forum(val input: SearchForumThreadsInput) : ThreadSearchRequest
+}
+
+internal fun buildThreadSearchRequest(
+    keyword: String,
+    page: Int,
+    searchId: Int?,
+    type: YamiboThreadSearchType,
+    forumId: Int?,
+): ThreadSearchRequest = if (forumId != null) {
+    ThreadSearchRequest.Forum(SearchForumThreadsInput(keyword, forumId, page, searchId, type))
+} else {
+    ThreadSearchRequest.Site(SearchSiteThreadsInput(keyword, page, searchId, type))
+}
+
 internal fun validateSearchQuery(
     query: String,
     type: YamiboThreadSearchType,
@@ -34,7 +53,7 @@ internal fun validateSearchQuery(
     else -> null
 }
 
-internal class SearchViewModel : ViewModel() {
+internal class SearchViewModel(savedStateHandle: SavedStateHandle) : ViewModel() {
     var query by mutableStateOf("")
         private set
     var searchType by mutableStateOf(YamiboThreadSearchType.TITLE)
@@ -46,6 +65,7 @@ internal class SearchViewModel : ViewModel() {
 
     private var submittedKeyword = ""
     private var submittedSearchType = YamiboThreadSearchType.TITLE
+    private val forumId = savedStateHandle.get<Int>("forumId")?.takeIf { it > 0 }
     private var searchId: Int? = null
     private var searchJob: Job? = null
 
@@ -88,14 +108,16 @@ internal class SearchViewModel : ViewModel() {
         }
         searchJob = viewModelScope.launch {
             val result = load {
-                api.search.searchSiteThreads(
-                    SearchSiteThreadsInput(
-                        keyword = submittedKeyword,
-                        page = page,
-                        searchId = if (page == 1) null else searchId,
-                        type = submittedSearchType,
-                    ),
-                )
+                when (val request = buildThreadSearchRequest(
+                    keyword = submittedKeyword,
+                    page = page,
+                    searchId = if (page == 1) null else searchId,
+                    type = submittedSearchType,
+                    forumId = forumId,
+                )) {
+                    is ThreadSearchRequest.Site -> api.search.searchSiteThreads(request.input)
+                    is ThreadSearchRequest.Forum -> api.search.searchForumThreads(request.input)
+                }
             }
             state = when (result) {
                 is LoadState.Ready -> {
