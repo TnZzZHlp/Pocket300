@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.Card
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
@@ -19,6 +20,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -32,6 +34,7 @@ import com.yamibo.pocket300.ui.LoadState
 import com.yamibo.pocket300.ui.ScreenScaffold
 import com.yamibo.pocket300.ui.load
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.time.Instant
 import java.time.ZoneId
@@ -50,16 +53,24 @@ internal fun ReadingHistoryScreen(
     val context = LocalContext.current
     val database = remember(context) { ReadingHistoryDatabase.getInstance(context) }
     var reload by remember { mutableStateOf(0) }
+    val listState = rememberLazyListState()
+    val coroutineScope = rememberCoroutineScope()
     var state: LoadState<List<ReadingHistoryEntry>> by remember { mutableStateOf(LoadState.Loading) }
     LaunchedEffect(reload) {
         state = load { withContext(Dispatchers.IO) { database.getAll() } }
     }
-    ScreenScaffold("阅读历史", onBack = onBack, onRefresh = { reload++ }) { padding ->
+    ScreenScaffold(
+        "阅读历史",
+        onBack = onBack,
+        onRefresh = { reload++ },
+        onTopBarDoubleClick = { coroutineScope.launch { listState.animateScrollToItem(0) } },
+    ) { padding ->
         LoadContent(state, padding) { entries ->
             if (entries.isEmpty()) {
                 EmptyState("还没有阅读记录", "打开主题后会自动记录在这里。")
             } else {
                 LazyColumn(
+                    state = listState,
                     contentPadding = PaddingValues(16.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {

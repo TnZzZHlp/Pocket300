@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.Button
@@ -21,6 +22,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.text.style.TextOverflow
@@ -35,6 +37,7 @@ import com.yamibo.pocket300.ui.components.AutoLoadNextPage
 import com.yamibo.pocket300.ui.components.ListFooter
 import com.yamibo.pocket300.ui.viewmodels.SearchContent
 import com.yamibo.pocket300.ui.viewmodels.SearchViewModel
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalSharedTransitionApi::class)
 @Composable
@@ -45,8 +48,14 @@ internal fun SearchScreen(
     onThread: (YamiboSearchThread) -> Unit,
 ) {
     val viewModel: SearchViewModel = viewModel()
+    val listState = rememberLazyListState()
+    val coroutineScope = rememberCoroutineScope()
 
-    ScreenScaffold("搜索", onBack = onBack) { padding ->
+    ScreenScaffold(
+        "搜索",
+        onBack = onBack,
+        onTopBarDoubleClick = { coroutineScope.launch { listState.animateScrollToItem(0) } },
+    ) { padding ->
         Column(Modifier.fillMaxSize().padding(padding)) {
             Row(
                 modifier = Modifier.fillMaxWidth().padding(16.dp),
@@ -74,6 +83,7 @@ internal fun SearchScreen(
                         animatedVisibilityScope = animatedVisibilityScope,
                         onThread = onThread,
                         onLoadMore = viewModel::loadMore,
+                        listState = listState,
                     )
                 }
             }
@@ -89,12 +99,12 @@ private fun SearchResults(
     animatedVisibilityScope: AnimatedVisibilityScope,
     onThread: (YamiboSearchThread) -> Unit,
     onLoadMore: () -> Unit,
+    listState: LazyListState,
 ) {
     if (content.threads.isEmpty()) {
         EmptyState("没有搜索结果", "没有找到与“${content.page.keyword}”相关的主题。")
         return
     }
-    val listState = rememberLazyListState()
     AutoLoadNextPage(
         listState = listState,
         hasNextPage = content.page.pagination.hasNextPage,

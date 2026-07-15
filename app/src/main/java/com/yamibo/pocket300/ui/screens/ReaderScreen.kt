@@ -24,6 +24,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
@@ -48,6 +49,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
@@ -82,6 +84,7 @@ import com.yamibo.pocket300.ui.postImageUrls
 import com.yamibo.pocket300.ui.rememberPostImageRequest
 import com.yamibo.pocket300.ui.resolvePostLink
 import coil.compose.AsyncImage
+import kotlinx.coroutines.launch
 
 internal data class ReaderContent(val thread: YamiboThreadDetails, val post: YamiboPost)
 
@@ -110,6 +113,8 @@ internal fun ReaderScreen(
     var readerMode by remember(threadId, postId) { mutableStateOf(preferencesStore.loadMode()) }
     var imageIndex by remember(threadId, postId) { mutableStateOf(0) }
     val scrollState = rememberScrollState()
+    var activeImageScrollState by remember { mutableStateOf<ScrollState?>(null) }
+    val coroutineScope = rememberCoroutineScope()
     val uriHandler = LocalUriHandler.current
     val view = LocalView.current
     val postNotFoundMessage = stringResource(R.string.reader_post_not_found)
@@ -186,6 +191,13 @@ internal fun ReaderScreen(
                     ),
                 ) {
                     TopAppBar(
+                        modifier = Modifier.pointerInput(Unit) {
+                            detectTapGestures(onDoubleTap = {
+                                coroutineScope.launch {
+                                    (activeImageScrollState ?: scrollState).animateScrollTo(0)
+                                }
+                            })
+                        },
                         title = {
                             val content = (state as? LoadState.Ready)?.value
                             Text(
@@ -321,6 +333,9 @@ internal fun ReaderScreen(
                         key = { images[it] },
                     ) { page ->
                         val pageScrollState = rememberScrollState()
+                        LaunchedEffect(page, imageIndex, pageScrollState) {
+                            if (page == imageIndex) activeImageScrollState = pageScrollState
+                        }
                         Box(
                             Modifier
                                 .fillMaxSize()

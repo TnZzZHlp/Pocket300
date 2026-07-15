@@ -214,6 +214,7 @@ internal fun ThreadScreen(
         title = loadedThread?.subject.takeIf { showThreadTitle }.orEmpty(),
         onBack = onBack,
         onRefresh = { viewModel.invalidate(); pageNumber = 1; reload++ },
+        onTopBarDoubleClick = { coroutineScope.launch { listState.animateScrollToItem(0) } },
     ) { padding ->
         LoadContent(state, padding) { content ->
             val page = content.page

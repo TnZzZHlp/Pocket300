@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Block
 import androidx.compose.material3.Card
@@ -56,6 +57,7 @@ internal fun CustomListDetailScreen(
     val database = remember(context) { CustomListDatabase.getInstance(context) }
     val repository = remember(database) { CustomListRepository(database, api.search) }
     val scope = rememberCoroutineScope()
+    val listState = rememberLazyListState()
     val syncFailedMessage = stringResource(R.string.custom_list_sync_failed)
     var list by remember(listId) { mutableStateOf<CustomThreadList?>(null) }
     var threads by remember(listId) { mutableStateOf<List<CustomListThread>>(emptyList()) }
@@ -100,6 +102,7 @@ internal fun CustomListDetailScreen(
         onBack = onBack,
         onRefresh = if (syncing || list == null) null else ({ scope.launch { sync(list ?: return@launch) } }),
         onSettings = onEdit,
+        onTopBarDoubleClick = { scope.launch { listState.animateScrollToItem(0) } },
     ) { padding ->
         when {
             loading -> Loading(Modifier.padding(padding))
@@ -146,6 +149,7 @@ internal fun CustomListDetailScreen(
                     )
                 } else {
                     LazyColumn(
+                        state = listState,
                         modifier = Modifier.weight(1f),
                         contentPadding = PaddingValues(16.dp),
                         verticalArrangement = Arrangement.spacedBy(12.dp),

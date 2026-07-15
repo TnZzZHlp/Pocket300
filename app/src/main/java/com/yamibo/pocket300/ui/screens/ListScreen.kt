@@ -8,7 +8,9 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material3.Button
@@ -22,6 +24,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -38,6 +41,7 @@ import com.yamibo.pocket300.ui.Loading
 import com.yamibo.pocket300.ui.ScreenScaffold
 import com.yamibo.pocket300.ui.load
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 @Composable
@@ -47,13 +51,19 @@ internal fun ListScreen(
 ) {
     val context = LocalContext.current
     val database = remember(context) { CustomListDatabase.getInstance(context) }
+    val listState = rememberLazyListState()
+    val coroutineScope = rememberCoroutineScope()
     var reload by remember { mutableIntStateOf(0) }
     var state: LoadState<List<CustomThreadList>> by remember { mutableStateOf(LoadState.Loading) }
     LaunchedEffect(reload) {
         state = load { withContext(Dispatchers.IO) { database.getLists() } }
     }
 
-    ScreenScaffold(stringResource(R.string.list_title), onRefresh = { reload++ }) { padding ->
+    ScreenScaffold(
+        stringResource(R.string.list_title),
+        onRefresh = { reload++ },
+        onTopBarDoubleClick = { coroutineScope.launch { listState.animateScrollToItem(0) } },
+    ) { padding ->
         when (val current = state) {
             LoadState.Loading -> Loading(Modifier.padding(padding))
             is LoadState.Failed -> EmptyState(
@@ -66,6 +76,7 @@ internal fun ListScreen(
                 onCreate = onCreate,
                 onOpen = onOpen,
                 modifier = Modifier.padding(padding),
+                listState = listState,
             )
         }
     }
@@ -76,6 +87,7 @@ private fun CustomListOverview(
     onCreate: () -> Unit,
     onOpen: (Long) -> Unit,
     modifier: Modifier = Modifier,
+    listState: LazyListState,
 ) {
     Column(modifier.fillMaxSize()) {
         Row(
@@ -94,6 +106,7 @@ private fun CustomListOverview(
             )
         } else {
             LazyColumn(
+                state = listState,
                 contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 104.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
