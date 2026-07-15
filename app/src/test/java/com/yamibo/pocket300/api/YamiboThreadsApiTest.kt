@@ -46,12 +46,20 @@ class YamiboThreadsApiTest {
     @Test
     fun buildsParametersForEveryForumSort() {
         val expectedSortParameters = mapOf(
-            YamiboForumThreadSort.LATEST_REPLY to mapOf("filter" to "lastpost", "orderby" to "lastpost"),
+            YamiboForumThreadSort.LATEST_REPLY to mapOf(
+                "filter" to "lastpost",
+                "orderby" to "lastpost",
+                "digest" to "1",
+            ),
             YamiboForumThreadSort.POPULAR to mapOf("filter" to "heat", "orderby" to "heats"),
-            YamiboForumThreadSort.HOT to mapOf("filter" to "hot"),
-            YamiboForumThreadSort.DIGEST to mapOf("filter" to "digest", "digest" to "1"),
+            YamiboForumThreadSort.DIGEST to mapOf(
+                "filter" to "digest",
+                "orderby" to "heats",
+                "digest" to "1",
+            ),
             YamiboForumThreadSort.NEWEST to mapOf("filter" to "dateline", "orderby" to "dateline"),
         )
+        assertEquals(expectedSortParameters.keys, YamiboForumThreadSort.entries.toSet())
 
         expectedSortParameters.forEach { (sort, sortParameters) ->
             val parameters = buildForumThreadsParameters(

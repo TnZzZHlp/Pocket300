@@ -190,7 +190,6 @@ internal fun ForumScreen(
                                             when (option) {
                                                 YamiboForumThreadSort.LATEST_REPLY -> R.string.forum_sort_latest_reply
                                                 YamiboForumThreadSort.POPULAR -> R.string.forum_sort_popular
-                                                YamiboForumThreadSort.HOT -> R.string.forum_sort_hot
                                                 YamiboForumThreadSort.DIGEST -> R.string.forum_sort_digest
                                                 YamiboForumThreadSort.NEWEST -> R.string.forum_sort_newest
                                             }

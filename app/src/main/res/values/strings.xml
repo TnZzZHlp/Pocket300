@@ -135,7 +135,6 @@
     <string name="forum_sort">排序</string>
     <string name="forum_sort_latest_reply">最新回复</string>
     <string name="forum_sort_popular">热门</string>
-    <string name="forum_sort_hot">热帖</string>
     <string name="forum_sort_digest">精华</string>
     <string name="forum_sort_newest">新帖</string>
     <string name="post_author_avatar">%1$s 的头像</string>
