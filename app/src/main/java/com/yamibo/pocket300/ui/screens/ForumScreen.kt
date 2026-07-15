@@ -43,6 +43,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.yamibo.pocket300.R
 import com.yamibo.pocket300.api.GetForumThreadsInput
+import com.yamibo.pocket300.api.YamiboForumThreadSort
 import com.yamibo.pocket300.api.YamiboForumThreadsPage
 import com.yamibo.pocket300.api.YamiboThread
 import com.yamibo.pocket300.ui.LoadContent
@@ -63,6 +64,7 @@ private data class ForumSnapshot(
     val content: ForumContent,
     val pageNumber: Int,
     val selectedTypeId: Int?,
+    val sort: YamiboForumThreadSort,
 )
 
 private val forumSnapshots = mutableMapOf<Int, ForumSnapshot>()
@@ -87,6 +89,9 @@ internal fun ForumScreen(
     var reload by remember { mutableStateOf(0) }
     var pageNumber by rememberSaveable(forumId) { mutableStateOf(cachedSnapshot?.pageNumber ?: 1) }
     var selectedTypeId by rememberSaveable(forumId) { mutableStateOf(cachedSnapshot?.selectedTypeId) }
+    var sort by rememberSaveable(forumId) {
+        mutableStateOf(cachedSnapshot?.sort ?: YamiboForumThreadSort.LATEST_REPLY)
+    }
     var state: LoadState<ForumContent> by remember(forumId) {
         mutableStateOf(cachedSnapshot?.content?.let { LoadState.Ready(it) } ?: LoadState.Loading)
     }
@@ -98,7 +103,7 @@ internal fun ForumScreen(
     }
     val listState = rememberLazyListState()
     val coroutineScope = rememberCoroutineScope()
-    LaunchedEffect(forumId, reload, pageNumber, selectedTypeId) {
+    LaunchedEffect(forumId, reload, pageNumber, selectedTypeId, sort) {
         if (restoreCachedPage && reload == 0) {
             restoreCachedPage = false
             return@LaunchedEffect
@@ -112,7 +117,8 @@ internal fun ForumScreen(
                 GetForumThreadsInput(
                     forumId,
                     pageNumber,
-                    typeId = selectedTypeId
+                    typeId = selectedTypeId,
+                    sort = sort,
                 )
             )
         }) {
@@ -123,7 +129,7 @@ internal fun ForumScreen(
                     else (previous?.threads.orEmpty() + result.value.threads).distinctBy { it.id },
                 )
                 state = LoadState.Ready(content)
-                forumSnapshots[forumId] = ForumSnapshot(content, pageNumber, selectedTypeId)
+                forumSnapshots[forumId] = ForumSnapshot(content, pageNumber, selectedTypeId, sort)
             }
 
             is LoadState.Failed -> if (previous == null) state = result else threadLoadError =
@@ -195,6 +201,30 @@ internal fun ForumScreen(
                                     label = { Text("${subforum.name} · ${subforum.threadCount} 主题") },
                                 )
                             }
+                        }
+                    }
+                }
+                item { SectionLabel(stringResource(R.string.forum_sort)) }
+                item {
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        items(YamiboForumThreadSort.entries, key = { it.name }) { option ->
+                            FilterChip(
+                                selected = sort == option,
+                                onClick = { sort = option; pageNumber = 1 },
+                                label = {
+                                    Text(
+                                        stringResource(
+                                            when (option) {
+                                                YamiboForumThreadSort.LATEST_REPLY -> R.string.forum_sort_latest_reply
+                                                YamiboForumThreadSort.POPULAR -> R.string.forum_sort_popular
+                                                YamiboForumThreadSort.HOT -> R.string.forum_sort_hot
+                                                YamiboForumThreadSort.DIGEST -> R.string.forum_sort_digest
+                                                YamiboForumThreadSort.NEWEST -> R.string.forum_sort_newest
+                                            }
+                                        )
+                                    )
+                                },
+                            )
                         }
                     }
                 }
