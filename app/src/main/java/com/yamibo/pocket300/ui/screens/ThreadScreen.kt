@@ -19,6 +19,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.MenuBook
 import androidx.compose.material.icons.outlined.FavoriteBorder
@@ -507,7 +508,9 @@ private fun PostCard(
                 ) {
                     PostAuthorAvatar(post.author, size = 40.dp)
                     Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                        Text(post.author.name, style = typography.byline)
+                        SelectionContainer {
+                            Text(post.author.name, style = typography.byline)
+                        }
                         Text(
                             post.createdAtText,
                             style = typography.metadata,
@@ -622,13 +625,14 @@ private fun ThreadHero(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                Text(
-                    text = thread.subject,
-                    modifier = Modifier.weight(1f),
-                    style = typography.heading,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                )
+                SelectionContainer(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = thread.subject,
+                        style = typography.heading,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
                 IconButton(onClick = onFavorite, enabled = !favoriteBusy) {
                     if (favoriteBusy) {
                         CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
@@ -657,10 +661,12 @@ private fun ThreadHero(
             ) {
                 PostAuthorAvatar(thread.author, size = 32.dp)
                 Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    Text(
-                        text = thread.author.name,
-                        style = typography.byline,
-                    )
+                    SelectionContainer {
+                        Text(
+                            text = thread.author.name,
+                            style = typography.byline,
+                        )
+                    }
                     Text(
                         "${thread.replyCount} 回复 · ${thread.viewCount} 浏览 · 热度 ${thread.heat}",
                         style = typography.metadata,
