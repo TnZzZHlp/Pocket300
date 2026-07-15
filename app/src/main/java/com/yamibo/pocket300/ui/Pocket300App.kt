@@ -150,6 +150,8 @@ fun Pocket300App() {
                 val listId = backStack.arguments?.getLong("listId") ?: return@composable
                 CustomListDetailScreen(
                     listId = listId,
+                    sharedTransitionScope = sharedTransitionScope,
+                    animatedVisibilityScope = this,
                     onBack = navController::navigateUp,
                     onEdit = { navController.navigate("custom-list/$listId/edit") },
                     onThread = { openThread(it.threadId, "thread/${it.threadId}") },
