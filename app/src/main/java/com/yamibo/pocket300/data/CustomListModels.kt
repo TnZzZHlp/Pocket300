@@ -26,8 +26,9 @@ data class CustomListThread(
 )
 
 internal fun normalizeCustomListKeywords(value: String): List<String> = value
-    .split(Regex("[,，;；\\n]+"))
+    .lineSequence()
     .map(String::trim)
     .filter(String::isNotEmpty)
     .distinctBy(String::lowercase)
+    .toList()
 
