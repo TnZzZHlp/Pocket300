@@ -5,10 +5,10 @@ import org.junit.Test
 
 class CustomListModelsTest {
     @Test
-    fun splitsKeywordsUsingSupportedSeparators() {
+    fun splitsKeywordsUsingLineBreaks() {
         assertEquals(
             listOf("百合", "轻小说", "漫画", "动画"),
-            normalizeCustomListKeywords(" 百合，轻小说\n漫画; 动画 "),
+            normalizeCustomListKeywords(" 百合\n轻小说\r\n漫画\r动画 "),
         )
     }
 
@@ -16,7 +16,15 @@ class CustomListModelsTest {
     fun removesBlankAndCaseInsensitiveDuplicateKeywords() {
         assertEquals(
             listOf("Yuri", "百合"),
-            normalizeCustomListKeywords("Yuri, yuri；；百合\n"),
+            normalizeCustomListKeywords("Yuri\nyuri\n\n百合\n"),
+        )
+    }
+
+    @Test
+    fun keepsCommasAndSemicolonsInsideOneKeyword() {
+        assertEquals(
+            listOf("百合，轻小说; 漫画；动画, Yuri"),
+            normalizeCustomListKeywords("百合，轻小说; 漫画；动画, Yuri"),
         )
     }
 

@@ -10,7 +10,7 @@
     <string name="custom_list_edit">编辑列表</string>
     <string name="custom_list_name">列表名称</string>
     <string name="custom_list_keywords">搜索关键词</string>
-    <string name="custom_list_keywords_hint">每行一个关键词，也可以使用逗号或分号分隔。刷新时会合并全部搜索结果。</string>
+    <string name="custom_list_keywords_hint">每行一个关键词。刷新时会合并全部搜索结果。</string>
     <string name="custom_list_name_required">请输入列表名称</string>
     <string name="custom_list_keywords_required">请至少输入一个关键词</string>
     <string name="custom_list_save">保存并搜索</string>
