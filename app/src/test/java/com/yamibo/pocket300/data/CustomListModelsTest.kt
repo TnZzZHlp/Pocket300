@@ -1,9 +1,17 @@
 package com.yamibo.pocket300.data
 
+import com.yamibo.pocket300.api.YamiboThreadSearchType
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
 class CustomListModelsTest {
+    @Test
+    fun parsesStoredSearchTypesAndFallsBackToTitle() {
+        assertEquals(YamiboThreadSearchType.KEYWORD, parseCustomListSearchType("keyword"))
+        assertEquals(YamiboThreadSearchType.USER_ID, parseCustomListSearchType("user_id"))
+        assertEquals(YamiboThreadSearchType.TITLE, parseCustomListSearchType("unknown"))
+    }
+
     @Test
     fun splitsKeywordsUsingLineBreaks() {
         assertEquals(

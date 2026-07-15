@@ -33,6 +33,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.yamibo.pocket300.R
+import com.yamibo.pocket300.api.YamiboThreadSearchType
 import com.yamibo.pocket300.data.CustomListDatabase
 import com.yamibo.pocket300.data.CustomThreadList
 import com.yamibo.pocket300.ui.EmptyState
@@ -123,7 +124,11 @@ private fun CustomListOverview(
                                 overflow = TextOverflow.Ellipsis,
                             )
                             Text(
-                                list.keywords.joinToString(" · "),
+                                stringResource(
+                                    R.string.custom_list_search_summary,
+                                    stringResource(list.searchType.labelResource()),
+                                    list.keywords.joinToString(" · "),
+                                ),
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.primary,
                                 maxLines = 2,
@@ -144,4 +149,10 @@ private fun CustomListOverview(
             }
         }
     }
+}
+
+private fun YamiboThreadSearchType.labelResource() = when (this) {
+    YamiboThreadSearchType.KEYWORD -> R.string.custom_list_search_keyword
+    YamiboThreadSearchType.TITLE -> R.string.custom_list_search_title
+    YamiboThreadSearchType.USER_ID -> R.string.custom_list_search_user_id
 }

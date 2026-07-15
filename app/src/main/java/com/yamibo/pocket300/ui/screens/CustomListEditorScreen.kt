@@ -6,8 +6,11 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -27,6 +30,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.yamibo.pocket300.R
+import com.yamibo.pocket300.api.YamiboThreadSearchType
 import com.yamibo.pocket300.data.CustomListDatabase
 import com.yamibo.pocket300.data.normalizeCustomListKeywords
 import com.yamibo.pocket300.ui.Loading
@@ -47,10 +51,12 @@ internal fun CustomListEditorScreen(
     val scope = rememberCoroutineScope()
     val notFoundMessage = stringResource(R.string.custom_list_not_found)
     val nameRequiredMessage = stringResource(R.string.custom_list_name_required)
-    val keywordsRequiredMessage = stringResource(R.string.custom_list_keywords_required)
+    val valuesRequiredMessage = stringResource(R.string.custom_list_values_required)
+    val invalidUserIdMessage = stringResource(R.string.custom_list_user_ids_invalid)
     val saveFailedMessage = stringResource(R.string.custom_list_save_failed)
     var name by rememberSaveable(listId) { mutableStateOf("") }
     var keywordText by rememberSaveable(listId) { mutableStateOf("") }
+    var searchType by rememberSaveable(listId) { mutableStateOf(YamiboThreadSearchType.KEYWORD) }
     var excludedCount by rememberSaveable(listId) { mutableIntStateOf(0) }
     var loading by remember(listId) { mutableStateOf(listId != null) }
     var saving by remember { mutableStateOf(false) }
@@ -65,6 +71,7 @@ internal fun CustomListEditorScreen(
             } else {
                 name = list.name
                 keywordText = list.keywords.joinToString("\n")
+                searchType = list.searchType
                 excludedCount = list.excludedCount
             }
             loading = false
@@ -79,7 +86,7 @@ internal fun CustomListEditorScreen(
             Loading(Modifier.padding(padding))
         } else {
             Column(
-                Modifier.fillMaxSize().padding(padding).padding(20.dp),
+                Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState()).padding(20.dp),
                 verticalArrangement = Arrangement.spacedBy(18.dp),
             ) {
                 OutlinedTextField(
@@ -89,12 +96,30 @@ internal fun CustomListEditorScreen(
                     label = { Text(stringResource(R.string.custom_list_name)) },
                     singleLine = true,
                 )
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        stringResource(R.string.custom_list_search_type),
+                        style = MaterialTheme.typography.labelLarge,
+                    )
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        YamiboThreadSearchType.entries.forEach { type ->
+                            FilterChip(
+                                selected = searchType == type,
+                                onClick = { searchType = type },
+                                label = { Text(stringResource(type.labelResource())) },
+                            )
+                        }
+                    }
+                }
                 OutlinedTextField(
                     value = keywordText,
                     onValueChange = { keywordText = it },
                     modifier = Modifier.fillMaxWidth(),
-                    label = { Text(stringResource(R.string.custom_list_keywords)) },
-                    supportingText = { Text(stringResource(R.string.custom_list_keywords_hint)) },
+                    label = { Text(stringResource(R.string.custom_list_search_values)) },
+                    supportingText = { Text(stringResource(searchType.hintResource())) },
                     minLines = 4,
                 )
                 error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
@@ -104,14 +129,23 @@ internal fun CustomListEditorScreen(
                         val keywords = normalizeCustomListKeywords(keywordText)
                         when {
                             name.isBlank() -> error = nameRequiredMessage
-                            keywords.isEmpty() -> error = keywordsRequiredMessage
+                            keywords.isEmpty() -> error = valuesRequiredMessage
+                            searchType == YamiboThreadSearchType.USER_ID &&
+                                keywords.any { it.toIntOrNull()?.takeIf { id -> id > 0 } == null } -> {
+                                error = invalidUserIdMessage
+                            }
                             else -> scope.launch {
                                 saving = true
                                 error = null
                                 runCatching {
                                     withContext(Dispatchers.IO) {
-                                        if (listId == null) database.createList(name, keywords)
-                                        else listId.also { database.updateList(it, name, keywords) }
+                                        if (listId == null) {
+                                            database.createList(name, keywords, searchType)
+                                        } else {
+                                            listId.also {
+                                                database.updateList(it, name, keywords, searchType)
+                                            }
+                                        }
                                     }
                                 }.onSuccess(onSaved).onFailure {
                                     error = it.message ?: saveFailedMessage
@@ -172,4 +206,16 @@ internal fun CustomListEditorScreen(
             },
         )
     }
+}
+
+private fun YamiboThreadSearchType.labelResource() = when (this) {
+    YamiboThreadSearchType.KEYWORD -> R.string.custom_list_search_keyword
+    YamiboThreadSearchType.TITLE -> R.string.custom_list_search_title
+    YamiboThreadSearchType.USER_ID -> R.string.custom_list_search_user_id
+}
+
+private fun YamiboThreadSearchType.hintResource() = when (this) {
+    YamiboThreadSearchType.KEYWORD -> R.string.custom_list_keywords_hint
+    YamiboThreadSearchType.TITLE -> R.string.custom_list_titles_hint
+    YamiboThreadSearchType.USER_ID -> R.string.custom_list_user_ids_hint
 }

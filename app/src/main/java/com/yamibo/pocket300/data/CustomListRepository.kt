@@ -6,6 +6,7 @@ import com.yamibo.pocket300.api.YamiboSearchErrorCode
 import com.yamibo.pocket300.api.YamiboSearchException
 import com.yamibo.pocket300.api.YamiboSearchPage
 import com.yamibo.pocket300.api.YamiboSearchThread
+import com.yamibo.pocket300.api.YamiboThreadSearchType
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
@@ -28,7 +29,7 @@ class CustomListRepository(
     ): Int {
         val results = linkedMapOf<Int, YamiboSearchThread>()
         list.keywords.forEachIndexed { index, keyword ->
-            val first = searchWithRateLimit(keyword, 1, null)
+            val first = searchWithRateLimit(keyword, list.searchType, 1, null)
             onProgress(
                 CustomListSyncProgress(
                     keyword,
@@ -42,7 +43,7 @@ class CustomListRepository(
             var page = 2
             var searchId = first.pagination.searchId
             while (page <= first.pagination.totalPages) {
-                val current = searchWithRateLimit(keyword, page, searchId)
+                val current = searchWithRateLimit(keyword, list.searchType, page, searchId)
                 searchId = current.pagination.searchId ?: searchId
                 current.threads.forEach { results[it.id] = it }
                 onProgress(
@@ -63,13 +64,16 @@ class CustomListRepository(
 
     private suspend fun searchWithRateLimit(
         keyword: String,
+        type: YamiboThreadSearchType,
         page: Int,
         searchId: Int?,
     ): YamiboSearchPage {
         var retries = 0
         while (true) {
             try {
-                return searchApi.searchSiteThreads(SearchSiteThreadsInput(keyword, page, searchId))
+                return searchApi.searchSiteThreads(
+                    SearchSiteThreadsInput(keyword, page, searchId, type),
+                )
             } catch (error: YamiboSearchException) {
                 if (error.code != YamiboSearchErrorCode.RATE_LIMITED || retries >= MAX_RATE_LIMIT_RETRIES) {
                     throw error
