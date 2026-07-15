@@ -19,7 +19,7 @@ enum class YamiboForumThreadSort(
     internal val orderBy: String? = null,
     internal val digest: Int? = null,
 ) {
-    LATEST_REPLY("lastpost", "lastpost", digest = 1),
+    LATEST_REPLY("lastpost", "lastpost"),
     POPULAR("heat", "heats"),
     DIGEST("digest", "heats", digest = 1),
     NEWEST("dateline", "dateline"),

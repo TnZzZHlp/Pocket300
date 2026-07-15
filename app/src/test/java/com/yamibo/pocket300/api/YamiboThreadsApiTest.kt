@@ -26,6 +26,8 @@ class YamiboThreadsApiTest {
         assertEquals(2, thread.imageCount)
         assertFalse(thread.isRushReply)
         assertNull(thread.author.groupIconId)
+        assertEquals("发布时间", thread.createdAtText)
+        assertEquals("回复时间", thread.lastPostAtText)
     }
 
     @Test(expected = YamiboApiException::class)
@@ -61,7 +63,6 @@ class YamiboThreadsApiTest {
             YamiboForumThreadSort.LATEST_REPLY to mapOf(
                 "filter" to "lastpost",
                 "orderby" to "lastpost",
-                "digest" to "1",
             ),
             YamiboForumThreadSort.POPULAR to mapOf("filter" to "heat", "orderby" to "heats"),
             YamiboForumThreadSort.DIGEST to mapOf(
@@ -106,8 +107,8 @@ class YamiboThreadsApiTest {
             "threadtypes":{"types":{"1":"动画"},"icons":{"1":""}},
             "sublist":[],
             "forum_threadlist":[{
-              "author":"alice","authorid":"42","dbdateline":"10","dateline":"刚刚","digest":"0","message":"摘要","attachment":"1",
-              "tid":"1000","attachmentImageNumber":"2","recommend":"1","rushreply":"0","dblastpost":"11","lastpost":"刚刚","lastposter":"bob",
+              "author":"alice","authorid":"42","dbdateline":"10","dateline":"发布时间","digest":"0","message":"摘要","attachment":"1",
+              "tid":"1000","attachmentImageNumber":"2","recommend":"1","rushreply":"0","dblastpost":"11","lastpost":"回复时间","lastposter":"bob",
               "price":"0","readperm":"0","recommend_add":"3","replies":"4","replycredit":"0","special":"1","displayorder":"2","subject":"主题",
               "typeid":"1","views":"12","reply":[],
               "attachmentImagePreviewList":[[],{"attachment":"2026/07/a b.jpg","remote":"0","width":"100","height":"0","filename":"a b.jpg","filesize":"20","aid":"9"}]
