@@ -91,6 +91,10 @@
     <string name="reader_image_progress">第 %1$d / %2$d 张</string>
     <string name="reader_image_description">帖子图片，第 %1$d / %2$d 张</string>
     <string name="thread_original_poster_only">仅看楼主</string>
+    <string name="thread_resume_title">继续上次阅读？</string>
+    <string name="thread_resume_message">上次看到第 %1$d 楼，是否跳转到该位置？</string>
+    <string name="thread_start_from_beginning">从头阅读</string>
+    <string name="thread_jump_to_last_read">跳转</string>
     <string name="forum_sticky_threads">置顶帖子（%1$d）</string>
     <string name="forum_expand_sticky_threads">展开置顶帖子</string>
     <string name="forum_collapse_sticky_threads">收起置顶帖子</string>

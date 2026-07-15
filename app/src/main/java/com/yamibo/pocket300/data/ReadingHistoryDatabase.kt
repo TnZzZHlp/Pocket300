@@ -5,6 +5,9 @@ import android.content.Context
 import android.database.sqlite.SQLiteDatabase
 import android.database.sqlite.SQLiteOpenHelper
 import com.yamibo.pocket300.api.YamiboThreadDetails
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 
 data class ReadingHistoryEntry(
     val threadId: Int,
@@ -18,6 +21,13 @@ data class ReadingHistoryEntry(
 
 class ReadingHistoryDatabase private constructor(context: Context) :
     SQLiteOpenHelper(context, DATABASE_NAME, null, DATABASE_VERSION) {
+
+    private val _entries = MutableStateFlow<Map<Int, ReadingHistoryEntry>>(emptyMap())
+    val entries: StateFlow<Map<Int, ReadingHistoryEntry>> = _entries.asStateFlow()
+
+    init {
+        refreshEntries()
+    }
 
     override fun onCreate(database: SQLiteDatabase) {
         database.execSQL(
@@ -67,6 +77,7 @@ class ReadingHistoryDatabase private constructor(context: Context) :
                 """.trimIndent(),
             )
         }
+        refreshEntries()
     }
 
     fun getAll(): List<ReadingHistoryEntry> = readableDatabase.query(
@@ -93,6 +104,10 @@ class ReadingHistoryDatabase private constructor(context: Context) :
                 )
             }
         }
+    }
+
+    private fun refreshEntries() {
+        _entries.value = getAll().associateBy(ReadingHistoryEntry::threadId)
     }
 
     private inline fun <T> SQLiteDatabase.transaction(block: SQLiteDatabase.() -> T): T {
