@@ -32,6 +32,15 @@
     <string name="custom_list_not_found_message">它可能已经被删除。</string>
     <string name="custom_list_no_threads">没有匹配的主题</string>
     <string name="custom_list_no_threads_message">可以修改搜索内容，或稍后刷新重试。</string>
+    <string name="custom_list_read_filter">阅读状态</string>
+    <string name="custom_list_read_all">全部</string>
+    <string name="custom_list_read_only">已读</string>
+    <string name="custom_list_unread_only">未读</string>
+    <string name="custom_list_publication_order">发布时间</string>
+    <string name="custom_list_newest_first">最新优先</string>
+    <string name="custom_list_oldest_first">最早优先</string>
+    <string name="custom_list_filter_empty_title">没有符合条件的主题</string>
+    <string name="custom_list_filter_empty_message">可以切换阅读状态筛选查看其他主题。</string>
     <string name="custom_list_sync_starting">正在准备搜索…</string>
     <string name="custom_list_sync_progress">条件 %1$d/%2$d：%3$s · 第 %4$d/%5$d 页</string>
     <string name="custom_list_sync_failed">刷新列表失败</string>
