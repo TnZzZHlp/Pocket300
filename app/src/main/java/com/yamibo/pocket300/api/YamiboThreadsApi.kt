@@ -11,7 +11,20 @@ data class GetForumThreadsInput(
     val page: Int = 1,
     val pageSize: Int = 20,
     val typeId: Int? = null,
+    val sort: YamiboForumThreadSort = YamiboForumThreadSort.LATEST_REPLY,
 )
+
+enum class YamiboForumThreadSort(
+    internal val filter: String,
+    internal val orderBy: String? = null,
+    internal val digest: Int? = null,
+) {
+    LATEST_REPLY("lastpost", "lastpost"),
+    POPULAR("heat", "heats"),
+    HOT("hot"),
+    DIGEST("digest", digest = 1),
+    NEWEST("dateline", "dateline"),
+}
 
 data class YamiboForumDetails(
     val autoCloseDays: Int,
@@ -111,23 +124,7 @@ data class YamiboForumThreadsPage(
 
 class YamiboThreadsApi(private val client: YamiboClient) {
     suspend fun getForumThreads(input: GetForumThreadsInput): YamiboForumThreadsPage {
-        require(input.forumId > 0) { "forumId must be a positive integer" }
-        require(input.page > 0) { "page must be a positive integer" }
-        require(input.pageSize > 0) { "pageSize must be a positive integer" }
-        require(input.pageSize <= 100) { "pageSize must not exceed 100" }
-        input.typeId?.let { require(it > 0) { "typeId must be a positive integer" } }
-
-        val parameters = mutableMapOf(
-            "fid" to input.forumId.toString(),
-            "module" to "forumdisplay",
-            "page" to input.page.toString(),
-            "tpp" to input.pageSize.toString(),
-        )
-        input.typeId?.let {
-            parameters["filter"] = "typeid"
-            parameters["typeid"] = it.toString()
-        }
-        val response = client.requestMobileApi(parameters)
+        val response = client.requestMobileApi(buildForumThreadsParameters(input))
         val serverCode = response.message?.code?.takeIf(String::isNotBlank) ?: response.error
         if (serverCode != null) {
             val message = if (serverCode == "forum_nonexistence") {
@@ -137,11 +134,38 @@ class YamiboThreadsApi(private val client: YamiboClient) {
             }
             throw YamiboApiException(YamiboApiErrorCode.SERVER_ERROR, message, serverCode)
         }
-        return parseForumThreads(response.variables ?: invalidResponse("百合会未返回帖子列表数据"))
+        return parseForumThreads(
+            response.variables ?: invalidResponse("百合会未返回帖子列表数据"),
+            hasUnknownTotal = input.typeId != null ||
+                input.sort == YamiboForumThreadSort.HOT ||
+                input.sort == YamiboForumThreadSort.DIGEST,
+        )
     }
 }
 
-fun parseForumThreads(variables: JSONObject): YamiboForumThreadsPage {
+internal fun buildForumThreadsParameters(input: GetForumThreadsInput): Map<String, String> {
+    require(input.forumId > 0) { "forumId must be a positive integer" }
+    require(input.page > 0) { "page must be a positive integer" }
+    require(input.pageSize > 0) { "pageSize must be a positive integer" }
+    require(input.pageSize <= 100) { "pageSize must not exceed 100" }
+    input.typeId?.let { require(it > 0) { "typeId must be a positive integer" } }
+
+    return buildMap {
+        put("fid", input.forumId.toString())
+        put("module", "forumdisplay")
+        put("page", input.page.toString())
+        put("tpp", input.pageSize.toString())
+        put("filter", input.sort.filter)
+        input.sort.orderBy?.let { put("orderby", it) }
+        input.sort.digest?.let { put("digest", it.toString()) }
+        input.typeId?.let { put("typeid", it.toString()) }
+    }
+}
+
+fun parseForumThreads(
+    variables: JSONObject,
+    hasUnknownTotal: Boolean = false,
+): YamiboForumThreadsPage {
     val rawThreads = variables.opt("forum_threadlist") as? JSONArray
         ?: invalidResponse("百合会未返回帖子列表数据")
     val rawSubforums = variables.opt("sublist") as? JSONArray
@@ -155,10 +179,13 @@ fun parseForumThreads(variables: JSONObject): YamiboForumThreadsPage {
     val typeNames = threadTypes.associate { it.id to it.name }
     val groupIcons = parseGroupIcons(variables.opt("groupiconid"))
     val totalPages = ceil(forum.threadCount.toDouble() / pageSize).toInt()
+    val threads = rawThreads.strictObjects("百合会返回了无效的帖子数据").map {
+        parseThread(it, typeNames, groupIcons)
+    }
     return YamiboForumThreadsPage(
         forum = forum,
         pagination = YamiboForumPagination(
-            hasNextPage = page < totalPages,
+            hasNextPage = if (hasUnknownTotal) threads.size >= pageSize else page < totalPages,
             page = page,
             pageSize = pageSize,
             totalPages = totalPages,
@@ -167,9 +194,7 @@ fun parseForumThreads(variables: JSONObject): YamiboForumThreadsPage {
         rewardUnit = variables.stringOrNull("reward_unit").orEmpty(),
         subforums = rawSubforums.strictObjects("百合会返回了无效的子板块数据").map(::parseThreadSubforum),
         threadTypes = threadTypes,
-        threads = rawThreads.strictObjects("百合会返回了无效的帖子数据").map {
-            parseThread(it, typeNames, groupIcons)
-        },
+        threads = threads,
         viewerGroup = parseViewerGroup(variables.opt("group")),
     )
 }

@@ -132,6 +132,12 @@
     <string name="forum_sticky_threads">置顶帖子（%1$d）</string>
     <string name="forum_expand_sticky_threads">展开置顶帖子</string>
     <string name="forum_collapse_sticky_threads">收起置顶帖子</string>
+    <string name="forum_sort">排序</string>
+    <string name="forum_sort_latest_reply">最新回复</string>
+    <string name="forum_sort_popular">热门</string>
+    <string name="forum_sort_hot">热帖</string>
+    <string name="forum_sort_digest">精华</string>
+    <string name="forum_sort_newest">新帖</string>
     <string name="post_author_avatar">%1$s 的头像</string>
     <string name="settings_title">设置</string>
     <string name="settings_app_theme">应用主题</string>

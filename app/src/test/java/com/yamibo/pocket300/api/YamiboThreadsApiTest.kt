@@ -43,6 +43,39 @@ class YamiboThreadsApiTest {
         assertNull(page.threads.single().author.groupIconId)
     }
 
+    @Test
+    fun buildsParametersForEveryForumSort() {
+        val expectedSortParameters = mapOf(
+            YamiboForumThreadSort.LATEST_REPLY to mapOf("filter" to "lastpost", "orderby" to "lastpost"),
+            YamiboForumThreadSort.POPULAR to mapOf("filter" to "heat", "orderby" to "heats"),
+            YamiboForumThreadSort.HOT to mapOf("filter" to "hot"),
+            YamiboForumThreadSort.DIGEST to mapOf("filter" to "digest", "digest" to "1"),
+            YamiboForumThreadSort.NEWEST to mapOf("filter" to "dateline", "orderby" to "dateline"),
+        )
+
+        expectedSortParameters.forEach { (sort, sortParameters) ->
+            val parameters = buildForumThreadsParameters(
+                GetForumThreadsInput(forumId = 5, page = 2, pageSize = 50, typeId = 4, sort = sort)
+            )
+
+            assertEquals("5", parameters["fid"])
+            assertEquals("forumdisplay", parameters["module"])
+            assertEquals("2", parameters["page"])
+            assertEquals("50", parameters["tpp"])
+            assertEquals("4", parameters["typeid"])
+            assertEquals(sortParameters, parameters.filterKeys { it in setOf("filter", "orderby", "digest") })
+        }
+    }
+
+    @Test
+    fun stopsPaginationWhenFilteredPageIsEmpty() {
+        val fixture = JSONObject(FIXTURE).put("forum_threadlist", JSONArray())
+
+        val page = parseForumThreads(fixture, hasUnknownTotal = true)
+
+        assertFalse(page.pagination.hasNextPage)
+    }
+
     private companion object {
         val FIXTURE = """
           {
