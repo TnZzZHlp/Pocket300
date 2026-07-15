@@ -14,7 +14,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowForward
@@ -29,6 +31,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
@@ -43,6 +46,7 @@ import com.yamibo.pocket300.ui.LoadContent
 import com.yamibo.pocket300.ui.ScreenScaffold
 import com.yamibo.pocket300.ui.viewmodels.ForumIndexViewModel
 import java.text.NumberFormat
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalSharedTransitionApi::class)
 @Composable
@@ -54,6 +58,8 @@ internal fun ForumIndexScreen(
     onSearch: () -> Unit,
 ) {
     val viewModel: ForumIndexViewModel = viewModel()
+    val listState = rememberLazyListState()
+    val coroutineScope = rememberCoroutineScope()
     LaunchedEffect(authStateVersion) {
         if (authStateVersion > 0) viewModel.refresh()
     }
@@ -61,6 +67,7 @@ internal fun ForumIndexScreen(
         title = stringResource(R.string.home_title),
         onRefresh = viewModel::refresh,
         onSearch = onSearch,
+        onTopBarDoubleClick = { coroutineScope.launch { listState.animateScrollToItem(0) } },
     ) { padding ->
         LoadContent(viewModel.state, padding) { index ->
             ForumIndexContent(
@@ -68,6 +75,7 @@ internal fun ForumIndexScreen(
                 sharedTransitionScope = sharedTransitionScope,
                 animatedVisibilityScope = animatedVisibilityScope,
                 onForum = onForum,
+                listState = listState,
             )
         }
     }
@@ -80,8 +88,10 @@ private fun ForumIndexContent(
     sharedTransitionScope: SharedTransitionScope,
     animatedVisibilityScope: AnimatedVisibilityScope,
     onForum: (YamiboForum) -> Unit,
+    listState: LazyListState,
 ) {
     LazyColumn(
+        state = listState,
         contentPadding = PaddingValues(start = 16.dp, top = 12.dp, end = 16.dp, bottom = 104.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {

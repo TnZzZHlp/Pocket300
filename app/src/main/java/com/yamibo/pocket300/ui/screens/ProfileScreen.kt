@@ -13,6 +13,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -42,6 +44,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -67,6 +70,7 @@ import com.yamibo.pocket300.ui.ScreenScaffold
 import com.yamibo.pocket300.ui.api
 import com.yamibo.pocket300.ui.components.SectionLabel
 import com.yamibo.pocket300.ui.load
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -76,9 +80,15 @@ internal fun ProfileScreen(
     onSettings: () -> Unit,
 ) {
     var sessionState: LoadState<YamiboSession?> by remember { mutableStateOf(LoadState.Loading) }
+    val listState = rememberLazyListState()
+    val coroutineScope = rememberCoroutineScope()
     LaunchedEffect(Unit) { sessionState = load { api.auth.getCurrentSession() } }
 
-    ScreenScaffold("我的", onSettings = onSettings) { padding ->
+    ScreenScaffold(
+        "我的",
+        onSettings = onSettings,
+        onTopBarDoubleClick = { coroutineScope.launch { listState.animateScrollToItem(0) } },
+    ) { padding ->
         when (val current = sessionState) {
             LoadState.Loading -> Loading(Modifier.padding(padding))
             is LoadState.Failed -> EmptyState(
@@ -88,7 +98,7 @@ internal fun ProfileScreen(
             )
 
             is LoadState.Ready -> if (current.value == null) {
-                LoginPanel(Modifier.padding(padding), onHistory) {
+                LoginPanel(Modifier.padding(padding), onHistory, listState) {
                     sessionState = LoadState.Ready(it)
                     onAuthStateChanged()
                 }
@@ -101,6 +111,7 @@ internal fun ProfileScreen(
                         sessionState = LoadState.Ready(null)
                         onAuthStateChanged()
                     },
+                    listState = listState,
                 )
             }
         }
@@ -112,6 +123,7 @@ internal fun ProfileScreen(
 private fun LoginPanel(
     modifier: Modifier,
     onHistory: () -> Unit,
+    listState: LazyListState,
     onLoggedIn: (YamiboSession) -> Unit,
 ) {
     var account by rememberSaveable { mutableStateOf("") }
@@ -133,6 +145,7 @@ private fun LoginPanel(
     }
 
     LazyColumn(
+        state = listState,
         modifier = modifier.fillMaxSize(),
         contentPadding = PaddingValues(horizontal = 20.dp, vertical = 24.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -275,6 +288,7 @@ private fun ProfileSummary(
     modifier: Modifier,
     onHistory: () -> Unit,
     onLoggedOut: () -> Unit,
+    listState: LazyListState,
 ) {
     var reload by remember { mutableStateOf(0) }
     var profile: LoadState<YamiboUserProfile> by remember { mutableStateOf(LoadState.Loading) }
@@ -283,6 +297,7 @@ private fun ProfileSummary(
     LaunchedEffect(session.uid, reload) { profile = load { api.auth.getUserProfile(session.uid) } }
 
     LazyColumn(
+        state = listState,
         modifier = modifier.fillMaxSize(),
         contentPadding = PaddingValues(horizontal = 20.dp, vertical = 16.dp),
         horizontalAlignment = Alignment.CenterHorizontally,

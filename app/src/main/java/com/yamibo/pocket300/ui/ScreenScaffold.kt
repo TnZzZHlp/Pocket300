@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Refresh
@@ -23,6 +24,7 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -37,11 +39,19 @@ internal fun ScreenScaffold(
     onRefresh: (() -> Unit)? = null,
     onSearch: (() -> Unit)? = null,
     onSettings: (() -> Unit)? = null,
+    onTopBarDoubleClick: (() -> Unit)? = null,
     content: @Composable (PaddingValues) -> Unit,
 ) = Scaffold(
     modifier = modifier,
     topBar = {
         TopAppBar(
+            modifier = if (onTopBarDoubleClick == null) {
+                Modifier
+            } else {
+                Modifier.pointerInput(onTopBarDoubleClick) {
+                    detectTapGestures(onDoubleTap = { onTopBarDoubleClick() })
+                }
+            },
             title = { Text(title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
             navigationIcon = {
                 if (onBack != null) IconButton(onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "返回") }

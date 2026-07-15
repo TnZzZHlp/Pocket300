@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.Card
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
@@ -19,6 +20,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
@@ -31,6 +33,7 @@ import com.yamibo.pocket300.ui.ScreenScaffold
 import com.yamibo.pocket300.ui.api
 import com.yamibo.pocket300.ui.load
 import com.yamibo.pocket300.ui.plainText
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalSharedTransitionApi::class)
 @Composable
@@ -40,14 +43,21 @@ internal fun FavoritesScreen(
     onThread: (YamiboFavoriteThread) -> Unit,
 ) {
     var reload by remember { mutableStateOf(0) }
+    val listState = rememberLazyListState()
+    val coroutineScope = rememberCoroutineScope()
     var state: LoadState<List<YamiboFavoriteThread>> by remember { mutableStateOf(LoadState.Loading) }
     LaunchedEffect(reload) { state = load { api.favorites.getFavoriteThreads() } }
-    ScreenScaffold("收藏", onRefresh = { reload++ }) { padding ->
+    ScreenScaffold(
+        "收藏",
+        onRefresh = { reload++ },
+        onTopBarDoubleClick = { coroutineScope.launch { listState.animateScrollToItem(0) } },
+    ) { padding ->
         LoadContent(state, padding) { favorites ->
             if (favorites.isEmpty()) {
                 EmptyState("还没有收藏", "在主题页面收藏的内容会显示在这里。")
             } else {
                 LazyColumn(
+                    state = listState,
                     contentPadding = PaddingValues(12.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {

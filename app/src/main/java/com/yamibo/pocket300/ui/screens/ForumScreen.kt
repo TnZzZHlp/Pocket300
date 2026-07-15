@@ -34,6 +34,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -53,6 +54,7 @@ import com.yamibo.pocket300.ui.components.ListFooter
 import com.yamibo.pocket300.ui.components.SectionLabel
 import com.yamibo.pocket300.ui.components.ThreadCard
 import com.yamibo.pocket300.ui.load
+import kotlinx.coroutines.launch
 
 private data class ForumContent(val page: YamiboForumThreadsPage, val threads: List<YamiboThread>)
 
@@ -94,6 +96,7 @@ internal fun ForumScreen(
         mutableStateOf(STICKY_THREADS_INITIAL_EXPANDED)
     }
     val listState = rememberLazyListState()
+    val coroutineScope = rememberCoroutineScope()
     LaunchedEffect(forumId, reload, pageNumber, selectedTypeId) {
         if (restoreCachedPage && reload == 0) {
             restoreCachedPage = false
@@ -139,6 +142,7 @@ internal fun ForumScreen(
         title = (state as? LoadState.Ready)?.value?.page?.forum?.name ?: "板块",
         onBack = onBack,
         onRefresh = { pageNumber = 1; reload++ },
+        onTopBarDoubleClick = { coroutineScope.launch { listState.animateScrollToItem(0) } },
     ) { padding ->
         LoadContent(state, padding) { content ->
             val page = content.page

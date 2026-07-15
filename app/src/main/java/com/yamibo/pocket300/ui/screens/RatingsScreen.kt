@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.Card
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -16,6 +17,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
@@ -30,10 +32,13 @@ import com.yamibo.pocket300.ui.LoadState
 import com.yamibo.pocket300.ui.ScreenScaffold
 import com.yamibo.pocket300.ui.api
 import com.yamibo.pocket300.ui.load
+import kotlinx.coroutines.launch
 
 @Composable
 internal fun RatingsScreen(threadId: Int, postId: Int, onBack: () -> Unit) {
     var reload by remember(threadId, postId) { mutableStateOf(0) }
+    val listState = rememberLazyListState()
+    val coroutineScope = rememberCoroutineScope()
     var state: LoadState<List<YamiboPostRating>> by remember(threadId, postId) {
         mutableStateOf(LoadState.Loading)
     }
@@ -45,6 +50,7 @@ internal fun RatingsScreen(threadId: Int, postId: Int, onBack: () -> Unit) {
         title = stringResource(R.string.rating_details_title),
         onBack = onBack,
         onRefresh = { reload++ },
+        onTopBarDoubleClick = { coroutineScope.launch { listState.animateScrollToItem(0) } },
     ) { padding ->
         LoadContent(state, padding) { ratings ->
             if (ratings.isEmpty()) {
@@ -54,6 +60,7 @@ internal fun RatingsScreen(threadId: Int, postId: Int, onBack: () -> Unit) {
                 )
             } else {
                 LazyColumn(
+                    state = listState,
                     contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
