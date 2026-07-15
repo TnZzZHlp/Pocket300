@@ -1,6 +1,7 @@
 package com.yamibo.pocket300.ui.screens
 
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -35,5 +36,11 @@ class ReaderScreenTest {
         index = readerImageIndexAfterTap(index, lastIndex = 3, ReaderImageTapAction.NEXT)
 
         assertTrue(index == 2)
+    }
+
+    @Test
+    fun centersShortImagesAndStartsTallImagesAtTop() {
+        assertEquals(300, readerImageTopOffset(viewportHeight = 1000, imageHeight = 400))
+        assertEquals(0, readerImageTopOffset(viewportHeight = 1000, imageHeight = 1200))
     }
 }
