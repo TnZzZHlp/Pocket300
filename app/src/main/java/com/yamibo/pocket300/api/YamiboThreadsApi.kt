@@ -19,10 +19,9 @@ enum class YamiboForumThreadSort(
     internal val orderBy: String? = null,
     internal val digest: Int? = null,
 ) {
-    LATEST_REPLY("lastpost", "lastpost"),
+    LATEST_REPLY("lastpost", "lastpost", digest = 1),
     POPULAR("heat", "heats"),
-    HOT("hot"),
-    DIGEST("digest", digest = 1),
+    DIGEST("digest", "heats", digest = 1),
     NEWEST("dateline", "dateline"),
 }
 
@@ -137,8 +136,7 @@ class YamiboThreadsApi(private val client: YamiboClient) {
         return parseForumThreads(
             response.variables ?: invalidResponse("百合会未返回帖子列表数据"),
             hasUnknownTotal = input.typeId != null ||
-                input.sort == YamiboForumThreadSort.HOT ||
-                input.sort == YamiboForumThreadSort.DIGEST,
+                input.sort != YamiboForumThreadSort.LATEST_REPLY,
         )
     }
 }
