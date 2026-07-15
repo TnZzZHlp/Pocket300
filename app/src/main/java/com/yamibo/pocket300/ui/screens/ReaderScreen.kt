@@ -12,6 +12,7 @@ import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.PaddingValues
@@ -54,6 +55,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
@@ -63,6 +65,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.sp
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
@@ -327,47 +330,66 @@ internal fun ReaderScreen(
                     HorizontalPager(
                         state = pagerState,
                         modifier = Modifier
-                            .fillMaxSize()
-                            .consumeWindowInsets(scaffoldPadding)
-                            .padding(top = contentTopPadding, bottom = contentBottomPadding),
+                            .fillMaxSize(),
                         key = { images[it] },
                     ) { page ->
                         val pageScrollState = rememberScrollState()
                         LaunchedEffect(page, imageIndex, pageScrollState) {
                             if (page == imageIndex) activeImageScrollState = pageScrollState
                         }
-                        Box(
-                            Modifier
-                                .fillMaxSize()
-                                .verticalScroll(pageScrollState)
-                                .pointerInput(images.size, page) {
-                                    detectTapGestures(onTap = { offset ->
-                                        val action = readerImageTapAction(offset.x, size.width.toFloat())
-                                        when (action) {
-                                            ReaderImageTapAction.TOGGLE_CONTROLS -> {
-                                                controlsVisible = !controlsVisible
+                        BoxWithConstraints(Modifier.fillMaxSize()) {
+                            val viewportHeight = constraints.maxHeight
+                            Box(
+                                Modifier
+                                    .fillMaxSize()
+                                    .verticalScroll(pageScrollState)
+                                    .pointerInput(images.size, page) {
+                                        detectTapGestures(onTap = { offset ->
+                                            val action = readerImageTapAction(offset.x, size.width.toFloat())
+                                            when (action) {
+                                                ReaderImageTapAction.TOGGLE_CONTROLS -> {
+                                                    controlsVisible = !controlsVisible
+                                                }
+                                                ReaderImageTapAction.NONE -> Unit
+                                                else -> imageIndex = readerImageIndexAfterTap(
+                                                    currentIndex = page,
+                                                    lastIndex = images.lastIndex,
+                                                    action = action,
+                                                )
                                             }
-                                            ReaderImageTapAction.NONE -> Unit
-                                            else -> imageIndex = readerImageIndexAfterTap(
-                                                currentIndex = page,
-                                                lastIndex = images.lastIndex,
-                                                action = action,
-                                            )
-                                        }
-                                    })
-                                },
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            AsyncImage(
-                                model = rememberPostImageRequest(images[page], content.post.threadId),
-                                contentDescription = stringResource(
-                                    R.string.reader_image_description,
-                                    page + 1,
-                                    images.size,
-                                ),
-                                contentScale = ContentScale.FillWidth,
-                                modifier = Modifier.fillMaxWidth(),
-                            )
+                                        })
+                                    },
+                            ) {
+                                Layout(
+                                    content = {
+                                        AsyncImage(
+                                            model = rememberPostImageRequest(images[page], content.post.threadId),
+                                            contentDescription = stringResource(
+                                                R.string.reader_image_description,
+                                                page + 1,
+                                                images.size,
+                                            ),
+                                            contentScale = ContentScale.FillWidth,
+                                            modifier = Modifier.fillMaxWidth(),
+                                        )
+                                    },
+                                    modifier = Modifier.fillMaxWidth(),
+                                ) { measurables, layoutConstraints ->
+                                    val image = measurables.single().measure(
+                                        layoutConstraints.copy(
+                                            minHeight = 0,
+                                            maxHeight = Constraints.Infinity,
+                                        ),
+                                    )
+                                    val contentHeight = maxOf(viewportHeight, image.height)
+                                    layout(layoutConstraints.maxWidth, contentHeight) {
+                                        image.placeRelative(
+                                            x = (layoutConstraints.maxWidth - image.width) / 2,
+                                            y = readerImageTopOffset(viewportHeight, image.height),
+                                        )
+                                    }
+                                }
+                            }
                         }
                     }
                 } else {
@@ -437,6 +459,9 @@ internal fun readerImageTapAction(x: Float, width: Float): ReaderImageTapAction 
         else -> ReaderImageTapAction.TOGGLE_CONTROLS
     }
 }
+
+internal fun readerImageTopOffset(viewportHeight: Int, imageHeight: Int): Int =
+    ((viewportHeight - imageHeight).coerceAtLeast(0)) / 2
 
 internal fun readerImageIndexAfterTap(
     currentIndex: Int,
