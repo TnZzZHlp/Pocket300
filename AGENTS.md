@@ -52,6 +52,11 @@ CI releases are triggered by tags matching `v*` (e.g., `v1.2.3`, `v1.0.0-beta.1`
 - `YamiboClient` uses `AndroidCookieJar` to bridge OkHttp to Android's persistent cookie store - Discuz authentication is held in HttpOnly cookies and survives app restarts
 - `Pocket300App.kt` is a large single file containing the main Compose UI; navigation and screen state are managed within it
 
-## Commit Style
+## Commit and Push Workflow
 
-Conventional Commit format with scope: `feat(api): ...`, `feat(ui): ...`, `fix(api): ...`, `refactor(ui): ...`, `test: ...`, `chore: ...`.
+- Write commit messages in English using Conventional Commit format with a scope: `feat(api): ...`, `feat(ui): ...`, `fix(api): ...`, `refactor(ui): ...`, `test: ...`, `chore: ...`.
+- Keep each commit focused on one logical change. Do not include unrelated working-tree changes, generated build output, local configuration, credentials, or signing material.
+- Run `testDebugUnitTest lintDebug assembleDebug` before pushing. If verification cannot run or fails for an unrelated reason, report it explicitly in the pull request.
+- Do not commit or push feature work directly to `main`. Start a descriptively named branch from the latest `origin/main` (for example, `feat/...` or `fix/...`).
+- After completing a requested change, commit it, push the branch, open a pull request targeting `main`, and merge it after required CI checks pass unless the user explicitly asks to keep the work local or leave the PR unmerged.
+- Use English for pull request titles and descriptions. After merging, update the local `main` branch with a fast-forward pull and confirm the working tree is clean.
