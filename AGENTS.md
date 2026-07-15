@@ -52,6 +52,13 @@ CI releases are triggered by tags matching `v*` (e.g., `v1.2.3`, `v1.0.0-beta.1`
 - `YamiboClient` uses `AndroidCookieJar` to bridge OkHttp to Android's persistent cookie store - Discuz authentication is held in HttpOnly cookies and survives app restarts
 - `Pocket300App.kt` is a large single file containing the main Compose UI; navigation and screen state are managed within it
 
+## Animation Guidelines
+
+- Navigation to the same content type must use the same animation across every entry point.
+- Every thread card that opens `ThreadScreen` must participate in the shared-bounds transition defined by `SharedTransitionLayout`. Pass the `SharedTransitionScope` and `AnimatedVisibilityScope` from `Pocket300App.kt` to screens that contain thread cards.
+- Use `rememberSharedContentState("thread-$threadId")` on both the source thread card and `ThreadScreen`; do not create screen-specific keys, durations, or transition styles for individual thread-card entry points.
+- When adding or changing a thread-card entry point, verify its forward and back navigation against the forum, search, favorites, reading-history, and custom-list cards so their opening and closing motion remains consistent.
+
 ## Commit and Push Workflow
 
 - Write commit messages in English using Conventional Commit format with a scope: `feat(api): ...`, `feat(ui): ...`, `fix(api): ...`, `refactor(ui): ...`, `test: ...`, `chore: ...`.
