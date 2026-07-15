@@ -6,13 +6,20 @@ import java.nio.charset.StandardCharsets
 import kotlin.math.ceil
 
 enum class YamiboSearchScope { SITE, FORUM }
+enum class YamiboThreadSearchType { KEYWORD, TITLE, USER_ID }
 
-data class SearchSiteThreadsInput(val keyword: String, val page: Int = 1, val searchId: Int? = null)
+data class SearchSiteThreadsInput(
+    val keyword: String,
+    val page: Int = 1,
+    val searchId: Int? = null,
+    val type: YamiboThreadSearchType = YamiboThreadSearchType.TITLE,
+)
 data class SearchForumThreadsInput(
     val keyword: String,
     val forumId: Int,
     val page: Int = 1,
-    val searchId: Int? = null
+    val searchId: Int? = null,
+    val type: YamiboThreadSearchType = YamiboThreadSearchType.TITLE,
 )
 
 data class YamiboSearchAuthor(val avatarUrl: String?, val id: Int?, val name: String)
@@ -63,19 +70,21 @@ data class ParseSearchPageContext(
     val page: Int,
     val responseUrl: String,
     val scope: YamiboSearchScope,
+    val keywordOverride: String? = null,
 )
 
 class YamiboSearchApi(private val client: YamiboClient) {
     suspend fun searchSiteThreads(input: SearchSiteThreadsInput): YamiboSearchPage =
-        search(input.keyword, input.page, input.searchId, YamiboSearchScope.SITE, null)
+        search(input.keyword, input.page, input.searchId, input.type, YamiboSearchScope.SITE, null)
 
     suspend fun searchForumThreads(input: SearchForumThreadsInput): YamiboSearchPage =
-        search(input.keyword, input.page, input.searchId, YamiboSearchScope.FORUM, input.forumId)
+        search(input.keyword, input.page, input.searchId, input.type, YamiboSearchScope.FORUM, input.forumId)
 
     private suspend fun search(
         rawKeyword: String,
         page: Int,
         searchId: Int?,
+        type: YamiboThreadSearchType,
         scope: YamiboSearchScope,
         forumId: Int?,
     ): YamiboSearchPage {
@@ -84,6 +93,12 @@ class YamiboSearchApi(private val client: YamiboClient) {
             YamiboSearchErrorCode.INVALID_KEYWORD,
             "请输入搜索关键字"
         )
+        if (type == YamiboThreadSearchType.USER_ID && keyword.toIntOrNull()?.takeIf { it > 0 } == null) {
+            throw YamiboSearchException(
+                YamiboSearchErrorCode.INVALID_KEYWORD,
+                "请输入有效的用户 ID"
+            )
+        }
         require(page > 0) { "page must be a positive integer" }
         searchId?.let { require(it > 0) { "searchId must be a positive integer" } }
         forumId?.let { require(it > 0) { "forumId must be a positive integer" } }
@@ -92,26 +107,32 @@ class YamiboSearchApi(private val client: YamiboClient) {
             requestCached(page, searchId)
         } else {
             request(
-                buildMap {
-                    put("mobile", "2")
-                    put("mod", if (scope == YamiboSearchScope.FORUM) "curforum" else "forum")
-                    forumId?.let { put("srhfid", it.toString()) }
-                    put("srchtxt", keyword)
-                    put("searchsubmit", "yes")
-                },
+                buildThreadSearchParameters(keyword, type, scope, forumId),
             )
         }
         if (searchId == null && page > 1) {
             val created = parseSearchPage(
                 response.html,
-                ParseSearchPageContext(forumId, 1, response.url, scope)
+                ParseSearchPageContext(
+                    forumId,
+                    1,
+                    response.url,
+                    scope,
+                    keyword.takeIf { type == YamiboThreadSearchType.USER_ID },
+                )
             )
             val createdId = created.pagination.searchId ?: return created
             response = requestCached(page, createdId)
         }
         val result = parseSearchPage(
             response.html,
-            ParseSearchPageContext(forumId, page, response.url, scope)
+            ParseSearchPageContext(
+                forumId,
+                page,
+                response.url,
+                scope,
+                keyword.takeIf { type == YamiboThreadSearchType.USER_ID },
+            )
         )
         if (searchId != null && result.keyword != keyword) {
             throw YamiboSearchException(
@@ -140,20 +161,45 @@ class YamiboSearchApi(private val client: YamiboClient) {
     }
 }
 
+internal fun buildThreadSearchParameters(
+    query: String,
+    type: YamiboThreadSearchType,
+    scope: YamiboSearchScope,
+    forumId: Int?,
+): Map<String, String> = buildMap {
+    put("mobile", "2")
+    put("mod", if (scope == YamiboSearchScope.FORUM) "curforum" else "forum")
+    forumId?.let { put("srhfid", it.toString()) }
+    when (type) {
+        YamiboThreadSearchType.KEYWORD -> {
+            put("srchtxt", query)
+            put("srchtype", "fulltext")
+        }
+        YamiboThreadSearchType.TITLE -> {
+            put("srchtxt", query)
+            put("srchtype", "title")
+        }
+        YamiboThreadSearchType.USER_ID -> put("srchuid", query)
+    }
+    put("searchsubmit", "yes")
+}
+
 fun parseSearchPage(html: String, context: ParseSearchPageContext): YamiboSearchPage {
     throwForSearchTip(html)
-    val input = requiredSearchMatch(
-        html,
-        Regex("""(<input(?=[^>]*\bname=["']srchtxt["'])[^>]*>)""", RegexOption.IGNORE_CASE),
-        "搜索框",
-    )
-    val keyword = searchText(
-        requiredSearchMatch(
-            input,
-            Regex("""\bvalue=["']([^"']*)["']""", RegexOption.IGNORE_CASE),
-            "搜索关键字"
+    val keyword = context.keywordOverride ?: run {
+        val input = requiredSearchMatch(
+            html,
+            Regex("""(<input(?=[^>]*\bname=["']srchtxt["'])[^>]*>)""", RegexOption.IGNORE_CASE),
+            "搜索框",
         )
-    )
+        searchText(
+            requiredSearchMatch(
+                input,
+                Regex("""\bvalue=["']([^"']*)["']""", RegexOption.IGNORE_CASE),
+                "搜索关键字"
+            )
+        )
+    }
     val total = searchCount(
         requiredSearchMatch(
             html,

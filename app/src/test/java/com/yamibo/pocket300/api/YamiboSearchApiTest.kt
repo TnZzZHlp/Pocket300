@@ -6,6 +6,66 @@ import org.junit.Test
 
 class YamiboSearchApiTest {
     @Test
+    fun buildsFullTextKeywordSearchParameters() {
+        assertEquals(
+            mapOf(
+                "mobile" to "2",
+                "mod" to "forum",
+                "srchtxt" to "百合",
+                "srchtype" to "fulltext",
+                "searchsubmit" to "yes",
+            ),
+            buildThreadSearchParameters(
+                "百合",
+                YamiboThreadSearchType.KEYWORD,
+                YamiboSearchScope.SITE,
+                null,
+            ),
+        )
+    }
+
+    @Test
+    fun buildsTitleSearchParameters() {
+        assertEquals(
+            "title",
+            buildThreadSearchParameters(
+                "百合",
+                YamiboThreadSearchType.TITLE,
+                YamiboSearchScope.SITE,
+                null,
+            )["srchtype"],
+        )
+    }
+
+    @Test
+    fun buildsUserIdSearchParametersWithoutSearchText() {
+        val parameters = buildThreadSearchParameters(
+            "42",
+            YamiboThreadSearchType.USER_ID,
+            YamiboSearchScope.SITE,
+            null,
+        )
+        assertEquals("42", parameters["srchuid"])
+        assertTrue("srchtxt" !in parameters)
+    }
+
+    @Test
+    fun parsesUserIdSearchWithoutSearchTextInput() {
+        val html = HTML.replace("<input name=\"srchtxt\" value=\"百合\">", "")
+        val page = parseSearchPage(
+            html,
+            ParseSearchPageContext(
+                null,
+                1,
+                "$YAMIBO_ORIGIN/search.php?searchid=88",
+                YamiboSearchScope.SITE,
+                "42",
+            ),
+        )
+        assertEquals("42", page.keyword)
+    }
+
+    @Test
     fun parsesMobileSearchPage() {
         val page = parseSearchPage(HTML, ParseSearchPageContext(null, 1, "$YAMIBO_ORIGIN/search.php?searchid=88", YamiboSearchScope.SITE))
         assertEquals("百合", page.keyword)

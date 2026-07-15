@@ -1,9 +1,12 @@
 package com.yamibo.pocket300.data
 
+import com.yamibo.pocket300.api.YamiboThreadSearchType
+
 data class CustomThreadList(
     val id: Long,
     val name: String,
     val keywords: List<String>,
+    val searchType: YamiboThreadSearchType,
     val createdAt: Long,
     val updatedAt: Long,
     val lastSyncedAt: Long?,
@@ -24,6 +27,10 @@ data class CustomListThread(
     val viewCount: Int,
     val webUrl: String,
 )
+
+internal fun parseCustomListSearchType(value: String): YamiboThreadSearchType =
+    runCatching { YamiboThreadSearchType.valueOf(value.uppercase()) }
+        .getOrDefault(YamiboThreadSearchType.TITLE)
 
 internal fun normalizeCustomListKeywords(value: String): List<String> = value
     .lineSequence()

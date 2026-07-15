@@ -5,6 +5,7 @@ import android.content.Context
 import android.database.sqlite.SQLiteDatabase
 import android.database.sqlite.SQLiteOpenHelper
 import com.yamibo.pocket300.api.YamiboSearchThread
+import com.yamibo.pocket300.api.YamiboThreadSearchType
 
 class CustomListDatabase private constructor(context: Context) :
     SQLiteOpenHelper(context, DATABASE_NAME, null, DATABASE_VERSION) {
@@ -21,6 +22,7 @@ class CustomListDatabase private constructor(context: Context) :
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 name TEXT NOT NULL,
                 keywords TEXT NOT NULL,
+                search_type TEXT NOT NULL DEFAULT 'title',
                 created_at INTEGER NOT NULL,
                 updated_at INTEGER NOT NULL,
                 last_synced_at INTEGER
@@ -62,15 +64,32 @@ class CustomListDatabase private constructor(context: Context) :
         )
     }
 
-    override fun onUpgrade(database: SQLiteDatabase, oldVersion: Int, newVersion: Int) = Unit
+    override fun onUpgrade(database: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
+        if (oldVersion < 2) {
+            database.execSQL(
+                "ALTER TABLE custom_lists ADD COLUMN search_type TEXT NOT NULL DEFAULT 'title'",
+            )
+        }
+    }
 
-    fun createList(name: String, keywords: List<String>, now: Long = System.currentTimeMillis()): Long {
-        val values = listValues(name, keywords, now).apply { put("created_at", now) }
+    fun createList(
+        name: String,
+        keywords: List<String>,
+        searchType: YamiboThreadSearchType,
+        now: Long = System.currentTimeMillis(),
+    ): Long {
+        val values = listValues(name, keywords, searchType, now).apply { put("created_at", now) }
         return writableDatabase.insertOrThrow("custom_lists", null, values)
     }
 
-    fun updateList(id: Long, name: String, keywords: List<String>, now: Long = System.currentTimeMillis()) {
-        val values = listValues(name, keywords, now).apply { putNull("last_synced_at") }
+    fun updateList(
+        id: Long,
+        name: String,
+        keywords: List<String>,
+        searchType: YamiboThreadSearchType,
+        now: Long = System.currentTimeMillis(),
+    ) {
+        val values = listValues(name, keywords, searchType, now).apply { putNull("last_synced_at") }
         writableDatabase.update(
             "custom_lists",
             values,
@@ -85,7 +104,7 @@ class CustomListDatabase private constructor(context: Context) :
 
     fun getLists(): List<CustomThreadList> = readableDatabase.rawQuery(
         """
-        SELECT l.id, l.name, l.keywords, l.created_at, l.updated_at, l.last_synced_at,
+        SELECT l.id, l.name, l.keywords, l.search_type, l.created_at, l.updated_at, l.last_synced_at,
                (SELECT COUNT(*) FROM custom_list_threads t WHERE t.list_id = l.id),
                (SELECT COUNT(*) FROM custom_list_exclusions e WHERE e.list_id = l.id)
         FROM custom_lists l
@@ -100,7 +119,7 @@ class CustomListDatabase private constructor(context: Context) :
 
     fun getList(id: Long): CustomThreadList? = readableDatabase.rawQuery(
         """
-        SELECT l.id, l.name, l.keywords, l.created_at, l.updated_at, l.last_synced_at,
+        SELECT l.id, l.name, l.keywords, l.search_type, l.created_at, l.updated_at, l.last_synced_at,
                (SELECT COUNT(*) FROM custom_list_threads t WHERE t.list_id = l.id),
                (SELECT COUNT(*) FROM custom_list_exclusions e WHERE e.list_id = l.id)
         FROM custom_lists l
@@ -193,9 +212,15 @@ class CustomListDatabase private constructor(context: Context) :
         )
     }
 
-    private fun listValues(name: String, keywords: List<String>, updatedAt: Long) = ContentValues().apply {
+    private fun listValues(
+        name: String,
+        keywords: List<String>,
+        searchType: YamiboThreadSearchType,
+        updatedAt: Long,
+    ) = ContentValues().apply {
         put("name", name.trim())
         put("keywords", keywords.joinToString("\n"))
+        put("search_type", searchType.name.lowercase())
         put("updated_at", updatedAt)
     }
 
@@ -217,11 +242,12 @@ class CustomListDatabase private constructor(context: Context) :
         id = getLong(0),
         name = getString(1),
         keywords = getString(2).lineSequence().filter(String::isNotBlank).toList(),
-        createdAt = getLong(3),
-        updatedAt = getLong(4),
-        lastSyncedAt = if (isNull(5)) null else getLong(5),
-        threadCount = getInt(6),
-        excludedCount = getInt(7),
+        searchType = parseCustomListSearchType(getString(3)),
+        createdAt = getLong(4),
+        updatedAt = getLong(5),
+        lastSyncedAt = if (isNull(6)) null else getLong(6),
+        threadCount = getInt(7),
+        excludedCount = getInt(8),
     )
 
     private inline fun <T> SQLiteDatabase.transaction(block: SQLiteDatabase.() -> T): T {
@@ -235,7 +261,7 @@ class CustomListDatabase private constructor(context: Context) :
 
     companion object {
         private const val DATABASE_NAME = "custom_lists.db"
-        private const val DATABASE_VERSION = 1
+        private const val DATABASE_VERSION = 2
         private val THREAD_COLUMNS = arrayOf(
             "list_id", "thread_id", "forum_id", "forum_name", "subject", "author_name",
             "created_at_text", "excerpt", "reply_count", "view_count", "web_url",
