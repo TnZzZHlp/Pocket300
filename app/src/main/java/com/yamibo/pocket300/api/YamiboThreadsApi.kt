@@ -315,13 +315,16 @@ private fun parseGroupIcons(raw: Any?): Map<Int, String> {
     // Discuz serializes an empty PHP associative array as [] instead of {}.
     if (raw is JSONArray && raw.length() == 0) return emptyMap()
     val value = raw as? JSONObject ?: invalidResponse("百合会返回了无效的用户组图标数据")
-    return value.keys().asSequence().associate { rawId ->
+    return value.keys().asSequence().mapNotNull { rawId ->
         val id = rawId.toIntOrNull()?.takeIf { it > 0 }
             ?: invalidResponse("百合会返回了无效的用户组图标数据")
-        val icon = value.opt(rawId) as? String
+        val rawIcon = value.opt(rawId)
+        if (rawIcon == null || rawIcon == JSONObject.NULL) return@mapNotNull null
+        val icon = rawIcon as? String
             ?: invalidResponse("百合会返回了无效的用户组图标数据")
-        id to icon
-    }
+        if (icon.isBlank()) return@mapNotNull null
+        id to icon.trim()
+    }.toMap()
 }
 
 private fun parseThreadTypes(raw: Any?): List<YamiboThreadType> {
