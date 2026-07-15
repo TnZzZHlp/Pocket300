@@ -44,6 +44,18 @@ class YamiboThreadsApiTest {
     }
 
     @Test
+    fun acceptsNullGroupIconForAuthor() {
+        val groupIcons = JSONObject()
+            .put("42", JSONObject.NULL)
+            .put("43", "admin")
+        val fixture = JSONObject(FIXTURE).put("groupiconid", groupIcons)
+
+        val page = parseForumThreads(fixture)
+
+        assertNull(page.threads.single().author.groupIconId)
+    }
+
+    @Test
     fun buildsParametersForEveryForumSort() {
         val expectedSortParameters = mapOf(
             YamiboForumThreadSort.LATEST_REPLY to mapOf(
