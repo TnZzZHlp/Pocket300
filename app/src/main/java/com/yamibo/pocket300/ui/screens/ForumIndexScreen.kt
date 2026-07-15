@@ -289,18 +289,4 @@ private fun TodayBadge(count: Int) {
     }
 }
 
-@Composable
-internal fun Stat(label: String, value: Int) = Column {
-    Text(
-        text = formatCount(value),
-        color = MaterialTheme.colorScheme.primary,
-        fontWeight = FontWeight.Bold,
-    )
-    Text(
-        text = label,
-        style = MaterialTheme.typography.labelMedium,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-    )
-}
-
 private fun formatCount(value: Int): String = NumberFormat.getIntegerInstance().format(value)
