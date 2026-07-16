@@ -133,7 +133,6 @@
     <string name="forum_expand_sticky_threads">展开置顶帖子</string>
     <string name="forum_collapse_sticky_threads">收起置顶帖子</string>
     <string name="forum_sort">排序</string>
-    <string name="forum_sort_and_filter">排序和筛选</string>
     <string name="forum_filter_category">分类</string>
     <string name="forum_filter_all">全部</string>
     <string name="forum_sort_latest_reply">最新回复</string>
