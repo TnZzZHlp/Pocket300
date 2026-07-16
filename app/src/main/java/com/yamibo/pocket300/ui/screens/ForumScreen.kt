@@ -19,14 +19,18 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.ExpandLess
 import androidx.compose.material.icons.rounded.ExpandMore
+import androidx.compose.material.icons.rounded.FilterList
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -46,6 +50,7 @@ import com.yamibo.pocket300.api.GetForumThreadsInput
 import com.yamibo.pocket300.api.YamiboForumThreadSort
 import com.yamibo.pocket300.api.YamiboForumThreadsPage
 import com.yamibo.pocket300.api.YamiboThread
+import com.yamibo.pocket300.api.YamiboThreadType
 import com.yamibo.pocket300.ui.LoadContent
 import com.yamibo.pocket300.ui.LoadState
 import com.yamibo.pocket300.ui.ScreenScaffold
@@ -101,6 +106,7 @@ internal fun ForumScreen(
     var stickyThreadsExpanded by rememberSaveable(forumId) {
         mutableStateOf(STICKY_THREADS_INITIAL_EXPANDED)
     }
+    var filtersExpanded by remember { mutableStateOf(false) }
     val listState = rememberLazyListState()
     val coroutineScope = rememberCoroutineScope()
     LaunchedEffect(forumId, reload, pageNumber, selectedTypeId, sort) {
@@ -151,6 +157,40 @@ internal fun ForumScreen(
         onSearch = onSearch,
         onRefresh = { pageNumber = 1; reload++ },
         onTopBarDoubleClick = { coroutineScope.launch { listState.animateScrollToItem(0) } },
+        actions = {
+            Box {
+                IconButton(onClick = { filtersExpanded = true }) {
+                    Icon(
+                        imageVector = Icons.Rounded.FilterList,
+                        contentDescription = stringResource(R.string.forum_sort_and_filter),
+                        tint = if (
+                            sort != YamiboForumThreadSort.LATEST_REPLY || selectedTypeId != null
+                        ) {
+                            MaterialTheme.colorScheme.primary
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        },
+                    )
+                }
+                ForumFiltersMenu(
+                    expanded = filtersExpanded,
+                    sort = sort,
+                    selectedTypeId = selectedTypeId,
+                    threadTypes = (state as? LoadState.Ready)?.value?.page?.threadTypes.orEmpty(),
+                    onDismiss = { filtersExpanded = false },
+                    onSort = {
+                        sort = it
+                        pageNumber = 1
+                        filtersExpanded = false
+                    },
+                    onType = {
+                        selectedTypeId = it
+                        pageNumber = 1
+                        filtersExpanded = false
+                    },
+                )
+            }
+        },
     ) { padding ->
         LoadContent(state, padding) { content ->
             val page = content.page
@@ -172,50 +212,6 @@ internal fun ForumScreen(
                                 AssistChip(
                                     onClick = { onForum(subforum.id) },
                                     label = { Text("${subforum.name} · ${subforum.threadCount} 主题") },
-                                )
-                            }
-                        }
-                    }
-                }
-                item { SectionLabel(stringResource(R.string.forum_sort)) }
-                item {
-                    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        items(YamiboForumThreadSort.entries, key = { it.name }) { option ->
-                            FilterChip(
-                                selected = sort == option,
-                                onClick = { sort = option; pageNumber = 1 },
-                                label = {
-                                    Text(
-                                        stringResource(
-                                            when (option) {
-                                                YamiboForumThreadSort.LATEST_REPLY -> R.string.forum_sort_latest_reply
-                                                YamiboForumThreadSort.POPULAR -> R.string.forum_sort_popular
-                                                YamiboForumThreadSort.DIGEST -> R.string.forum_sort_digest
-                                                YamiboForumThreadSort.NEWEST -> R.string.forum_sort_newest
-                                            }
-                                        )
-                                    )
-                                },
-                            )
-                        }
-                    }
-                }
-                if (page.threadTypes.isNotEmpty()) {
-                    item { SectionLabel("分类") }
-                    item {
-                        LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            item {
-                                FilterChip(
-                                    selected = selectedTypeId == null,
-                                    onClick = { selectedTypeId = null; pageNumber = 1 },
-                                    label = { Text("全部") },
-                                )
-                            }
-                            items(page.threadTypes, key = { it.id }) { type ->
-                                FilterChip(
-                                    selected = selectedTypeId == type.id,
-                                    onClick = { selectedTypeId = type.id; pageNumber = 1 },
-                                    label = { Text(type.name) },
                                 )
                             }
                         }
@@ -319,6 +315,76 @@ internal fun ForumScreen(
                         )
                     }
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ForumFiltersMenu(
+    expanded: Boolean,
+    sort: YamiboForumThreadSort,
+    selectedTypeId: Int?,
+    threadTypes: List<YamiboThreadType>,
+    onDismiss: () -> Unit,
+    onSort: (YamiboForumThreadSort) -> Unit,
+    onType: (Int?) -> Unit,
+) {
+    DropdownMenu(expanded = expanded, onDismissRequest = onDismiss) {
+        Text(
+            text = stringResource(R.string.forum_sort),
+            style = MaterialTheme.typography.labelLarge,
+            color = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+        )
+        YamiboForumThreadSort.entries.forEach { option ->
+            DropdownMenuItem(
+                text = {
+                    Text(
+                        stringResource(
+                            when (option) {
+                                YamiboForumThreadSort.LATEST_REPLY -> R.string.forum_sort_latest_reply
+                                YamiboForumThreadSort.POPULAR -> R.string.forum_sort_popular
+                                YamiboForumThreadSort.DIGEST -> R.string.forum_sort_digest
+                                YamiboForumThreadSort.NEWEST -> R.string.forum_sort_newest
+                            }
+                        )
+                    )
+                },
+                onClick = { onSort(option) },
+                trailingIcon = {
+                    if (sort == option) {
+                        Icon(Icons.Rounded.Check, contentDescription = null)
+                    }
+                },
+            )
+        }
+        if (threadTypes.isNotEmpty()) {
+            Text(
+                text = stringResource(R.string.forum_filter_category),
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+            )
+            DropdownMenuItem(
+                text = { Text(stringResource(R.string.forum_filter_all)) },
+                onClick = { onType(null) },
+                trailingIcon = {
+                    if (selectedTypeId == null) {
+                        Icon(Icons.Rounded.Check, contentDescription = null)
+                    }
+                },
+            )
+            threadTypes.forEach { type ->
+                DropdownMenuItem(
+                    text = { Text(type.name) },
+                    onClick = { onType(type.id) },
+                    trailingIcon = {
+                        if (selectedTypeId == type.id) {
+                            Icon(Icons.Rounded.Check, contentDescription = null)
+                        }
+                    },
+                )
             }
         }
     }

@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -40,6 +41,7 @@ internal fun ScreenScaffold(
     onSearch: (() -> Unit)? = null,
     onSettings: (() -> Unit)? = null,
     onTopBarDoubleClick: (() -> Unit)? = null,
+    actions: @Composable RowScope.() -> Unit = {},
     content: @Composable (PaddingValues) -> Unit,
 ) = Scaffold(
     modifier = modifier,
@@ -57,6 +59,7 @@ internal fun ScreenScaffold(
                 if (onBack != null) IconButton(onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "返回") }
             },
             actions = {
+                actions()
                 if (onSearch != null) IconButton(onSearch) { Icon(Icons.Rounded.Search, "搜索") }
                 if (onRefresh != null) IconButton(onRefresh) { Icon(Icons.Rounded.Refresh, "刷新") }
                 if (onSettings != null) {
