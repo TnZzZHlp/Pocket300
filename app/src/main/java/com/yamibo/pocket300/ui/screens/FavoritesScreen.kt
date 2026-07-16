@@ -23,7 +23,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.yamibo.pocket300.api.YamiboFavoriteThread
 import com.yamibo.pocket300.ui.EmptyState
@@ -33,7 +32,6 @@ import com.yamibo.pocket300.ui.LocalReadingHistory
 import com.yamibo.pocket300.ui.ScreenScaffold
 import com.yamibo.pocket300.ui.api
 import com.yamibo.pocket300.ui.load
-import com.yamibo.pocket300.ui.plainText
 import com.yamibo.pocket300.ui.dimIfRead
 import kotlinx.coroutines.launch
 
@@ -76,14 +74,6 @@ internal fun FavoritesScreen(
                         ) {
                             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                                 Text(favorite.title, style = MaterialTheme.typography.titleMedium)
-                                favorite.description.takeIf(String::isNotBlank)?.let {
-                                    Text(
-                                        plainText(it),
-                                        maxLines = 2,
-                                        overflow = TextOverflow.Ellipsis,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    )
-                                }
                                 favorite.createdAtText.takeIf(String::isNotBlank)?.let {
                                     Text(it, style = MaterialTheme.typography.labelMedium)
                                 }

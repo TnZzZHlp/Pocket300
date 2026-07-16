@@ -25,9 +25,6 @@ internal fun ThreadCard(thread: YamiboThread, onClick: (YamiboThread) -> Unit, m
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             if (thread.typeName != null) Text(thread.typeName, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
             Text(thread.subject, style = MaterialTheme.typography.titleMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
-            thread.excerpt?.takeIf(String::isNotBlank)?.let {
-                Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis)
-            }
             Text("${thread.author.name} · ${thread.createdAtText} · ${thread.replyCount} 回复", style = MaterialTheme.typography.labelMedium)
         }
     }

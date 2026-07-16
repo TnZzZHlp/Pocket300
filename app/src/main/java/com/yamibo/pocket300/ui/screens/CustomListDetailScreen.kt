@@ -323,15 +323,6 @@ private fun CustomListThreadCard(
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                 )
-                thread.excerpt?.let {
-                    Text(
-                        it,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 3,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
                 Text(
                     stringResource(
                         R.string.custom_list_thread_metadata,

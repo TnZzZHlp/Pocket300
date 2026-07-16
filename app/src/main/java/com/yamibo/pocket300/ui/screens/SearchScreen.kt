@@ -388,15 +388,6 @@ private fun SearchThreadCard(
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
             )
-            thread.excerpt?.takeIf(String::isNotBlank)?.let { excerpt ->
-                Text(
-                    excerpt,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 3,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
             Text(
                 stringResource(
                     R.string.search_thread_metadata,
