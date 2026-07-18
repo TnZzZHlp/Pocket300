@@ -20,6 +20,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.Logout
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
+import androidx.compose.material.icons.rounded.CalendarMonth
+import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.History
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material3.Button
@@ -61,6 +63,8 @@ import com.yamibo.pocket300.R
 import com.yamibo.pocket300.api.DEFAULT_SECURITY_QUESTIONS
 import com.yamibo.pocket300.api.LoginInput
 import com.yamibo.pocket300.api.SecurityQuestionOption
+import com.yamibo.pocket300.api.YamiboDailyCheckInState
+import com.yamibo.pocket300.api.YamiboDailyCheckInStatus
 import com.yamibo.pocket300.api.YamiboSession
 import com.yamibo.pocket300.api.YamiboUserProfile
 import com.yamibo.pocket300.ui.EmptyState
@@ -292,9 +296,18 @@ private fun ProfileSummary(
 ) {
     var reload by remember { mutableStateOf(0) }
     var profile: LoadState<YamiboUserProfile> by remember { mutableStateOf(LoadState.Loading) }
+    var checkInReload by remember { mutableStateOf(0) }
+    var checkIn: LoadState<YamiboDailyCheckInStatus> by remember {
+        mutableStateOf(LoadState.Loading)
+    }
+    var checkingIn by remember { mutableStateOf(false) }
     var loggingOut by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(session.uid, reload) { profile = load { api.auth.getUserProfile(session.uid) } }
+    LaunchedEffect(session.uid, checkInReload) {
+        checkIn = LoadState.Loading
+        checkIn = load { api.dailyCheckIn.getStatus() }
+    }
 
     LazyColumn(
         state = listState,
@@ -406,6 +419,14 @@ private fun ProfileSummary(
                 }
             }
         }
+        item {
+            DailyCheckInCard(
+                state = checkIn,
+                submitting = checkingIn,
+                onCheckIn = { checkingIn = true },
+                onRetry = { checkInReload++ },
+            )
+        }
         item { ProfileHistoryItem(onHistory) }
         item { Box(Modifier
             .fillMaxWidth()
@@ -481,6 +502,87 @@ private fun ProfileSummary(
             .onSuccess { onLoggedOut() }
             .onFailure { error = it.message ?: "退出失败" }
         loggingOut = false
+    }
+    if (checkingIn) LaunchedEffect(Unit) {
+        checkIn = load { api.dailyCheckIn.checkIn() }
+        checkingIn = false
+    }
+}
+
+@Composable
+private fun DailyCheckInCard(
+    state: LoadState<YamiboDailyCheckInStatus>,
+    submitting: Boolean,
+    onCheckIn: () -> Unit,
+    onRetry: () -> Unit,
+) {
+    val checkedIn = (state as? LoadState.Ready)?.value?.state ==
+        YamiboDailyCheckInState.CHECKED_IN
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .widthIn(max = 720.dp),
+        shape = RoundedCornerShape(20.dp),
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 18.dp, vertical = 16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(16.dp),
+        ) {
+            Icon(
+                if (checkedIn) Icons.Rounded.CheckCircle else Icons.Rounded.CalendarMonth,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+            )
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(
+                    stringResource(R.string.profile_daily_check_in),
+                    style = MaterialTheme.typography.titleMedium,
+                )
+                Text(
+                    when (state) {
+                        LoadState.Loading -> stringResource(R.string.profile_daily_check_in_loading)
+                        is LoadState.Failed -> state.message
+                        is LoadState.Ready -> stringResource(
+                            if (checkedIn) R.string.profile_daily_check_in_done
+                            else R.string.profile_daily_check_in_description,
+                        )
+                    },
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = if (state is LoadState.Failed) {
+                        MaterialTheme.colorScheme.error
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    },
+                )
+            }
+            when (state) {
+                LoadState.Loading -> CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp)
+                is LoadState.Failed -> OutlinedButton(onClick = onRetry) {
+                    Text(stringResource(R.string.profile_daily_check_in_retry))
+                }
+                is LoadState.Ready -> Button(
+                    onClick = onCheckIn,
+                    enabled = !checkedIn && !submitting,
+                ) {
+                    if (submitting) {
+                        CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                        Spacer(Modifier.size(8.dp))
+                    }
+                    Text(
+                        stringResource(
+                            when {
+                                checkedIn -> R.string.profile_daily_check_in_done
+                                submitting -> R.string.profile_daily_check_in_submitting
+                                else -> R.string.profile_daily_check_in_action
+                            },
+                        ),
+                    )
+                }
+            }
+        }
     }
 }
 
