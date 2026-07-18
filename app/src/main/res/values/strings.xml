@@ -79,6 +79,13 @@
     <string name="custom_list_cancel">取消</string>
     <string name="profile_reading_history">阅读历史</string>
     <string name="profile_reading_history_description">查看最近阅读过的主题</string>
+    <string name="profile_daily_check_in">每日签到</string>
+    <string name="profile_daily_check_in_description">每天打卡可获得对象奖励</string>
+    <string name="profile_daily_check_in_loading">正在读取今日状态…</string>
+    <string name="profile_daily_check_in_action">签到</string>
+    <string name="profile_daily_check_in_submitting">正在签到…</string>
+    <string name="profile_daily_check_in_done">今日已签到</string>
+    <string name="profile_daily_check_in_retry">重试</string>
     <string name="home_overview_title">论坛概览</string>
     <string name="home_overview_subtitle">快速了解社区动态</string>
     <string name="home_stat_today">今日新帖</string>
