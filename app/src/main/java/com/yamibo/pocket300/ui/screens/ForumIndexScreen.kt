@@ -92,7 +92,7 @@ private fun ForumIndexContent(
 ) {
     LazyColumn(
         state = listState,
-        contentPadding = PaddingValues(start = 16.dp, top = 12.dp, end = 16.dp, bottom = 104.dp),
+        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         item(key = "overview") {
