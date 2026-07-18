@@ -77,7 +77,7 @@ macOS 或 Linux 请使用：
 .\gradlew.bat assembleDebug      # 调试构建
 ```
 
-CI 会对所有指向 `main` 的拉取请求执行相同的测试、Lint 和构建任务。
+CI 会对涉及应用代码或构建配置的 `main` 分支拉取请求执行相同的测试、Lint 和构建任务；纯文档改动会跳过这些任务。
 
 ## 构建签名版
 

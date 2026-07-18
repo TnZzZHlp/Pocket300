@@ -28,23 +28,55 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Detect code and build changes
+        id: changes
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+        shell: bash
+        run: |
+          if [[ "$EVENT_NAME" == "workflow_dispatch" || -z "$BASE_SHA" || "$BASE_SHA" =~ ^0+$ ]]; then
+            code_changed=true
+          elif git diff --quiet "$BASE_SHA" "$GITHUB_SHA" -- \
+            app/ \
+            gradle/ \
+            build.gradle.kts \
+            settings.gradle.kts \
+            gradle.properties \
+            gradlew \
+            gradlew.bat \
+            build-release.ps1 \
+            .github/workflows/; then
+            code_changed=false
+          else
+            code_changed=true
+          fi
+
+          echo "code_changed=$code_changed" >> "$GITHUB_OUTPUT"
+          echo "Code or build configuration changed: $code_changed"
 
       - name: Set up JDK
+        if: steps.changes.outputs.code_changed == 'true'
         uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: "17"
 
       - name: Set up Gradle
+        if: steps.changes.outputs.code_changed == 'true'
         uses: gradle/actions/setup-gradle@v6
         with:
           cache-encryption-key: ${{ secrets.GRADLE_ENCRYPTION_KEY }}
 
       - name: Make Gradle wrapper executable
+        if: steps.changes.outputs.code_changed == 'true'
         run: chmod +x gradlew
 
       - name: Validate signing secrets
-        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+        if: steps.changes.outputs.code_changed == 'true' && github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
         shell: bash
         run: |
           for name in RELEASE_KEYSTORE_BASE64 RELEASE_STORE_PASSWORD RELEASE_KEY_PASSWORD; do
@@ -55,7 +87,7 @@ jobs:
           done
 
       - name: Restore release signing keystore
-        if: env.RELEASE_KEYSTORE_BASE64 != ''
+        if: steps.changes.outputs.code_changed == 'true' && env.RELEASE_KEYSTORE_BASE64 != ''
         shell: bash
         run: |
           keystore_path="$RUNNER_TEMP/pocket300-release.jks"
@@ -63,10 +95,11 @@ jobs:
           echo "RELEASE_KEYSTORE_PATH=$keystore_path" >> "$GITHUB_ENV"
 
       - name: Run unit tests, lint and debug build
+        if: steps.changes.outputs.code_changed == 'true'
         run: ./gradlew testDebugUnitTest lintDebug assembleDebug --stacktrace
 
       - name: Upload reports
-        if: always()
+        if: always() && steps.changes.outputs.code_changed == 'true'
         uses: actions/upload-artifact@v6
         with:
           name: ci-reports
@@ -77,7 +110,7 @@ jobs:
           retention-days: 14
 
       - name: Publish debug APK
-        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+        if: steps.changes.outputs.code_changed == 'true' && github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
