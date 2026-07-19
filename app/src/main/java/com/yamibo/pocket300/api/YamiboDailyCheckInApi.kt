@@ -39,7 +39,7 @@ class YamiboDailyCheckInApi(private val client: YamiboClient) {
                 "sign" to token,
             ),
         )
-        val result = parseDailyCheckInPage(response.html, response.url)
+        val result = parseDailyCheckInSubmission(response.html, response.url)
         if (result.status.state != YamiboDailyCheckInState.CHECKED_IN) {
             throw YamiboDailyCheckInException(
                 YamiboDailyCheckInErrorCode.SERVER_ERROR,
@@ -99,6 +99,19 @@ internal data class ParsedDailyCheckInPage(
     val status: YamiboDailyCheckInStatus,
     val signToken: String?,
 )
+
+internal fun parseDailyCheckInSubmission(html: String, responseUrl: String): ParsedDailyCheckInPage {
+    if (!isDailyCheckInLoginPage(html, responseUrl)) {
+        val message = dailyCheckInText(html)
+        if (CHECK_IN_SUCCESS_MESSAGES.any { it in message }) {
+            return ParsedDailyCheckInPage(
+                YamiboDailyCheckInStatus(YamiboDailyCheckInState.CHECKED_IN),
+                null,
+            )
+        }
+    }
+    return parseDailyCheckInPage(html, responseUrl)
+}
 
 internal fun parseDailyCheckInPage(html: String, responseUrl: String): ParsedDailyCheckInPage {
     if (isDailyCheckInLoginPage(html, responseUrl)) {
@@ -164,3 +177,7 @@ private fun checkInInvalid(message: String): Nothing = throw YamiboDailyCheckInE
 )
 
 private const val CHECK_IN_PLUGIN_ID = "zqlj_sign"
+private val CHECK_IN_SUCCESS_MESSAGES = listOf(
+    "恭喜您，打卡成功",
+    "您今天已经打过卡了",
+)
