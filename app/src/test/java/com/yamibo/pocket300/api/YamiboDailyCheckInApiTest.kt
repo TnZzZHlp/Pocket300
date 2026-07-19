@@ -33,6 +33,28 @@ class YamiboDailyCheckInApiTest {
     }
 
     @Test
+    fun parsesSuccessfulCheckInSubmissionMessage() {
+        val page = parseDailyCheckInSubmission(
+            """<div id="messagetext"><p>恭喜您，打卡成功！</p></div>""",
+            "$YAMIBO_ORIGIN/plugin.php?id=zqlj_sign&sign=abc123ef",
+        )
+
+        assertEquals(YamiboDailyCheckInState.CHECKED_IN, page.status.state)
+        assertNull(page.signToken)
+    }
+
+    @Test
+    fun parsesAlreadyCheckedInSubmissionMessage() {
+        val page = parseDailyCheckInSubmission(
+            """<script>showDialog('您今天已经打过卡了，请勿重复操作！');</script>""",
+            "$YAMIBO_ORIGIN/plugin.php?id=zqlj_sign&sign=abc123ef",
+        )
+
+        assertEquals(YamiboDailyCheckInState.CHECKED_IN, page.status.state)
+        assertNull(page.signToken)
+    }
+
+    @Test
     fun doesNotTreatRankingStatusAsViewerCheckIn() {
         assertCheckInError(YamiboDailyCheckInErrorCode.INVALID_RESPONSE) {
             parseDailyCheckInPage(
@@ -55,7 +77,7 @@ class YamiboDailyCheckInApiTest {
     @Test
     fun surfacesPluginErrorMessage() {
         try {
-            parseDailyCheckInPage(
+            parseDailyCheckInSubmission(
                 """<div id="messagetext"><p>当前用户组无权打卡&amp;领取奖励</p></div>""",
                 "$YAMIBO_ORIGIN/plugin.php?id=zqlj_sign&sign=abc123ef",
             )
