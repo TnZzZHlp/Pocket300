@@ -134,7 +134,14 @@ fun Pocket300App() {
         NavHost(
             navController,
             startDestination = "home",
-            modifier = Modifier.fillMaxSize().padding(navigationPadding),
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(
+                    bottom = navigationContentBottomPadding(
+                        isTopLevel,
+                        navigationPadding.calculateBottomPadding(),
+                    ),
+                ),
         ) {
             composable("home") {
                 ForumIndexScreen(
