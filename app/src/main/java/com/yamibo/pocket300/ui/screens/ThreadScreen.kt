@@ -221,7 +221,7 @@ internal fun ThreadScreen(
             val page = content.page
             AutoLoadNextPage(
                 listState = listState,
-                hasNextPage = page.pagination.hasNextPage,
+                hasNextPage = page.pagination.hasNextPage && !content.isLoadingMore,
                 onLoadMore = { pageNumber = page.pagination.page + 1 },
             )
             LazyColumn(
@@ -317,6 +317,7 @@ internal fun ThreadScreen(
                     ListFooter(
                         count = content.posts.size,
                         hasNextPage = page.pagination.hasNextPage,
+                        isLoadingMore = content.isLoadingMore,
                         onLoadMore = { pageNumber = page.pagination.page + 1 },
                     )
                 }

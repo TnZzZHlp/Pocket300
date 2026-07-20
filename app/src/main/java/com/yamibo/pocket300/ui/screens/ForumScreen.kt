@@ -62,7 +62,11 @@ import com.yamibo.pocket300.ui.components.ThreadCard
 import com.yamibo.pocket300.ui.load
 import kotlinx.coroutines.launch
 
-private data class ForumContent(val page: YamiboForumThreadsPage, val threads: List<YamiboThread>)
+private data class ForumContent(
+    val page: YamiboForumThreadsPage,
+    val threads: List<YamiboThread>,
+    val isLoadingMore: Boolean = false,
+)
 
 
 private data class ForumSnapshot(
@@ -117,7 +121,11 @@ internal fun ForumScreen(
         val previous = (state as? LoadState.Ready)?.value
         refreshingThreads = pageNumber == 1 && previous != null
         threadLoadError = null
-        if (pageNumber == 1 && previous == null) state = LoadState.Loading
+        if (pageNumber == 1 && previous == null) {
+            state = LoadState.Loading
+        } else if (pageNumber > 1 && previous != null) {
+            state = LoadState.Ready(previous.copy(isLoadingMore = true))
+        }
         when (val result = load {
             api.threads.getForumThreads(
                 GetForumThreadsInput(
@@ -138,8 +146,12 @@ internal fun ForumScreen(
                 forumSnapshots[forumId] = ForumSnapshot(content, pageNumber, selectedTypeId, sort)
             }
 
-            is LoadState.Failed -> if (previous == null) state = result else threadLoadError =
-                result.message
+            is LoadState.Failed -> if (previous == null) {
+                state = result
+            } else {
+                state = LoadState.Ready(previous.copy(isLoadingMore = false))
+                threadLoadError = result.message
+            }
 
             LoadState.Loading -> Unit
         }
@@ -187,7 +199,7 @@ internal fun ForumScreen(
             val page = content.page
             AutoLoadNextPage(
                 listState = listState,
-                hasNextPage = page.pagination.hasNextPage,
+                hasNextPage = page.pagination.hasNextPage && !content.isLoadingMore,
                 onLoadMore = { pageNumber = page.pagination.page + 1 },
             )
             LazyColumn(
@@ -323,6 +335,7 @@ internal fun ForumScreen(
                         ListFooter(
                             count = content.threads.size,
                             hasNextPage = page.pagination.hasNextPage,
+                            isLoadingMore = content.isLoadingMore,
                             onLoadMore = { pageNumber = page.pagination.page + 1 },
                         )
                     }
