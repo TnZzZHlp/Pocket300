@@ -25,7 +25,8 @@ class CustomListDatabase private constructor(context: Context) :
                 search_type TEXT NOT NULL DEFAULT 'title',
                 created_at INTEGER NOT NULL,
                 updated_at INTEGER NOT NULL,
-                last_synced_at INTEGER
+                last_synced_at INTEGER,
+                auto_refresh_interval_hours INTEGER NOT NULL DEFAULT 24
             )
             """.trimIndent(),
         )
@@ -70,6 +71,11 @@ class CustomListDatabase private constructor(context: Context) :
                 "ALTER TABLE custom_lists ADD COLUMN search_type TEXT NOT NULL DEFAULT 'title'",
             )
         }
+        if (oldVersion < 3) {
+            database.execSQL(
+                "ALTER TABLE custom_lists ADD COLUMN auto_refresh_interval_hours INTEGER NOT NULL DEFAULT 24",
+            )
+        }
     }
 
     fun createList(
@@ -77,8 +83,11 @@ class CustomListDatabase private constructor(context: Context) :
         keywords: List<String>,
         searchType: YamiboThreadSearchType,
         now: Long = System.currentTimeMillis(),
+        autoRefreshIntervalHours: Int = DEFAULT_CUSTOM_LIST_AUTO_REFRESH_INTERVAL_HOURS,
     ): Long {
-        val values = listValues(name, keywords, searchType, now).apply { put("created_at", now) }
+        val values = listValues(name, keywords, searchType, now, autoRefreshIntervalHours).apply {
+            put("created_at", now)
+        }
         return writableDatabase.insertOrThrow("custom_lists", null, values)
     }
 
@@ -88,8 +97,14 @@ class CustomListDatabase private constructor(context: Context) :
         keywords: List<String>,
         searchType: YamiboThreadSearchType,
         now: Long = System.currentTimeMillis(),
+        autoRefreshIntervalHours: Int = DEFAULT_CUSTOM_LIST_AUTO_REFRESH_INTERVAL_HOURS,
     ) {
-        val values = listValues(name, keywords, searchType, now).apply { putNull("last_synced_at") }
+        val existing = getList(id)
+        val values = listValues(name, keywords, searchType, now, autoRefreshIntervalHours).apply {
+            if (existing == null || existing.keywords != keywords || existing.searchType != searchType) {
+                putNull("last_synced_at")
+            }
+        }
         writableDatabase.update(
             "custom_lists",
             values,
@@ -105,6 +120,7 @@ class CustomListDatabase private constructor(context: Context) :
     fun getLists(): List<CustomThreadList> = readableDatabase.rawQuery(
         """
         SELECT l.id, l.name, l.keywords, l.search_type, l.created_at, l.updated_at, l.last_synced_at,
+               l.auto_refresh_interval_hours,
                (SELECT COUNT(*) FROM custom_list_threads t WHERE t.list_id = l.id),
                (SELECT COUNT(*) FROM custom_list_exclusions e WHERE e.list_id = l.id)
         FROM custom_lists l
@@ -120,6 +136,7 @@ class CustomListDatabase private constructor(context: Context) :
     fun getList(id: Long): CustomThreadList? = readableDatabase.rawQuery(
         """
         SELECT l.id, l.name, l.keywords, l.search_type, l.created_at, l.updated_at, l.last_synced_at,
+               l.auto_refresh_interval_hours,
                (SELECT COUNT(*) FROM custom_list_threads t WHERE t.list_id = l.id),
                (SELECT COUNT(*) FROM custom_list_exclusions e WHERE e.list_id = l.id)
         FROM custom_lists l
@@ -247,11 +264,16 @@ class CustomListDatabase private constructor(context: Context) :
         keywords: List<String>,
         searchType: YamiboThreadSearchType,
         updatedAt: Long,
+        autoRefreshIntervalHours: Int,
     ) = ContentValues().apply {
+        require(autoRefreshIntervalHours > 0) {
+            "autoRefreshIntervalHours must be a positive integer"
+        }
         put("name", name.trim())
         put("keywords", keywords.joinToString("\n"))
         put("search_type", searchType.name.lowercase())
         put("updated_at", updatedAt)
+        put("auto_refresh_interval_hours", autoRefreshIntervalHours)
     }
 
     private fun threadValues(listId: Long, thread: YamiboSearchThread) = ContentValues().apply {
@@ -276,8 +298,11 @@ class CustomListDatabase private constructor(context: Context) :
         createdAt = getLong(4),
         updatedAt = getLong(5),
         lastSyncedAt = if (isNull(6)) null else getLong(6),
-        threadCount = getInt(7),
-        excludedCount = getInt(8),
+        threadCount = getInt(8),
+        excludedCount = getInt(9),
+        autoRefreshIntervalHours = getInt(7)
+            .takeIf { it > 0 }
+            ?: DEFAULT_CUSTOM_LIST_AUTO_REFRESH_INTERVAL_HOURS,
     )
 
     private inline fun <T> SQLiteDatabase.transaction(block: SQLiteDatabase.() -> T): T {
@@ -291,7 +316,7 @@ class CustomListDatabase private constructor(context: Context) :
 
     companion object {
         private const val DATABASE_NAME = "custom_lists.db"
-        private const val DATABASE_VERSION = 2
+        private const val DATABASE_VERSION = 3
         private val THREAD_COLUMNS = arrayOf(
             "list_id", "thread_id", "forum_id", "forum_name", "subject", "author_name",
             "created_at_text", "excerpt", "reply_count", "view_count", "web_url",

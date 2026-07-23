@@ -7,9 +7,10 @@ import com.yamibo.pocket300.api.YamiboSearchPagination
 import com.yamibo.pocket300.api.YamiboSearchScope
 import com.yamibo.pocket300.api.YamiboSearchThread
 import com.yamibo.pocket300.api.YamiboThreadSearchType
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class CustomListRepositoryTest {
@@ -69,29 +70,47 @@ class CustomListRepositoryTest {
     }
 
     @Test
-    fun automaticRefreshWaitsTenSecondsBetweenListItems() = runBlocking {
+    fun automaticRefreshUsesConfiguredIntervalAndDefaultsToTwentyFourHours() {
+        val now = 48 * HOUR_MILLIS
+        val list = testList(lastSyncedAt = now - 23 * HOUR_MILLIS)
+
+        assertFalse(list.isAutoRefreshDue(now))
+        assertEquals(HOUR_MILLIS, list.millisUntilAutoRefresh(now))
+        assertTrue(list.copy(lastSyncedAt = now - 24 * HOUR_MILLIS).isAutoRefreshDue(now))
+        assertTrue(
+            list.copy(autoRefreshIntervalHours = 1).isAutoRefreshDue(now),
+        )
+    }
+
+    @Test
+    fun scheduledRefreshWaitsTenSecondsBetweenDueListItems() = runBlocking {
+        val now = 48 * HOUR_MILLIS
         val refreshedIds = mutableListOf<Long>()
         val intervals = mutableListOf<Long>()
         val scheduler = CustomListAutoRefreshScheduler(
-            loadLists = { listOf(testList(1L), testList(1L).copy(id = 2)) },
-            refresh = { refreshedIds += it.id },
-            waitForNextRefresh = { interval ->
-                intervals += interval
-                if (intervals.size == 2) throw CancellationException()
+            loadLists = {
+                listOf(
+                    testList(lastSyncedAt = 0),
+                    testList(lastSyncedAt = 0).copy(id = 2),
+                    testList(lastSyncedAt = now - HOUR_MILLIS).copy(id = 3),
+                )
             },
+            refresh = { refreshedIds += it.id },
+            nowMillis = { now },
+            waitForNextRefresh = { intervals += it },
         )
 
-        try {
-            scheduler.refreshContinuously()
-        } catch (_: CancellationException) {
-            // The injected wait ends the otherwise continuous foreground loop.
-        }
+        scheduler.refreshDueLists()
 
         assertEquals(listOf(1L, 2L), refreshedIds)
         assertEquals(
-            listOf(CUSTOM_LIST_AUTO_REFRESH_INTERVAL_MILLIS, CUSTOM_LIST_AUTO_REFRESH_INTERVAL_MILLIS),
+            listOf(CUSTOM_LIST_AUTO_REFRESH_BETWEEN_LISTS_MILLIS),
             intervals,
         )
+    }
+
+    private companion object {
+        const val HOUR_MILLIS = 60 * 60 * 1_000L
     }
 
     private fun testList(lastSyncedAt: Long?) = CustomThreadList(

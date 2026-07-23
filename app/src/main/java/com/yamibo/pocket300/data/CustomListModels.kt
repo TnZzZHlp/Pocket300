@@ -2,6 +2,8 @@ package com.yamibo.pocket300.data
 
 import com.yamibo.pocket300.api.YamiboThreadSearchType
 
+const val DEFAULT_CUSTOM_LIST_AUTO_REFRESH_INTERVAL_HOURS = 24
+
 data class CustomThreadList(
     val id: Long,
     val name: String,
@@ -12,6 +14,7 @@ data class CustomThreadList(
     val lastSyncedAt: Long?,
     val threadCount: Int,
     val excludedCount: Int,
+    val autoRefreshIntervalHours: Int = DEFAULT_CUSTOM_LIST_AUTO_REFRESH_INTERVAL_HOURS,
 )
 
 data class CustomListThread(

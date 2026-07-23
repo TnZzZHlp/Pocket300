@@ -8,7 +8,9 @@ import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.isActive
 
-internal const val CUSTOM_LIST_AUTO_REFRESH_INTERVAL_MILLIS = 10_000L
+internal const val CUSTOM_LIST_AUTO_REFRESH_BETWEEN_LISTS_MILLIS = 10_000L
+private const val MAX_FOREGROUND_AUTO_REFRESH_CHECK_DELAY_MILLIS = 60_000L
+private const val MILLIS_PER_HOUR = 60 * 60 * 1_000L
 
 internal object CustomListRefreshEvents {
     private val mutableRefreshedListIds = MutableSharedFlow<Long>(extraBufferCapacity = 64)
@@ -23,33 +25,59 @@ internal object CustomListRefreshEvents {
 internal class CustomListAutoRefreshScheduler(
     private val loadLists: suspend () -> List<CustomThreadList>,
     private val refresh: suspend (CustomThreadList) -> Unit,
-    private val intervalMillis: Long = CUSTOM_LIST_AUTO_REFRESH_INTERVAL_MILLIS,
+    private val nowMillis: () -> Long = System::currentTimeMillis,
+    private val betweenListDelayMillis: Long = CUSTOM_LIST_AUTO_REFRESH_BETWEEN_LISTS_MILLIS,
     private val waitForNextRefresh: suspend (Long) -> Unit = ::delay,
 ) {
     suspend fun refreshContinuously() {
         while (currentCoroutineContext().isActive) {
-            val lists = try {
-                loadLists()
+            refreshDueLists()
+            waitForNextRefresh(nextRefreshCheckDelay())
+        }
+    }
+
+    suspend fun refreshDueLists() {
+        val dueLists = loadListsOrEmpty().filter { it.isAutoRefreshDue(nowMillis()) }
+        dueLists.forEachIndexed { index, list ->
+            currentCoroutineContext().ensureActive()
+            try {
+                refresh(list)
             } catch (error: CancellationException) {
                 throw error
             } catch (_: Exception) {
-                emptyList()
+                // Keep later lists eligible for this scheduled update.
             }
-            if (lists.isEmpty()) {
-                waitForNextRefresh(intervalMillis)
-                continue
-            }
-            lists.forEach { list ->
-                currentCoroutineContext().ensureActive()
-                try {
-                    refresh(list)
-                } catch (error: CancellationException) {
-                    throw error
-                } catch (_: Exception) {
-                    // Keep later lists eligible for their next scheduled refresh.
-                }
-                waitForNextRefresh(intervalMillis)
+            if (index < dueLists.lastIndex) {
+                waitForNextRefresh(betweenListDelayMillis)
             }
         }
     }
+
+    private suspend fun nextRefreshCheckDelay(): Long {
+        val now = nowMillis()
+        val nextDueIn = loadListsOrEmpty()
+            .minOfOrNull { it.millisUntilAutoRefresh(now) }
+            ?: MAX_FOREGROUND_AUTO_REFRESH_CHECK_DELAY_MILLIS
+        return nextDueIn.coerceIn(
+            betweenListDelayMillis,
+            MAX_FOREGROUND_AUTO_REFRESH_CHECK_DELAY_MILLIS,
+        )
+    }
+
+    private suspend fun loadListsOrEmpty(): List<CustomThreadList> = try {
+        loadLists()
+    } catch (error: CancellationException) {
+        throw error
+    } catch (_: Exception) {
+        emptyList()
+    }
+}
+
+internal fun CustomThreadList.isAutoRefreshDue(now: Long): Boolean =
+    millisUntilAutoRefresh(now) == 0L
+
+internal fun CustomThreadList.millisUntilAutoRefresh(now: Long): Long {
+    val lastSynced = lastSyncedAt ?: return 0
+    val intervalMillis = autoRefreshIntervalHours.coerceAtLeast(1).toLong() * MILLIS_PER_HOUR
+    return (lastSynced + intervalMillis - now).coerceAtLeast(0)
 }
