@@ -184,6 +184,36 @@ class CustomListDatabase private constructor(context: Context) :
         }
     }
 
+    fun mergeThreads(
+        listId: Long,
+        threads: Collection<YamiboSearchThread>,
+        now: Long = System.currentTimeMillis(),
+    ) {
+        writableDatabase.transaction {
+            val excluded = rawQuery(
+                "SELECT thread_id FROM custom_list_exclusions WHERE list_id = ?",
+                arrayOf(listId.toString()),
+            ).use { cursor -> buildSet { while (cursor.moveToNext()) add(cursor.getInt(0)) } }
+            threads.filterNot { it.id in excluded }.forEach { thread ->
+                insertWithOnConflict(
+                    "custom_list_threads",
+                    null,
+                    threadValues(listId, thread),
+                    SQLiteDatabase.CONFLICT_REPLACE,
+                )
+            }
+            update(
+                "custom_lists",
+                ContentValues().apply {
+                    put("last_synced_at", now)
+                    put("updated_at", now)
+                },
+                "id = ?",
+                arrayOf(listId.toString()),
+            )
+        }
+    }
+
     fun excludeThread(listId: Long, threadId: Int, now: Long = System.currentTimeMillis()) {
         writableDatabase.transaction {
             insertWithOnConflict(

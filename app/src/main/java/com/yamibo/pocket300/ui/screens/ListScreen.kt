@@ -38,6 +38,7 @@ import androidx.compose.ui.unit.dp
 import com.yamibo.pocket300.R
 import com.yamibo.pocket300.api.YamiboThreadSearchType
 import com.yamibo.pocket300.data.CustomListDatabase
+import com.yamibo.pocket300.data.CustomListRefreshEvents
 import com.yamibo.pocket300.data.CustomThreadList
 import com.yamibo.pocket300.ui.EmptyState
 import com.yamibo.pocket300.ui.LoadState
@@ -45,6 +46,7 @@ import com.yamibo.pocket300.ui.Loading
 import com.yamibo.pocket300.ui.ScreenScaffold
 import com.yamibo.pocket300.ui.load
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -64,6 +66,9 @@ internal fun ListScreen(
     var state: LoadState<List<CustomThreadList>> by remember { mutableStateOf(LoadState.Loading) }
     LaunchedEffect(reload) {
         state = load { withContext(Dispatchers.IO) { database.getLists() } }
+    }
+    LaunchedEffect(Unit) {
+        CustomListRefreshEvents.refreshedListIds.collect { reload++ }
     }
 
     ScreenScaffold(
@@ -111,6 +116,12 @@ private fun CustomListOverview(
                 Text(stringResource(R.string.custom_list_create), Modifier.padding(start = 8.dp))
             }
         }
+        Text(
+            stringResource(R.string.custom_list_auto_refresh_hint),
+            modifier = Modifier.padding(horizontal = 16.dp),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
         if (lists.isEmpty()) {
             EmptyState(
                 stringResource(R.string.custom_list_empty_title),

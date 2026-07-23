@@ -17,8 +17,11 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Block
+import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -40,6 +43,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.yamibo.pocket300.R
 import com.yamibo.pocket300.data.CustomListDatabase
+import com.yamibo.pocket300.data.CustomListRefreshEvents
+import com.yamibo.pocket300.data.CustomListRefreshMode
 import com.yamibo.pocket300.data.CustomListRepository
 import com.yamibo.pocket300.data.CustomListSyncProgress
 import com.yamibo.pocket300.data.CustomListThread
@@ -51,6 +56,8 @@ import com.yamibo.pocket300.ui.ScreenScaffold
 import com.yamibo.pocket300.ui.api
 import com.yamibo.pocket300.ui.dimIfRead
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -77,6 +84,7 @@ internal fun CustomListDetailScreen(
     var syncing by remember(listId) { mutableStateOf(false) }
     var progress by remember(listId) { mutableStateOf<CustomListSyncProgress?>(null) }
     var error by remember(listId) { mutableStateOf<String?>(null) }
+    var refreshMenuExpanded by remember(listId) { mutableStateOf(false) }
     var readFilter by rememberSaveable(listId) { mutableStateOf(ThreadReadFilter.UNREAD) }
     var publicationOrder by rememberSaveable(listId) {
         mutableStateOf(ThreadPublicationOrder.NEWEST_FIRST)
@@ -99,13 +107,16 @@ internal fun CustomListDetailScreen(
         }
     }
 
-    suspend fun sync(target: CustomThreadList) {
+    suspend fun sync(
+        target: CustomThreadList,
+        mode: CustomListRefreshMode = CustomListRefreshMode.REGULAR,
+    ) {
         if (syncing) return
         syncing = true
         error = null
         progress = null
         runCatching {
-            repository.refresh(target) { progress = it }
+            repository.refresh(target, mode) { progress = it }
         }.onFailure {
             error = it.message ?: syncFailedMessage
         }
@@ -117,6 +128,12 @@ internal fun CustomListDetailScreen(
     LaunchedEffect(listId) {
         val loaded = loadLocal()
         if (loaded != null && loaded.lastSyncedAt == null) sync(loaded)
+    }
+
+    LaunchedEffect(listId) {
+        CustomListRefreshEvents.refreshedListIds
+            .filter { it == listId }
+            .collect { loadLocal() }
     }
 
     ScreenScaffold(
@@ -131,12 +148,42 @@ internal fun CustomListDetailScreen(
         onRefresh = if (syncing || list == null) null else ({
             scope.launch {
                 sync(
-                    list ?: return@launch
+                    list ?: return@launch,
                 )
             }
         }),
         onSettings = onEdit,
         onTopBarDoubleClick = { scope.launch { listState.animateScrollToItem(0) } },
+        actions = {
+            Box {
+                IconButton(
+                    enabled = !syncing && list != null,
+                    onClick = { refreshMenuExpanded = true },
+                ) {
+                    Icon(
+                        Icons.Rounded.MoreVert,
+                        contentDescription = stringResource(R.string.custom_list_more_actions),
+                    )
+                }
+                DropdownMenu(
+                    expanded = refreshMenuExpanded,
+                    onDismissRequest = { refreshMenuExpanded = false },
+                ) {
+                    DropdownMenuItem(
+                        text = { Text(stringResource(R.string.custom_list_full_refresh)) },
+                        onClick = {
+                            refreshMenuExpanded = false
+                            scope.launch {
+                                sync(
+                                    list ?: return@launch,
+                                    CustomListRefreshMode.FULL,
+                                )
+                            }
+                        },
+                    )
+                }
+            }
+        },
     ) { padding ->
         when {
             loading -> Loading(Modifier.padding(padding))
