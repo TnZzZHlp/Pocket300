@@ -214,8 +214,8 @@ internal fun ThreadScreen(
         },
         title = loadedThread?.subject.takeIf { showThreadTitle }.orEmpty(),
         onBack = onBack,
-        onRefresh = { viewModel.invalidate(); pageNumber = 1; reload++ },
-        isRefreshing = state is LoadState.Loading,
+        onRefresh = { viewModel.refresh(); pageNumber = 1; reload++ },
+        isRefreshing = viewModel.isRefreshing,
         onTopBarDoubleClick = { coroutineScope.launch { listState.animateScrollToItem(0) } },
     ) { padding ->
         LoadContent(state, padding) { content ->

@@ -107,12 +107,10 @@ internal fun CustomListDetailScreen(
         }
     }
 
-    suspend fun sync(
+    suspend fun performSync(
         target: CustomThreadList,
         mode: CustomListRefreshMode = CustomListRefreshMode.REGULAR,
     ) {
-        if (syncing) return
-        syncing = true
         error = null
         progress = null
         runCatching {
@@ -123,6 +121,15 @@ internal fun CustomListDetailScreen(
         loadLocal()
         syncing = false
         progress = null
+    }
+
+    suspend fun sync(
+        target: CustomThreadList,
+        mode: CustomListRefreshMode = CustomListRefreshMode.REGULAR,
+    ) {
+        if (syncing) return
+        syncing = true
+        performSync(target, mode)
     }
 
     LaunchedEffect(listId) {
@@ -145,13 +152,14 @@ internal fun CustomListDetailScreen(
         },
         title = list?.name ?: stringResource(R.string.list_title),
         onBack = onBack,
-        onRefresh = if (list == null) null else ({
-            scope.launch {
-                sync(
-                    list ?: return@launch,
-                )
+        onRefresh = list?.let { target ->
+            {
+                if (!syncing) {
+                    syncing = true
+                    scope.launch { performSync(target) }
+                }
             }
-        }),
+        },
         isRefreshing = syncing,
         onSettings = onEdit,
         onTopBarDoubleClick = { scope.launch { listState.animateScrollToItem(0) } },

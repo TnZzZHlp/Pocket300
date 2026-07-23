@@ -46,12 +46,19 @@ internal fun FavoritesScreen(
     var reload by remember { mutableStateOf(0) }
     val listState = rememberLazyListState()
     val coroutineScope = rememberCoroutineScope()
+    var refreshing by remember { mutableStateOf(false) }
     var state: LoadState<List<YamiboFavoriteThread>> by remember { mutableStateOf(LoadState.Loading) }
-    LaunchedEffect(reload) { state = load { api.favorites.getFavoriteThreads() } }
+    LaunchedEffect(reload) {
+        try {
+            state = load { api.favorites.getFavoriteThreads() }
+        } finally {
+            refreshing = false
+        }
+    }
     ScreenScaffold(
         "收藏",
-        onRefresh = { reload++ },
-        isRefreshing = state is LoadState.Loading,
+        onRefresh = { refreshing = true; reload++ },
+        isRefreshing = refreshing,
         onTopBarDoubleClick = { coroutineScope.launch { listState.animateScrollToItem(0) } },
     ) { padding ->
         LoadContent(state, padding) { favorites ->

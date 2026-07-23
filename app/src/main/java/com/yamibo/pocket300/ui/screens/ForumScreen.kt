@@ -167,7 +167,7 @@ internal fun ForumScreen(
         title = (state as? LoadState.Ready)?.value?.page?.forum?.name ?: "板块",
         onBack = onBack,
         onSearch = onSearch,
-        onRefresh = { pageNumber = 1; reload++ },
+        onRefresh = { refreshingThreads = true; pageNumber = 1; reload++ },
         isRefreshing = refreshingThreads,
         onTopBarDoubleClick = { coroutineScope.launch { listState.animateScrollToItem(0) } },
         actions = {
