@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.material.icons.Icons
@@ -126,7 +127,7 @@ internal fun <T> LoadContent(state: LoadState<T>, padding: PaddingValues, conten
     Box(Modifier.fillMaxSize().padding(padding)) {
         when (state) {
             LoadState.Loading -> Loading()
-            is LoadState.Failed -> EmptyState("加载失败", state.message)
+            is LoadState.Failed -> ScrollableEmptyState("加载失败", state.message)
             is LoadState.Ready -> content(state.value)
         }
     }
@@ -145,6 +146,15 @@ internal fun EmptyState(title: String, message: String, modifier: Modifier = Mod
     Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text(title, style = MaterialTheme.typography.titleLarge)
         Text(message, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+}
+
+@Composable
+internal fun ScrollableEmptyState(title: String, message: String, modifier: Modifier = Modifier) = LazyColumn(
+    modifier.fillMaxSize(),
+) {
+    item {
+        EmptyState(title, message, Modifier.fillParentMaxSize())
     }
 }
 
