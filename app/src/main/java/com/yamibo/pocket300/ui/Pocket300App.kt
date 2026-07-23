@@ -82,6 +82,8 @@ fun Pocket300App() {
     val readingHistory by historyDatabase.entries.collectAsState()
     var colorTheme by rememberSaveable { mutableStateOf(themePreferencesStore.load()) }
 
+    CustomListAutoRefreshEffect()
+
     PocketTheme(colorTheme = colorTheme) {
         val navController = rememberNavController()
         var authStateVersion by rememberSaveable { mutableIntStateOf(0) }

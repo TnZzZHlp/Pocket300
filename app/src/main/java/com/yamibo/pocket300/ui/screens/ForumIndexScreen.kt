@@ -45,8 +45,8 @@ import com.yamibo.pocket300.api.YamiboForumIndex
 import com.yamibo.pocket300.ui.LoadContent
 import com.yamibo.pocket300.ui.ScreenScaffold
 import com.yamibo.pocket300.ui.viewmodels.ForumIndexViewModel
-import java.text.NumberFormat
 import kotlinx.coroutines.launch
+import java.text.NumberFormat
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalSharedTransitionApi::class)
 @Composable
@@ -95,9 +95,6 @@ private fun ForumIndexContent(
         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        item(key = "overview") {
-            OverviewCard(index, Modifier.padding(bottom = 14.dp))
-        }
         index.categories.forEachIndexed { categoryIndex, category ->
             item(key = "category-${category.id}") {
                 CategoryHeader(
@@ -122,41 +119,6 @@ private fun ForumIndexContent(
     }
 }
 
-@Composable
-private fun OverviewCard(index: YamiboForumIndex, modifier: Modifier = Modifier) {
-    val todayPosts = index.forums.sumOf(YamiboForum::todayPostCount)
-    val threadCount = index.forums.sumOf(YamiboForum::threadCount)
-    Card(
-        modifier = modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
-    ) {
-        Column(
-            modifier = Modifier.padding(horizontal = 20.dp, vertical = 18.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
-        ) {
-            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                Text(
-                    text = stringResource(R.string.home_overview_title),
-                    style = MaterialTheme.typography.titleLarge,
-                    color = MaterialTheme.colorScheme.onPrimaryContainer,
-                )
-                Text(
-                    text = stringResource(R.string.home_overview_subtitle),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.72f),
-                )
-            }
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-            ) {
-                OverviewStat(stringResource(R.string.home_stat_today), todayPosts, emphasized = true)
-                OverviewStat(stringResource(R.string.home_stat_forums), index.forums.size)
-                OverviewStat(stringResource(R.string.home_stat_threads), threadCount)
-            }
-        }
-    }
-}
 
 @Composable
 private fun OverviewStat(label: String, value: Int, emphasized: Boolean = false) {
@@ -189,7 +151,9 @@ private fun OverviewStat(label: String, value: Int, emphasized: Boolean = false)
 @Composable
 private fun CategoryHeader(name: String, count: Int, modifier: Modifier = Modifier) {
     Row(
-        modifier = modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 4.dp),
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = 4.dp, vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(
@@ -207,7 +171,11 @@ private fun CategoryHeader(name: String, count: Int, modifier: Modifier = Modifi
 }
 
 @Composable
-private fun ForumCard(forum: YamiboForum, onClick: (YamiboForum) -> Unit, modifier: Modifier = Modifier) {
+private fun ForumCard(
+    forum: YamiboForum,
+    onClick: (YamiboForum) -> Unit,
+    modifier: Modifier = Modifier
+) {
     Card(
         onClick = { onClick(forum) },
         modifier = modifier.fillMaxWidth(),
@@ -224,7 +192,11 @@ private fun ForumCard(forum: YamiboForum, onClick: (YamiboForum) -> Unit, modifi
                 contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
             ) {
                 Box(contentAlignment = Alignment.Center) {
-                    Icon(Icons.Rounded.Forum, contentDescription = null, modifier = Modifier.size(22.dp))
+                    Icon(
+                        Icons.Rounded.Forum,
+                        contentDescription = null,
+                        modifier = Modifier.size(22.dp)
+                    )
                 }
             }
             Spacer(Modifier.width(12.dp))

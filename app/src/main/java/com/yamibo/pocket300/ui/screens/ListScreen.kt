@@ -20,6 +20,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -38,13 +39,16 @@ import androidx.compose.ui.unit.dp
 import com.yamibo.pocket300.R
 import com.yamibo.pocket300.api.YamiboThreadSearchType
 import com.yamibo.pocket300.data.CustomListDatabase
+import com.yamibo.pocket300.data.CustomListRefreshEvents
 import com.yamibo.pocket300.data.CustomThreadList
 import com.yamibo.pocket300.ui.EmptyState
 import com.yamibo.pocket300.ui.LoadState
+import com.yamibo.pocket300.ui.LocalReadingHistory
 import com.yamibo.pocket300.ui.Loading
 import com.yamibo.pocket300.ui.ScreenScaffold
 import com.yamibo.pocket300.ui.load
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -60,10 +64,21 @@ internal fun ListScreen(
     val database = remember(context) { CustomListDatabase.getInstance(context) }
     val listState = rememberLazyListState()
     val coroutineScope = rememberCoroutineScope()
+    val readThreadIds = LocalReadingHistory.current.keys
     var reload by remember { mutableIntStateOf(0) }
-    var state: LoadState<List<CustomThreadList>> by remember { mutableStateOf(LoadState.Loading) }
+    var state: LoadState<List<CustomListOverviewItem>> by remember { mutableStateOf(LoadState.Loading) }
     LaunchedEffect(reload) {
-        state = load { withContext(Dispatchers.IO) { database.getLists() } }
+        state = load {
+            withContext(Dispatchers.IO) {
+                val threadIdsByList = database.getThreadIdsByList()
+                database.getLists().map { list ->
+                    CustomListOverviewItem(list, threadIdsByList[list.id].orEmpty())
+                }
+            }
+        }
+    }
+    LaunchedEffect(Unit) {
+        CustomListRefreshEvents.refreshedListIds.collect { reload++ }
     }
 
     ScreenScaffold(
@@ -78,8 +93,10 @@ internal fun ListScreen(
                 current.message,
                 Modifier.padding(padding),
             )
+
             is LoadState.Ready -> CustomListOverview(
                 lists = current.value,
+                readThreadIds = readThreadIds,
                 sharedTransitionScope = sharedTransitionScope,
                 animatedVisibilityScope = animatedVisibilityScope,
                 onCreate = onCreate,
@@ -90,10 +107,12 @@ internal fun ListScreen(
         }
     }
 }
+
 @OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
 private fun CustomListOverview(
-    lists: List<CustomThreadList>,
+    lists: List<CustomListOverviewItem>,
+    readThreadIds: Set<Int>,
     sharedTransitionScope: SharedTransitionScope,
     animatedVisibilityScope: AnimatedVisibilityScope,
     onCreate: () -> Unit,
@@ -103,7 +122,9 @@ private fun CustomListOverview(
 ) {
     Column(modifier.fillMaxSize()) {
         Row(
-            Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
+            Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 12.dp),
             horizontalArrangement = Arrangement.End,
         ) {
             Button(onClick = onCreate) {
@@ -122,7 +143,9 @@ private fun CustomListOverview(
                 contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                items(lists, key = CustomThreadList::id) { list ->
+                items(lists, key = { it.list.id }) { item ->
+                    val list = item.list
+                    val unreadCount = unreadCustomListThreadCount(item.threadIds, readThreadIds)
                     Card(
                         onClick = { onOpen(list.id) },
                         modifier = with(sharedTransitionScope) {
@@ -134,36 +157,63 @@ private fun CustomListOverview(
                                 )
                         },
                     ) {
-                        Column(
-                            Modifier.fillMaxWidth().padding(16.dp),
-                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                        Row(
+                            Modifier
+                                .fillMaxWidth()
+                                .padding(16.dp),
+                            verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            Text(
-                                list.name,
-                                style = MaterialTheme.typography.titleMedium,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                            Text(
-                                stringResource(
-                                    R.string.custom_list_search_summary,
-                                    stringResource(list.searchType.labelResource()),
-                                    list.keywords.joinToString(" · "),
-                                ),
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.primary,
-                                maxLines = 2,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                            Text(
-                                stringResource(
-                                    R.string.custom_list_counts,
-                                    list.threadCount,
-                                    list.excludedCount,
-                                ),
-                                style = MaterialTheme.typography.labelMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
+                            Column(
+                                Modifier.weight(1f),
+                                verticalArrangement = Arrangement.spacedBy(8.dp),
+                            ) {
+                                Text(
+                                    list.name,
+                                    style = MaterialTheme.typography.titleMedium,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                                Text(
+                                    stringResource(
+                                        R.string.custom_list_search_summary,
+                                        stringResource(list.searchType.labelResource()),
+                                        list.keywords.joinToString(" · "),
+                                    ),
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    maxLines = 2,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                                Text(
+                                    stringResource(
+                                        R.string.custom_list_counts,
+                                        list.threadCount,
+                                        list.excludedCount,
+                                    ),
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                            Surface(
+                                modifier = Modifier.padding(start = 16.dp),
+                                shape = MaterialTheme.shapes.medium,
+                                color = MaterialTheme.colorScheme.primaryContainer,
+                                contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                            ) {
+                                Column(
+                                    Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                ) {
+                                    Text(
+                                        unreadCount.toString(),
+                                        style = MaterialTheme.typography.headlineSmall,
+                                    )
+                                    Text(
+                                        stringResource(R.string.custom_list_unread_label),
+                                        style = MaterialTheme.typography.labelMedium,
+                                    )
+                                }
+                            }
                         }
                     }
                 }
@@ -171,6 +221,16 @@ private fun CustomListOverview(
         }
     }
 }
+
+internal data class CustomListOverviewItem(
+    val list: CustomThreadList,
+    val threadIds: Set<Int>,
+)
+
+internal fun unreadCustomListThreadCount(
+    threadIds: Set<Int>,
+    readThreadIds: Set<Int>,
+): Int = threadIds.count { it !in readThreadIds }
 
 private fun YamiboThreadSearchType.labelResource() = when (this) {
     YamiboThreadSearchType.KEYWORD -> R.string.custom_list_search_keyword

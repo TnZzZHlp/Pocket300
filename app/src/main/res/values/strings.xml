@@ -40,12 +40,15 @@
     <string name="custom_list_search_user_id">用户 ID</string>
     <string name="custom_list_search_values">搜索内容</string>
     <string name="custom_list_search_summary">%1$s：%2$s</string>
-    <string name="custom_list_keywords_hint">每行一个关键词，将搜索标题和帖子内容。刷新时会合并全部结果。</string>
-    <string name="custom_list_titles_hint">每行一个标题关键词，将仅搜索帖子标题。刷新时会合并全部结果。</string>
-    <string name="custom_list_user_ids_hint">每行一个用户 ID，将搜索这些用户发布的主题。刷新时会合并全部结果。</string>
+    <string name="custom_list_auto_refresh_interval">自动更新间隔（小时）</string>
+    <string name="custom_list_auto_refresh_interval_hint">默认 24 小时。应用仅在前台检查，达到间隔后自动更新。</string>
+    <string name="custom_list_keywords_hint">每行一个关键词，将搜索标题和帖子内容。首次获取和全量刷新会检查全部页，常规更新仅检查第一页。</string>
+    <string name="custom_list_titles_hint">每行一个标题关键词，将仅搜索帖子标题。首次获取和全量刷新会检查全部页，常规更新仅检查第一页。</string>
+    <string name="custom_list_user_ids_hint">每行一个用户 ID，将搜索这些用户发布的主题。首次获取和全量刷新会检查全部页，常规更新仅检查第一页。</string>
     <string name="custom_list_name_required">请输入列表名称</string>
     <string name="custom_list_values_required">请至少输入一项搜索内容</string>
     <string name="custom_list_user_ids_invalid">用户 ID 必须是大于 0 的整数</string>
+    <string name="custom_list_auto_refresh_interval_invalid">自动更新间隔必须是大于 0 的整数</string>
     <string name="custom_list_save">保存并搜索</string>
     <string name="custom_list_saving">正在保存…</string>
     <string name="custom_list_save_failed">保存列表失败</string>
@@ -53,6 +56,7 @@
     <string name="custom_list_empty_title">还没有自定义列表</string>
     <string name="custom_list_empty_message">新建列表并设置搜索条件，匹配的主题会汇总到这里。</string>
     <string name="custom_list_counts">%1$d 个主题 · 已排除 %2$d 个</string>
+    <string name="custom_list_unread_label">未读</string>
     <string name="custom_list_not_found">找不到这个列表</string>
     <string name="custom_list_not_found_message">它可能已经被删除。</string>
     <string name="custom_list_no_threads">没有匹配的主题</string>
@@ -69,6 +73,8 @@
     <string name="custom_list_sync_starting">正在准备搜索…</string>
     <string name="custom_list_sync_progress">条件 %1$d/%2$d：%3$s · 第 %4$d/%5$d 页</string>
     <string name="custom_list_sync_failed">刷新列表失败</string>
+    <string name="custom_list_more_actions">更多操作</string>
+    <string name="custom_list_full_refresh">全量刷新</string>
     <string name="custom_list_thread_metadata">%1$s · %2$s · %3$d 回复 · %4$d 浏览</string>
     <string name="custom_list_exclude_thread">从列表中排除</string>
     <string name="custom_list_clear_exclusions">清除排除记录</string>
@@ -86,7 +92,6 @@
     <string name="profile_daily_check_in_submitting">正在签到…</string>
     <string name="profile_daily_check_in_done">今日已签到</string>
     <string name="profile_daily_check_in_retry">重试</string>
-    <string name="home_overview_title">论坛概览</string>
     <string name="home_overview_subtitle">快速了解社区动态</string>
     <string name="home_stat_today">今日新帖</string>
     <string name="home_stat_forums">板块</string>
