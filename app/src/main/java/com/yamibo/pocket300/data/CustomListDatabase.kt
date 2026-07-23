@@ -175,6 +175,24 @@ class CustomListDatabase private constructor(context: Context) :
         }
     }
 
+    fun getThreadIdsByList(): Map<Long, Set<Int>> = readableDatabase.query(
+        "custom_list_threads",
+        arrayOf("list_id", "thread_id"),
+        null,
+        null,
+        null,
+        null,
+        "list_id ASC, thread_id ASC",
+    ).use { cursor ->
+        val threadIdsByList = mutableMapOf<Long, MutableSet<Int>>()
+        while (cursor.moveToNext()) {
+            threadIdsByList
+                .getOrPut(cursor.getLong(0)) { mutableSetOf() }
+                .add(cursor.getInt(1))
+        }
+        threadIdsByList
+    }
+
     fun replaceThreads(
         listId: Long,
         threads: Collection<YamiboSearchThread>,

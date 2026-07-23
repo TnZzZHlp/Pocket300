@@ -56,6 +56,7 @@
     <string name="custom_list_empty_title">还没有自定义列表</string>
     <string name="custom_list_empty_message">新建列表并设置搜索条件，匹配的主题会汇总到这里。</string>
     <string name="custom_list_counts">%1$d 个主题 · 已排除 %2$d 个</string>
+    <string name="custom_list_unread_label">未读</string>
     <string name="custom_list_not_found">找不到这个列表</string>
     <string name="custom_list_not_found_message">它可能已经被删除。</string>
     <string name="custom_list_no_threads">没有匹配的主题</string>
