@@ -55,7 +55,6 @@
     <string name="custom_list_load_failed">无法读取列表</string>
     <string name="custom_list_empty_title">还没有自定义列表</string>
     <string name="custom_list_empty_message">新建列表并设置搜索条件，匹配的主题会汇总到这里。</string>
-    <string name="custom_list_auto_refresh_hint">应用在前台时会在列表达到设定间隔后自动更新；同一轮中的列表项相隔 10 秒。</string>
     <string name="custom_list_counts">%1$d 个主题 · 已排除 %2$d 个</string>
     <string name="custom_list_not_found">找不到这个列表</string>
     <string name="custom_list_not_found_message">它可能已经被删除。</string>
@@ -92,7 +91,6 @@
     <string name="profile_daily_check_in_submitting">正在签到…</string>
     <string name="profile_daily_check_in_done">今日已签到</string>
     <string name="profile_daily_check_in_retry">重试</string>
-    <string name="home_overview_title">论坛概览</string>
     <string name="home_overview_subtitle">快速了解社区动态</string>
     <string name="home_stat_today">今日新帖</string>
     <string name="home_stat_forums">板块</string>

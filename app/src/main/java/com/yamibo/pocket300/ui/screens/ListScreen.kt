@@ -29,7 +29,6 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
@@ -83,6 +82,7 @@ internal fun ListScreen(
                 current.message,
                 Modifier.padding(padding),
             )
+
             is LoadState.Ready -> CustomListOverview(
                 lists = current.value,
                 sharedTransitionScope = sharedTransitionScope,
@@ -95,6 +95,7 @@ internal fun ListScreen(
         }
     }
 }
+
 @OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
 private fun CustomListOverview(
@@ -108,7 +109,9 @@ private fun CustomListOverview(
 ) {
     Column(modifier.fillMaxSize()) {
         Row(
-            Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
+            Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 12.dp),
             horizontalArrangement = Arrangement.End,
         ) {
             Button(onClick = onCreate) {
@@ -116,12 +119,6 @@ private fun CustomListOverview(
                 Text(stringResource(R.string.custom_list_create), Modifier.padding(start = 8.dp))
             }
         }
-        Text(
-            stringResource(R.string.custom_list_auto_refresh_hint),
-            modifier = Modifier.padding(horizontal = 16.dp),
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
         if (lists.isEmpty()) {
             EmptyState(
                 stringResource(R.string.custom_list_empty_title),
@@ -146,7 +143,9 @@ private fun CustomListOverview(
                         },
                     ) {
                         Column(
-                            Modifier.fillMaxWidth().padding(16.dp),
+                            Modifier
+                                .fillMaxWidth()
+                                .padding(16.dp),
                             verticalArrangement = Arrangement.spacedBy(8.dp),
                         ) {
                             Text(
