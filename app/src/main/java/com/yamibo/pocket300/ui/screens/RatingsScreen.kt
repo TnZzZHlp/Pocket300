@@ -50,6 +50,7 @@ internal fun RatingsScreen(threadId: Int, postId: Int, onBack: () -> Unit) {
         title = stringResource(R.string.rating_details_title),
         onBack = onBack,
         onRefresh = { reload++ },
+        isRefreshing = state is LoadState.Loading,
         onTopBarDoubleClick = { coroutineScope.launch { listState.animateScrollToItem(0) } },
     ) { padding ->
         LoadContent(state, padding) { ratings ->

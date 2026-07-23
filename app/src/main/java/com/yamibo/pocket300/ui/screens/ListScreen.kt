@@ -38,14 +38,17 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.yamibo.pocket300.R
 import com.yamibo.pocket300.api.YamiboThreadSearchType
+import com.yamibo.pocket300.data.CustomListAutoRefreshScheduler
 import com.yamibo.pocket300.data.CustomListDatabase
 import com.yamibo.pocket300.data.CustomListRefreshEvents
+import com.yamibo.pocket300.data.CustomListRepository
 import com.yamibo.pocket300.data.CustomThreadList
 import com.yamibo.pocket300.ui.EmptyState
 import com.yamibo.pocket300.ui.LoadState
 import com.yamibo.pocket300.ui.LocalReadingHistory
 import com.yamibo.pocket300.ui.Loading
 import com.yamibo.pocket300.ui.ScreenScaffold
+import com.yamibo.pocket300.ui.api
 import com.yamibo.pocket300.ui.load
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.collect
@@ -62,10 +65,18 @@ internal fun ListScreen(
 ) {
     val context = LocalContext.current
     val database = remember(context) { CustomListDatabase.getInstance(context) }
+    val repository = remember(database) { CustomListRepository(database, api.search) }
+    val refreshScheduler = remember(database, repository) {
+        CustomListAutoRefreshScheduler(
+            loadLists = { withContext(Dispatchers.IO) { database.getLists() } },
+            refresh = { list -> repository.refresh(list) },
+        )
+    }
     val listState = rememberLazyListState()
     val coroutineScope = rememberCoroutineScope()
     val readThreadIds = LocalReadingHistory.current.keys
     var reload by remember { mutableIntStateOf(0) }
+    var refreshingLists by remember { mutableStateOf(false) }
     var state: LoadState<List<CustomListOverviewItem>> by remember { mutableStateOf(LoadState.Loading) }
     LaunchedEffect(reload) {
         state = load {
@@ -83,7 +94,20 @@ internal fun ListScreen(
 
     ScreenScaffold(
         stringResource(R.string.list_title),
-        onRefresh = { reload++ },
+        onRefresh = {
+            if (!refreshingLists) {
+                coroutineScope.launch {
+                    refreshingLists = true
+                    try {
+                        refreshScheduler.refreshAllLists()
+                    } finally {
+                        refreshingLists = false
+                        reload++
+                    }
+                }
+            }
+        },
+        isRefreshing = refreshingLists,
         onTopBarDoubleClick = { coroutineScope.launch { listState.animateScrollToItem(0) } },
         actions = {
             IconButton(onClick = onCreate) {

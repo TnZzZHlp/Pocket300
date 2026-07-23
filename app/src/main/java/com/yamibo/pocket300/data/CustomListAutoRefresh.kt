@@ -36,18 +36,26 @@ internal class CustomListAutoRefreshScheduler(
         }
     }
 
+    suspend fun refreshAllLists() {
+        refreshLists(loadListsOrEmpty())
+    }
+
     suspend fun refreshDueLists() {
         val dueLists = loadListsOrEmpty().filter { it.isAutoRefreshDue(nowMillis()) }
-        dueLists.forEachIndexed { index, list ->
+        refreshLists(dueLists)
+    }
+
+    private suspend fun refreshLists(lists: List<CustomThreadList>) {
+        lists.forEachIndexed { index, list ->
             currentCoroutineContext().ensureActive()
             try {
                 refresh(list)
             } catch (error: CancellationException) {
                 throw error
             } catch (_: Exception) {
-                // Keep later lists eligible for this scheduled update.
+                // Continue refreshing the remaining lists.
             }
-            if (index < dueLists.lastIndex) {
+            if (index < lists.lastIndex) {
                 waitForNextRefresh(betweenListDelayMillis)
             }
         }

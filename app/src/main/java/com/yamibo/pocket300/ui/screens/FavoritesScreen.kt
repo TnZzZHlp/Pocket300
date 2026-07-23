@@ -51,6 +51,7 @@ internal fun FavoritesScreen(
     ScreenScaffold(
         "收藏",
         onRefresh = { reload++ },
+        isRefreshing = state is LoadState.Loading,
         onTopBarDoubleClick = { coroutineScope.launch { listState.animateScrollToItem(0) } },
     ) { padding ->
         LoadContent(state, padding) { favorites ->

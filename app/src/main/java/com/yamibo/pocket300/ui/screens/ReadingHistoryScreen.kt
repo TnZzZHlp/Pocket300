@@ -63,6 +63,7 @@ internal fun ReadingHistoryScreen(
         "阅读历史",
         onBack = onBack,
         onRefresh = { reload++ },
+        isRefreshing = state is LoadState.Loading,
         onTopBarDoubleClick = { coroutineScope.launch { listState.animateScrollToItem(0) } },
     ) { padding ->
         LoadContent(state, padding) { entries ->

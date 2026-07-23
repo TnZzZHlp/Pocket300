@@ -168,6 +168,7 @@ internal fun ForumScreen(
         onBack = onBack,
         onSearch = onSearch,
         onRefresh = { pageNumber = 1; reload++ },
+        isRefreshing = refreshingThreads,
         onTopBarDoubleClick = { coroutineScope.launch { listState.animateScrollToItem(0) } },
         actions = {
             Box {

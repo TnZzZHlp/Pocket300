@@ -109,6 +109,51 @@ class CustomListRepositoryTest {
         )
     }
 
+    @Test
+    fun manualRefreshUpdatesEveryListItem() = runBlocking {
+        val refreshedIds = mutableListOf<Long>()
+        val scheduler = CustomListAutoRefreshScheduler(
+            loadLists = {
+                listOf(
+                    testList(lastSyncedAt = 0),
+                    testList(lastSyncedAt = 0).copy(id = 2),
+                    testList(lastSyncedAt = 0).copy(id = 3),
+                )
+            },
+            refresh = { refreshedIds += it.id },
+            betweenListDelayMillis = 0,
+            waitForNextRefresh = {},
+        )
+
+        scheduler.refreshAllLists()
+
+        assertEquals(listOf(1L, 2L, 3L), refreshedIds)
+    }
+
+    @Test
+    fun manualRefreshContinuesAfterAListItemFails() = runBlocking {
+        val attemptedIds = mutableListOf<Long>()
+        val scheduler = CustomListAutoRefreshScheduler(
+            loadLists = {
+                listOf(
+                    testList(lastSyncedAt = 0),
+                    testList(lastSyncedAt = 0).copy(id = 2),
+                    testList(lastSyncedAt = 0).copy(id = 3),
+                )
+            },
+            refresh = {
+                attemptedIds += it.id
+                if (it.id == 2L) error("refresh failed")
+            },
+            betweenListDelayMillis = 0,
+            waitForNextRefresh = {},
+        )
+
+        scheduler.refreshAllLists()
+
+        assertEquals(listOf(1L, 2L, 3L), attemptedIds)
+    }
+
     private companion object {
         const val HOUR_MILLIS = 60 * 60 * 1_000L
     }
