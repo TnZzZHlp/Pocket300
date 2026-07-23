@@ -43,11 +43,11 @@ import com.yamibo.pocket300.data.CustomListDatabase
 import com.yamibo.pocket300.data.CustomListRefreshEvents
 import com.yamibo.pocket300.data.CustomListRepository
 import com.yamibo.pocket300.data.CustomThreadList
-import com.yamibo.pocket300.ui.EmptyState
 import com.yamibo.pocket300.ui.LoadState
 import com.yamibo.pocket300.ui.LocalReadingHistory
 import com.yamibo.pocket300.ui.Loading
 import com.yamibo.pocket300.ui.ScreenScaffold
+import com.yamibo.pocket300.ui.ScrollableEmptyState
 import com.yamibo.pocket300.ui.api
 import com.yamibo.pocket300.ui.load
 import kotlinx.coroutines.Dispatchers
@@ -124,7 +124,7 @@ internal fun ListScreen(
     ) { padding ->
         when (val current = state) {
             LoadState.Loading -> Loading(Modifier.padding(padding))
-            is LoadState.Failed -> EmptyState(
+            is LoadState.Failed -> ScrollableEmptyState(
                 stringResource(R.string.custom_list_load_failed),
                 current.message,
                 Modifier.padding(padding),
@@ -156,7 +156,7 @@ private fun CustomListOverview(
 ) {
     Column(modifier.fillMaxSize()) {
         if (lists.isEmpty()) {
-            EmptyState(
+            ScrollableEmptyState(
                 stringResource(R.string.custom_list_empty_title),
                 stringResource(R.string.custom_list_empty_message),
             )

@@ -9,7 +9,9 @@ Pocket300 是一个面向[百合会（Yamibo）](https://bbs.yamibo.com/)的第�
 
 ## 应用预览
 
-![Pocket300 应用预览](imgs/Pocket_preview.png)
+<p align="center">
+  <img src="imgs/Pocket_preview.png" alt="Pocket300 应用预览" height="600">
+</p>
 
 ## 功能
 
