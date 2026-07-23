@@ -16,9 +16,9 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
-import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -85,6 +85,14 @@ internal fun ListScreen(
         stringResource(R.string.list_title),
         onRefresh = { reload++ },
         onTopBarDoubleClick = { coroutineScope.launch { listState.animateScrollToItem(0) } },
+        actions = {
+            IconButton(onClick = onCreate) {
+                Icon(
+                    Icons.Rounded.Add,
+                    contentDescription = stringResource(R.string.custom_list_create),
+                )
+            }
+        },
     ) { padding ->
         when (val current = state) {
             LoadState.Loading -> Loading(Modifier.padding(padding))
@@ -99,7 +107,6 @@ internal fun ListScreen(
                 readThreadIds = readThreadIds,
                 sharedTransitionScope = sharedTransitionScope,
                 animatedVisibilityScope = animatedVisibilityScope,
-                onCreate = onCreate,
                 onOpen = onOpen,
                 modifier = Modifier.padding(padding),
                 listState = listState,
@@ -115,23 +122,11 @@ private fun CustomListOverview(
     readThreadIds: Set<Int>,
     sharedTransitionScope: SharedTransitionScope,
     animatedVisibilityScope: AnimatedVisibilityScope,
-    onCreate: () -> Unit,
     onOpen: (Long) -> Unit,
     modifier: Modifier = Modifier,
     listState: LazyListState,
 ) {
     Column(modifier.fillMaxSize()) {
-        Row(
-            Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 12.dp),
-            horizontalArrangement = Arrangement.End,
-        ) {
-            Button(onClick = onCreate) {
-                Icon(Icons.Rounded.Add, contentDescription = null)
-                Text(stringResource(R.string.custom_list_create), Modifier.padding(start = 8.dp))
-            }
-        }
         if (lists.isEmpty()) {
             EmptyState(
                 stringResource(R.string.custom_list_empty_title),
