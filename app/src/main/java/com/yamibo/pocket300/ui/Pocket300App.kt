@@ -166,6 +166,8 @@ fun Pocket300App() {
             }
             composable("list") {
                 ListScreen(
+                    sharedTransitionScope = sharedTransitionScope,
+                    animatedVisibilityScope = this,
                     onCreate = { navController.navigate("custom-list/new") },
                     onOpen = { navController.navigate("custom-list/$it") },
                 )

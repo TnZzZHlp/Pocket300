@@ -1,5 +1,8 @@
 package com.yamibo.pocket300.ui.screens
 
+import androidx.compose.animation.AnimatedVisibilityScope
+import androidx.compose.animation.ExperimentalSharedTransitionApi
+import androidx.compose.animation.SharedTransitionScope
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -45,8 +48,11 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
+@OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
 internal fun ListScreen(
+    sharedTransitionScope: SharedTransitionScope,
+    animatedVisibilityScope: AnimatedVisibilityScope,
     onCreate: () -> Unit,
     onOpen: (Long) -> Unit,
 ) {
@@ -74,6 +80,8 @@ internal fun ListScreen(
             )
             is LoadState.Ready -> CustomListOverview(
                 lists = current.value,
+                sharedTransitionScope = sharedTransitionScope,
+                animatedVisibilityScope = animatedVisibilityScope,
                 onCreate = onCreate,
                 onOpen = onOpen,
                 modifier = Modifier.padding(padding),
@@ -82,9 +90,12 @@ internal fun ListScreen(
         }
     }
 }
+@OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
 private fun CustomListOverview(
     lists: List<CustomThreadList>,
+    sharedTransitionScope: SharedTransitionScope,
+    animatedVisibilityScope: AnimatedVisibilityScope,
     onCreate: () -> Unit,
     onOpen: (Long) -> Unit,
     modifier: Modifier = Modifier,
@@ -112,7 +123,17 @@ private fun CustomListOverview(
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 items(lists, key = CustomThreadList::id) { list ->
-                    Card(onClick = { onOpen(list.id) }, modifier = Modifier.fillMaxWidth()) {
+                    Card(
+                        onClick = { onOpen(list.id) },
+                        modifier = with(sharedTransitionScope) {
+                            Modifier
+                                .fillMaxWidth()
+                                .sharedBounds(
+                                    rememberSharedContentState("custom-list-${list.id}"),
+                                    animatedVisibilityScope,
+                                )
+                        },
+                    ) {
                         Column(
                             Modifier.fillMaxWidth().padding(16.dp),
                             verticalArrangement = Arrangement.spacedBy(8.dp),
