@@ -14,7 +14,11 @@ import com.yamibo.pocket300.ui.load
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 
-internal data class ThreadContent(val page: YamiboThreadPostsPage, val posts: List<YamiboPost>)
+internal data class ThreadContent(
+    val page: YamiboThreadPostsPage,
+    val posts: List<YamiboPost>,
+    val isLoadingMore: Boolean = false,
+)
 
 internal class ThreadPostsRequestTracker {
     private var lastInput: GetThreadPostsInput? = null
@@ -41,7 +45,11 @@ internal class ThreadViewModel : ViewModel() {
         if (!requestTracker.shouldLoad(input)) return
         loadJob?.cancel()
         val previous = (state as? LoadState.Ready)?.value
-        if (input.page == 1) state = LoadState.Loading
+        if (input.page == 1) {
+            state = LoadState.Loading
+        } else if (previous != null) {
+            state = LoadState.Ready(previous.copy(isLoadingMore = true))
+        }
         loadJob = viewModelScope.launch {
             state = when (val result = load { api.posts.getThreadPosts(input) }) {
                 is LoadState.Ready -> LoadState.Ready(
