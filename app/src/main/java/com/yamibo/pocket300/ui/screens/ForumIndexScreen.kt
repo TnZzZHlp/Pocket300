@@ -43,6 +43,7 @@ import com.yamibo.pocket300.R
 import com.yamibo.pocket300.api.YamiboForum
 import com.yamibo.pocket300.api.YamiboForumIndex
 import com.yamibo.pocket300.ui.LoadContent
+import com.yamibo.pocket300.ui.LoadState
 import com.yamibo.pocket300.ui.ScreenScaffold
 import com.yamibo.pocket300.ui.viewmodels.ForumIndexViewModel
 import kotlinx.coroutines.launch
@@ -66,6 +67,7 @@ internal fun ForumIndexScreen(
     ScreenScaffold(
         title = stringResource(R.string.home_title),
         onRefresh = viewModel::refresh,
+        isRefreshing = viewModel.state is LoadState.Loading,
         onSearch = onSearch,
         onTopBarDoubleClick = { coroutineScope.launch { listState.animateScrollToItem(0) } },
     ) { padding ->

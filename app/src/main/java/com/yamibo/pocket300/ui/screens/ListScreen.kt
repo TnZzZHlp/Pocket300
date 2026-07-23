@@ -84,6 +84,7 @@ internal fun ListScreen(
     ScreenScaffold(
         stringResource(R.string.list_title),
         onRefresh = { reload++ },
+        isRefreshing = state is LoadState.Loading,
         onTopBarDoubleClick = { coroutineScope.launch { listState.animateScrollToItem(0) } },
         actions = {
             IconButton(onClick = onCreate) {

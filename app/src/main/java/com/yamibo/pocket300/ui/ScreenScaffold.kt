@@ -10,7 +10,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
-import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material3.CircularProgressIndicator
@@ -18,6 +17,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
@@ -38,6 +38,7 @@ internal fun ScreenScaffold(
     modifier: Modifier = Modifier,
     onBack: (() -> Unit)? = null,
     onRefresh: (() -> Unit)? = null,
+    isRefreshing: Boolean = false,
     onSearch: (() -> Unit)? = null,
     onSettings: (() -> Unit)? = null,
     onTopBarDoubleClick: (() -> Unit)? = null,
@@ -61,7 +62,6 @@ internal fun ScreenScaffold(
             actions = {
                 actions()
                 if (onSearch != null) IconButton(onSearch) { Icon(Icons.Rounded.Search, "搜索") }
-                if (onRefresh != null) IconButton(onRefresh) { Icon(Icons.Rounded.Refresh, "刷新") }
                 if (onSettings != null) {
                     IconButton(onSettings) {
                         Icon(Icons.Rounded.Settings, stringResource(R.string.settings_title))
@@ -71,7 +71,19 @@ internal fun ScreenScaffold(
             colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surface),
         )
     },
-    content = content,
+    content = { padding ->
+        if (onRefresh == null) {
+            content(padding)
+        } else {
+            PullToRefreshBox(
+                isRefreshing = isRefreshing,
+                onRefresh = onRefresh,
+                modifier = Modifier.fillMaxSize(),
+            ) {
+                content(padding)
+            }
+        }
+    },
 )
 
 @Composable

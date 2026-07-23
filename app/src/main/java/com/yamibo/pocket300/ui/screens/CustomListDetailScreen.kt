@@ -145,13 +145,14 @@ internal fun CustomListDetailScreen(
         },
         title = list?.name ?: stringResource(R.string.list_title),
         onBack = onBack,
-        onRefresh = if (syncing || list == null) null else ({
+        onRefresh = if (list == null) null else ({
             scope.launch {
                 sync(
                     list ?: return@launch,
                 )
             }
         }),
+        isRefreshing = syncing,
         onSettings = onEdit,
         onTopBarDoubleClick = { scope.launch { listState.animateScrollToItem(0) } },
         actions = {
