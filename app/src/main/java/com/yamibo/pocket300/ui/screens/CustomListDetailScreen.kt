@@ -77,7 +77,7 @@ internal fun CustomListDetailScreen(
     var syncing by remember(listId) { mutableStateOf(false) }
     var progress by remember(listId) { mutableStateOf<CustomListSyncProgress?>(null) }
     var error by remember(listId) { mutableStateOf<String?>(null) }
-    var readFilter by rememberSaveable(listId) { mutableStateOf(ThreadReadFilter.ALL) }
+    var readFilter by rememberSaveable(listId) { mutableStateOf(ThreadReadFilter.UNREAD) }
     var publicationOrder by rememberSaveable(listId) {
         mutableStateOf(ThreadPublicationOrder.NEWEST_FIRST)
     }
@@ -122,7 +122,13 @@ internal fun CustomListDetailScreen(
     ScreenScaffold(
         title = list?.name ?: stringResource(R.string.list_title),
         onBack = onBack,
-        onRefresh = if (syncing || list == null) null else ({ scope.launch { sync(list ?: return@launch) } }),
+        onRefresh = if (syncing || list == null) null else ({
+            scope.launch {
+                sync(
+                    list ?: return@launch
+                )
+            }
+        }),
         onSettings = onEdit,
         onTopBarDoubleClick = { scope.launch { listState.animateScrollToItem(0) } },
     ) { padding ->
@@ -133,10 +139,17 @@ internal fun CustomListDetailScreen(
                 stringResource(R.string.custom_list_not_found_message),
                 Modifier.padding(padding),
             )
-            else -> Column(Modifier.fillMaxSize().padding(padding)) {
+
+            else -> Column(
+                Modifier
+                    .fillMaxSize()
+                    .padding(padding)
+            ) {
                 if (syncing) {
                     Row(
-                        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
+                        Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 12.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(12.dp),
                     ) {
@@ -190,7 +203,10 @@ internal fun CustomListDetailScreen(
                                 contentPadding = PaddingValues(16.dp),
                                 verticalArrangement = Arrangement.spacedBy(12.dp),
                             ) {
-                                items(displayedThreads, key = CustomListThread::threadId) { thread ->
+                                items(
+                                    displayedThreads,
+                                    key = CustomListThread::threadId
+                                ) { thread ->
                                     CustomListThreadCard(
                                         thread = thread,
                                         onClick = onThread,
@@ -234,7 +250,9 @@ private fun CustomListDisplayControls(
     onPublicationOrderChange: (ThreadPublicationOrder) -> Unit,
 ) {
     Column(
-        modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 12.dp),
         verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
         Text(
@@ -248,9 +266,9 @@ private fun CustomListDisplayControls(
         ) {
             item {
                 FilterChip(
-                    selected = readFilter == ThreadReadFilter.ALL,
-                    onClick = { onReadFilterChange(ThreadReadFilter.ALL) },
-                    label = { Text(stringResource(R.string.custom_list_read_all)) },
+                    selected = readFilter == ThreadReadFilter.UNREAD,
+                    onClick = { onReadFilterChange(ThreadReadFilter.UNREAD) },
+                    label = { Text(stringResource(R.string.custom_list_unread_only)) },
                 )
             }
             item {
@@ -262,9 +280,9 @@ private fun CustomListDisplayControls(
             }
             item {
                 FilterChip(
-                    selected = readFilter == ThreadReadFilter.UNREAD,
-                    onClick = { onReadFilterChange(ThreadReadFilter.UNREAD) },
-                    label = { Text(stringResource(R.string.custom_list_unread_only)) },
+                    selected = readFilter == ThreadReadFilter.ALL,
+                    onClick = { onReadFilterChange(ThreadReadFilter.ALL) },
+                    label = { Text(stringResource(R.string.custom_list_read_all)) },
                 )
             }
         }
@@ -305,11 +323,15 @@ private fun CustomListThreadCard(
     val histories = LocalReadingHistory.current
     Card(
         onClick = { onClick(thread) },
-        modifier = modifier.fillMaxWidth().dimIfRead(thread.threadId, histories),
+        modifier = modifier
+            .fillMaxWidth()
+            .dimIfRead(thread.threadId, histories),
     ) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
             Column(
-                Modifier.weight(1f).padding(start = 16.dp, top = 16.dp, bottom = 16.dp),
+                Modifier
+                    .weight(1f)
+                    .padding(start = 16.dp, top = 16.dp, bottom = 16.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 Text(
