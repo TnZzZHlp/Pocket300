@@ -120,6 +120,12 @@ internal fun CustomListDetailScreen(
     }
 
     ScreenScaffold(
+        modifier = with(sharedTransitionScope) {
+            Modifier.sharedBounds(
+                rememberSharedContentState("custom-list-$listId"),
+                animatedVisibilityScope,
+            )
+        },
         title = list?.name ?: stringResource(R.string.list_title),
         onBack = onBack,
         onRefresh = if (syncing || list == null) null else ({
