@@ -38,12 +38,17 @@ internal class ThreadViewModel : ViewModel() {
     var state: LoadState<ThreadContent> by mutableStateOf(LoadState.Loading)
         private set
 
+    var isRefreshing by mutableStateOf(false)
+        private set
+
     private val requestTracker = ThreadPostsRequestTracker()
     private var loadJob: Job? = null
+    private var requestGeneration = 0
 
     fun loadPosts(input: GetThreadPostsInput) {
         if (!requestTracker.shouldLoad(input)) return
         loadJob?.cancel()
+        val generation = ++requestGeneration
         val previous = (state as? LoadState.Ready)?.value
         if (input.page == 1) {
             state = LoadState.Loading
@@ -51,18 +56,28 @@ internal class ThreadViewModel : ViewModel() {
             state = LoadState.Ready(previous.copy(isLoadingMore = true))
         }
         loadJob = viewModelScope.launch {
-            state = when (val result = load { api.posts.getThreadPosts(input) }) {
-                is LoadState.Ready -> LoadState.Ready(
-                    ThreadContent(
-                        page = result.value,
-                        posts = if (input.page == 1) result.value.posts
-                        else (previous?.posts.orEmpty() + result.value.posts).distinctBy { it.id },
-                    ),
-                )
-                is LoadState.Failed -> result
-                LoadState.Loading -> LoadState.Loading
+            try {
+                state = when (val result = load { api.posts.getThreadPosts(input) }) {
+                    is LoadState.Ready -> LoadState.Ready(
+                        ThreadContent(
+                            page = result.value,
+                            posts = if (input.page == 1) result.value.posts
+                            else (previous?.posts.orEmpty() + result.value.posts).distinctBy { it.id },
+                        ),
+                    )
+                    is LoadState.Failed -> result
+                    LoadState.Loading -> LoadState.Loading
+                }
+            } finally {
+                if (generation == requestGeneration) isRefreshing = false
             }
         }
+    }
+
+    fun refresh() {
+        isRefreshing = true
+        requestGeneration++
+        invalidate()
     }
 
     fun invalidate() {

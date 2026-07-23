@@ -42,15 +42,20 @@ internal fun RatingsScreen(threadId: Int, postId: Int, onBack: () -> Unit) {
     var state: LoadState<List<YamiboPostRating>> by remember(threadId, postId) {
         mutableStateOf(LoadState.Loading)
     }
+    var refreshing by remember(threadId, postId) { mutableStateOf(false) }
     LaunchedEffect(threadId, postId, reload) {
-        state = load { api.posts.getPostRatings(threadId, postId) }
+        try {
+            state = load { api.posts.getPostRatings(threadId, postId) }
+        } finally {
+            refreshing = false
+        }
     }
 
     ScreenScaffold(
         title = stringResource(R.string.rating_details_title),
         onBack = onBack,
-        onRefresh = { reload++ },
-        isRefreshing = state is LoadState.Loading,
+        onRefresh = { refreshing = true; reload++ },
+        isRefreshing = refreshing,
         onTopBarDoubleClick = { coroutineScope.launch { listState.animateScrollToItem(0) } },
     ) { padding ->
         LoadContent(state, padding) { ratings ->

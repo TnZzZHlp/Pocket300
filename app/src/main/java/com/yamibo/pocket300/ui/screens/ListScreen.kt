@@ -96,8 +96,8 @@ internal fun ListScreen(
         stringResource(R.string.list_title),
         onRefresh = {
             if (!refreshingLists) {
+                refreshingLists = true
                 coroutineScope.launch {
-                    refreshingLists = true
                     try {
                         refreshScheduler.refreshAllLists()
                     } finally {

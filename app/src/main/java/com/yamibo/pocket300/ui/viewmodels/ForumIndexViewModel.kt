@@ -16,16 +16,30 @@ internal class ForumIndexViewModel : ViewModel() {
     var state: LoadState<YamiboForumIndex> by mutableStateOf(LoadState.Loading)
         private set
 
+    var isRefreshing by mutableStateOf(false)
+        private set
+
     private var loadJob: Job? = null
+    private var refreshGeneration = 0
 
     init {
-        refresh()
+        load(showRefreshIndicator = false)
     }
 
-    fun refresh() {
+    fun refresh(showRefreshIndicator: Boolean = true) {
+        load(showRefreshIndicator)
+    }
+
+    private fun load(showRefreshIndicator: Boolean) {
         loadJob?.cancel()
+        val generation = ++refreshGeneration
+        if (showRefreshIndicator) isRefreshing = true
         loadJob = viewModelScope.launch {
-            state = load { api.forums.getForumIndex() }
+            try {
+                state = load { api.forums.getForumIndex() }
+            } finally {
+                if (generation == refreshGeneration) isRefreshing = false
+            }
         }
     }
 }

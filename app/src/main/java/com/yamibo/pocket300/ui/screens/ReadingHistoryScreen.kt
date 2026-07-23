@@ -55,15 +55,20 @@ internal fun ReadingHistoryScreen(
     var reload by remember { mutableStateOf(0) }
     val listState = rememberLazyListState()
     val coroutineScope = rememberCoroutineScope()
+    var refreshing by remember { mutableStateOf(false) }
     var state: LoadState<List<ReadingHistoryEntry>> by remember { mutableStateOf(LoadState.Loading) }
     LaunchedEffect(reload) {
-        state = load { withContext(Dispatchers.IO) { database.getAll() } }
+        try {
+            state = load { withContext(Dispatchers.IO) { database.getAll() } }
+        } finally {
+            refreshing = false
+        }
     }
     ScreenScaffold(
         "阅读历史",
         onBack = onBack,
-        onRefresh = { reload++ },
-        isRefreshing = state is LoadState.Loading,
+        onRefresh = { refreshing = true; reload++ },
+        isRefreshing = refreshing,
         onTopBarDoubleClick = { coroutineScope.launch { listState.animateScrollToItem(0) } },
     ) { padding ->
         LoadContent(state, padding) { entries ->
