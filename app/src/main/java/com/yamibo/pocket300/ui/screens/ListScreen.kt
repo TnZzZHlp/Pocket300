@@ -78,31 +78,35 @@ internal fun ListScreen(
     var reload by remember { mutableIntStateOf(0) }
     var refreshingLists by remember { mutableStateOf(false) }
     var state: LoadState<List<CustomListOverviewItem>> by remember { mutableStateOf(LoadState.Loading) }
-    LaunchedEffect(reload) {
-        state = load {
-            withContext(Dispatchers.IO) {
-                val threadIdsByList = database.getThreadIdsByList()
-                database.getLists().map { list ->
-                    CustomListOverviewItem(list, threadIdsByList[list.id].orEmpty())
-                }
-            }
+
+    suspend fun loadOverview(): List<CustomListOverviewItem> = withContext(Dispatchers.IO) {
+        val threadIdsByList = database.getThreadIdsByList()
+        database.getLists().map { list ->
+            CustomListOverviewItem(list, threadIdsByList[list.id].orEmpty())
         }
     }
+
+    LaunchedEffect(reload) {
+        state = load { loadOverview() }
+    }
     LaunchedEffect(Unit) {
-        CustomListRefreshEvents.refreshedListIds.collect { reload++ }
+        CustomListRefreshEvents.refreshedListIds.collect {
+            if (!refreshingLists) reload++
+        }
     }
 
     ScreenScaffold(
         stringResource(R.string.list_title),
         onRefresh = {
-            if (!refreshingLists) {
+            val listsToRefresh = (state as? LoadState.Ready)?.value.orEmpty().map { it.list }
+            if (!refreshingLists && listsToRefresh.isNotEmpty()) {
                 refreshingLists = true
                 coroutineScope.launch {
                     try {
-                        refreshScheduler.refreshAllLists()
+                        refreshScheduler.refreshAllLists(listsToRefresh)
+                        state = load { loadOverview() }
                     } finally {
                         refreshingLists = false
-                        reload++
                     }
                 }
             }

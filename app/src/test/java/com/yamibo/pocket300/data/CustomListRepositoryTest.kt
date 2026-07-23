@@ -112,20 +112,19 @@ class CustomListRepositoryTest {
     @Test
     fun manualRefreshUpdatesEveryListItem() = runBlocking {
         val refreshedIds = mutableListOf<Long>()
+        val lists = listOf(
+            testList(lastSyncedAt = 0),
+            testList(lastSyncedAt = 0).copy(id = 2),
+            testList(lastSyncedAt = 0).copy(id = 3),
+        )
         val scheduler = CustomListAutoRefreshScheduler(
-            loadLists = {
-                listOf(
-                    testList(lastSyncedAt = 0),
-                    testList(lastSyncedAt = 0).copy(id = 2),
-                    testList(lastSyncedAt = 0).copy(id = 3),
-                )
-            },
+            loadLists = { emptyList() },
             refresh = { refreshedIds += it.id },
             betweenListDelayMillis = 0,
             waitForNextRefresh = {},
         )
 
-        scheduler.refreshAllLists()
+        scheduler.refreshAllLists(lists)
 
         assertEquals(listOf(1L, 2L, 3L), refreshedIds)
     }
@@ -133,14 +132,13 @@ class CustomListRepositoryTest {
     @Test
     fun manualRefreshContinuesAfterAListItemFails() = runBlocking {
         val attemptedIds = mutableListOf<Long>()
+        val lists = listOf(
+            testList(lastSyncedAt = 0),
+            testList(lastSyncedAt = 0).copy(id = 2),
+            testList(lastSyncedAt = 0).copy(id = 3),
+        )
         val scheduler = CustomListAutoRefreshScheduler(
-            loadLists = {
-                listOf(
-                    testList(lastSyncedAt = 0),
-                    testList(lastSyncedAt = 0).copy(id = 2),
-                    testList(lastSyncedAt = 0).copy(id = 3),
-                )
-            },
+            loadLists = { emptyList() },
             refresh = {
                 attemptedIds += it.id
                 if (it.id == 2L) error("refresh failed")
@@ -149,7 +147,7 @@ class CustomListRepositoryTest {
             waitForNextRefresh = {},
         )
 
-        scheduler.refreshAllLists()
+        scheduler.refreshAllLists(lists)
 
         assertEquals(listOf(1L, 2L, 3L), attemptedIds)
     }

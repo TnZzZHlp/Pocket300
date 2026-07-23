@@ -37,7 +37,11 @@ internal class CustomListAutoRefreshScheduler(
     }
 
     suspend fun refreshAllLists() {
-        refreshLists(loadListsOrEmpty())
+        refreshAllLists(loadListsOrEmpty())
+    }
+
+    suspend fun refreshAllLists(lists: List<CustomThreadList>) {
+        refreshLists(lists)
     }
 
     suspend fun refreshDueLists() {
