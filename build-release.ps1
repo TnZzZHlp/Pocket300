@@ -1,5 +1,7 @@
 [CmdletBinding()]
 param(
+    [ValidatePattern('^\d+\.\d+\.\d+(-(alpha|beta|rc)(\.\d+)?)?$')]
+    [string]$VersionName,
     [string]$KeystorePath = "$env:USERPROFILE\pocket300-release.jks",
     [string]$KeyAlias = "pocket300",
     [string]$OutputPath = "app\build\outputs\apk\release\app-release-signed.apk"
@@ -54,7 +56,11 @@ $signedApk = [System.IO.Path]::GetFullPath((Join-Path $repositoryRoot $OutputPat
 $signedDirectory = Split-Path -Parent $signedApk
 
 Write-Host "Building release APK..."
-& "$repositoryRoot\gradlew.bat" assembleRelease
+$gradleArguments = @("assembleRelease")
+if ($VersionName) {
+    $gradleArguments += "-PversionName=$VersionName"
+}
+& "$repositoryRoot\gradlew.bat" @gradleArguments
 if ($LASTEXITCODE -ne 0) {
     throw "Gradle release build failed with exit code $LASTEXITCODE"
 }

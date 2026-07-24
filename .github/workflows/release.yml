@@ -30,7 +30,7 @@ jobs:
       - name: Validate tag and signing secrets
         shell: bash
         run: |
-          if [[ ! "$GITHUB_REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+          if [[ ! "$GITHUB_REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-(alpha|beta|rc)(\.[0-9]+)?)?$ ]]; then
             echo "Tag must look like v1.2.3 or v1.2.3-beta.1" >&2
             exit 1
           fi
@@ -69,10 +69,8 @@ jobs:
       - name: Build signed release APK
         shell: bash
         run: |
-          version_code=$((1000 + GITHUB_RUN_NUMBER))
           ./gradlew assembleRelease \
             -PversionName="${GITHUB_REF_NAME#v}" \
-            -PversionCode="$version_code" \
             --stacktrace
 
       - name: Verify and prepare APK
