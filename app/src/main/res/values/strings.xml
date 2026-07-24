@@ -11,6 +11,13 @@
     <string name="search_input_placeholder">输入搜索内容</string>
     <string name="search_action">搜索</string>
     <string name="search_clear">清空搜索内容</string>
+    <string name="search_close">关闭搜索</string>
+    <string name="favorites_search_label">搜索收藏标题或摘要</string>
+    <string name="favorites_search_empty_title">没有匹配的收藏</string>
+    <string name="favorites_search_empty_message">没有找到与“%1$s”相关的收藏。</string>
+    <string name="history_search_label">搜索主题标题或作者</string>
+    <string name="history_search_empty_title">没有匹配的阅读记录</string>
+    <string name="history_search_empty_message">没有找到与“%1$s”相关的阅读记录。</string>
     <string name="search_type_label">搜索范围</string>
     <string name="search_type_keyword">全文</string>
     <string name="search_type_title">标题</string>
