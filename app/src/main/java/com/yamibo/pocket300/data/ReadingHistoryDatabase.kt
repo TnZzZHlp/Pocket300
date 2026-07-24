@@ -80,6 +80,15 @@ class ReadingHistoryDatabase private constructor(context: Context) :
         refreshEntries()
     }
 
+    fun remove(threadId: Int) {
+        writableDatabase.delete(
+            "reading_history",
+            "thread_id = ?",
+            arrayOf(threadId.toString()),
+        )
+        refreshEntries()
+    }
+
     fun getAll(): List<ReadingHistoryEntry> = readableDatabase.query(
         "reading_history",
         COLUMNS,
