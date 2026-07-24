@@ -68,14 +68,34 @@ class ReadingHistoryDatabase private constructor(context: Context) :
         }
         writableDatabase.transaction {
             insertWithOnConflict("reading_history", null, values, SQLiteDatabase.CONFLICT_REPLACE)
-            execSQL(
-                """
-                DELETE FROM reading_history
-                WHERE thread_id NOT IN (
-                    SELECT thread_id FROM reading_history ORDER BY read_at DESC LIMIT $MAX_ENTRIES
+            trimToMaxEntries()
+        }
+        refreshEntries()
+    }
+
+    fun markRead(
+        threads: Collection<CustomListThread>,
+        readAt: Long = System.currentTimeMillis(),
+    ) {
+        if (threads.isEmpty()) return
+        writableDatabase.transaction {
+            threads.distinctBy(CustomListThread::threadId).forEach { thread ->
+                insertWithOnConflict(
+                    "reading_history",
+                    null,
+                    ContentValues().apply {
+                        put("thread_id", thread.threadId)
+                        put("forum_id", thread.forumId)
+                        put("subject", thread.subject)
+                        put("author_name", thread.authorName)
+                        put("last_post_at_text", "")
+                        put("last_read_floor", 1)
+                        put("read_at", readAt)
+                    },
+                    SQLiteDatabase.CONFLICT_IGNORE,
                 )
-                """.trimIndent(),
-            )
+            }
+            trimToMaxEntries()
         }
         refreshEntries()
     }
@@ -117,6 +137,17 @@ class ReadingHistoryDatabase private constructor(context: Context) :
 
     private fun refreshEntries() {
         _entries.value = getAll().associateBy(ReadingHistoryEntry::threadId)
+    }
+
+    private fun SQLiteDatabase.trimToMaxEntries() {
+        execSQL(
+            """
+            DELETE FROM reading_history
+            WHERE thread_id NOT IN (
+                SELECT thread_id FROM reading_history ORDER BY read_at DESC LIMIT $MAX_ENTRIES
+            )
+            """.trimIndent(),
+        )
     }
 
     private inline fun <T> SQLiteDatabase.transaction(block: SQLiteDatabase.() -> T): T {

@@ -3,6 +3,7 @@ package com.yamibo.pocket300.ui.screens
 import androidx.compose.animation.AnimatedVisibilityScope
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionScope
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -17,8 +18,12 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Block
+import androidx.compose.material.icons.rounded.DoneAll
 import androidx.compose.material.icons.rounded.MoreVert
+import androidx.compose.material.icons.rounded.SelectAll
 import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -49,6 +54,7 @@ import com.yamibo.pocket300.data.CustomListRepository
 import com.yamibo.pocket300.data.CustomListSyncProgress
 import com.yamibo.pocket300.data.CustomListThread
 import com.yamibo.pocket300.data.CustomThreadList
+import com.yamibo.pocket300.data.ReadingHistoryDatabase
 import com.yamibo.pocket300.ui.EmptyState
 import com.yamibo.pocket300.ui.Loading
 import com.yamibo.pocket300.ui.LocalReadingHistory
@@ -74,11 +80,13 @@ internal fun CustomListDetailScreen(
 ) {
     val context = LocalContext.current
     val database = remember(context) { CustomListDatabase.getInstance(context) }
+    val historyDatabase = remember(context) { ReadingHistoryDatabase.getInstance(context) }
     val repository = remember(database) { CustomListRepository(database, api.search) }
     val scope = rememberCoroutineScope()
     val listState = rememberLazyListState()
     val histories = LocalReadingHistory.current
     val syncFailedMessage = stringResource(R.string.custom_list_sync_failed)
+    val bulkActionFailedMessage = stringResource(R.string.custom_list_bulk_action_failed)
     var list by remember(listId) { mutableStateOf<CustomThreadList?>(null) }
     var threads by remember(listId) { mutableStateOf<List<CustomListThread>>(emptyList()) }
     var loading by remember(listId) { mutableStateOf(true) }
@@ -86,6 +94,9 @@ internal fun CustomListDetailScreen(
     var progress by remember(listId) { mutableStateOf<CustomListSyncProgress?>(null) }
     var error by remember(listId) { mutableStateOf<String?>(null) }
     var refreshMenuExpanded by remember(listId) { mutableStateOf(false) }
+    var selectionMode by remember(listId) { mutableStateOf(false) }
+    var selectedThreadIds by remember(listId) { mutableStateOf(emptySet<Int>()) }
+    var applyingSelectionAction by remember(listId) { mutableStateOf(false) }
     var readFilter by rememberSaveable(listId) { mutableStateOf(ThreadReadFilter.UNREAD) }
     var publicationOrder by rememberSaveable(listId) {
         mutableStateOf(ThreadPublicationOrder.NEWEST_FIRST)
@@ -96,6 +107,10 @@ internal fun CustomListDetailScreen(
         readFilter = readFilter,
         publicationOrder = publicationOrder,
     )
+    val displayedThreadIds = displayedThreads.map(CustomListThread::threadId)
+    val selectedThreads = threads.filter { it.threadId in selectedThreadIds }
+    val allDisplayedThreadsSelected = displayedThreadIds.isNotEmpty() &&
+        selectedThreadIds.containsAll(displayedThreadIds)
 
     suspend fun loadLocal(): CustomThreadList? = withContext(Dispatchers.IO) {
         database.getList(listId).also { loaded ->
@@ -133,6 +148,53 @@ internal fun CustomListDetailScreen(
         performSync(target, mode)
     }
 
+    fun exitSelectionMode() {
+        selectionMode = false
+        selectedThreadIds = emptySet()
+    }
+
+    fun toggleSelection(threadId: Int) {
+        selectedThreadIds = toggleThreadSelection(selectedThreadIds, threadId)
+    }
+
+    fun startSelection(threadId: Int) {
+        selectionMode = true
+        selectedThreadIds = selectedThreadIds + threadId
+    }
+
+    fun markSelectedRead() {
+        val targets = selectedThreads.filter { it.threadId !in histories }
+        if (targets.isEmpty() || applyingSelectionAction) return
+        applyingSelectionAction = true
+        scope.launch {
+            try {
+                withContext(Dispatchers.IO) { historyDatabase.markRead(targets) }
+                exitSelectionMode()
+            } catch (failure: Exception) {
+                error = failure.message ?: bulkActionFailedMessage
+            } finally {
+                applyingSelectionAction = false
+            }
+        }
+    }
+
+    fun excludeSelected() {
+        val targetIds = selectedThreads.map(CustomListThread::threadId)
+        if (targetIds.isEmpty() || applyingSelectionAction) return
+        applyingSelectionAction = true
+        scope.launch {
+            try {
+                withContext(Dispatchers.IO) { database.excludeThreads(listId, targetIds) }
+                loadLocal()
+                exitSelectionMode()
+            } catch (failure: Exception) {
+                error = failure.message ?: bulkActionFailedMessage
+            } finally {
+                applyingSelectionAction = false
+            }
+        }
+    }
+
     LaunchedEffect(listId) {
         val loaded = loadLocal()
         if (loaded != null && loaded.lastSyncedAt == null) sync(loaded)
@@ -144,6 +206,10 @@ internal fun CustomListDetailScreen(
             .collect { loadLocal() }
     }
 
+    LaunchedEffect(displayedThreadIds) {
+        selectedThreadIds = selectedThreadIds.intersect(displayedThreadIds.toSet())
+    }
+
     ScreenScaffold(
         modifier = with(sharedTransitionScope) {
             Modifier.sharedBounds(
@@ -151,9 +217,13 @@ internal fun CustomListDetailScreen(
                 animatedVisibilityScope,
             )
         },
-        title = list?.name ?: stringResource(R.string.list_title),
-        onBack = onBack,
-        onRefresh = list?.let { target ->
+        title = if (selectionMode) {
+            stringResource(R.string.custom_list_selected_count, selectedThreadIds.size)
+        } else {
+            list?.name ?: stringResource(R.string.list_title)
+        },
+        onBack = if (selectionMode) ::exitSelectionMode else onBack,
+        onRefresh = if (selectionMode) null else list?.let { target ->
             {
                 if (!syncing) {
                     syncing = true
@@ -162,35 +232,89 @@ internal fun CustomListDetailScreen(
             }
         },
         isRefreshing = syncing,
-        onSettings = onEdit,
+        onSettings = if (selectionMode) null else onEdit,
         onTopBarDoubleClick = { scope.launch { listState.animateScrollToItem(0) } },
         actions = {
-            Box {
+            if (selectionMode) {
                 IconButton(
-                    enabled = !syncing && list != null,
-                    onClick = { refreshMenuExpanded = true },
+                    enabled = displayedThreadIds.isNotEmpty() && !applyingSelectionAction,
+                    onClick = {
+                        selectedThreadIds = toggleAllDisplayedThreads(
+                            selectedThreadIds,
+                            displayedThreadIds,
+                        )
+                    },
                 ) {
                     Icon(
-                        Icons.Rounded.MoreVert,
-                        contentDescription = stringResource(R.string.custom_list_more_actions),
+                        Icons.Rounded.SelectAll,
+                        contentDescription = stringResource(
+                            if (allDisplayedThreadsSelected) {
+                                R.string.custom_list_clear_selection
+                            } else {
+                                R.string.custom_list_select_all
+                            },
+                        ),
                     )
                 }
-                DropdownMenu(
-                    expanded = refreshMenuExpanded,
-                    onDismissRequest = { refreshMenuExpanded = false },
+                IconButton(
+                    enabled = selectedThreads.any { it.threadId !in histories } &&
+                        !applyingSelectionAction,
+                    onClick = ::markSelectedRead,
                 ) {
-                    DropdownMenuItem(
-                        text = { Text(stringResource(R.string.custom_list_full_refresh)) },
-                        onClick = {
-                            refreshMenuExpanded = false
-                            scope.launch {
-                                sync(
-                                    list ?: return@launch,
-                                    CustomListRefreshMode.FULL,
-                                )
-                            }
-                        },
+                    Icon(
+                        Icons.Rounded.DoneAll,
+                        contentDescription = stringResource(
+                            R.string.custom_list_mark_selected_read,
+                        ),
                     )
+                }
+                IconButton(
+                    enabled = selectedThreads.isNotEmpty() && !applyingSelectionAction,
+                    onClick = ::excludeSelected,
+                ) {
+                    Icon(
+                        Icons.Rounded.Block,
+                        contentDescription = stringResource(
+                            R.string.custom_list_exclude_selected,
+                        ),
+                    )
+                }
+            } else {
+                Box {
+                    IconButton(
+                        enabled = !syncing && list != null,
+                        onClick = { refreshMenuExpanded = true },
+                    ) {
+                        Icon(
+                            Icons.Rounded.MoreVert,
+                            contentDescription = stringResource(R.string.custom_list_more_actions),
+                        )
+                    }
+                    DropdownMenu(
+                        expanded = refreshMenuExpanded,
+                        onDismissRequest = { refreshMenuExpanded = false },
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text(stringResource(R.string.custom_list_select_threads)) },
+                            enabled = displayedThreads.isNotEmpty(),
+                            onClick = {
+                                refreshMenuExpanded = false
+                                selectionMode = true
+                            },
+                        )
+                        DropdownMenuItem(
+                            text = { Text(stringResource(R.string.custom_list_full_refresh)) },
+                            onClick = {
+                                refreshMenuExpanded = false
+                                scope.launch {
+                                    sync(
+                                        list ?: return@launch,
+                                        CustomListRefreshMode.FULL,
+                                    )
+                                }
+                            },
+                        )
+                    }
                 }
             }
         },
@@ -273,6 +397,14 @@ internal fun CustomListDetailScreen(
                                     CustomListThreadCard(
                                         thread = thread,
                                         onClick = onThread,
+                                        selectionMode = selectionMode,
+                                        selected = thread.threadId in selectedThreadIds,
+                                        onToggleSelection = {
+                                            toggleSelection(thread.threadId)
+                                        },
+                                        onStartSelection = {
+                                            startSelection(thread.threadId)
+                                        },
                                         modifier = with(sharedTransitionScope) {
                                             Modifier.sharedBounds(
                                                 rememberSharedContentState("thread-${thread.threadId}"),
@@ -381,20 +513,49 @@ private fun CustomListThreadCard(
     thread: CustomListThread,
     onClick: (CustomListThread) -> Unit,
     onExclude: () -> Unit,
+    selectionMode: Boolean,
+    selected: Boolean,
+    onToggleSelection: () -> Unit,
+    onStartSelection: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val histories = LocalReadingHistory.current
     Card(
-        onClick = { onClick(thread) },
         modifier = modifier
             .fillMaxWidth()
-            .dimIfRead(thread.threadId, histories),
+            .dimIfRead(thread.threadId, histories)
+            .combinedClickable(
+                onClick = {
+                    if (selectionMode) onToggleSelection() else onClick(thread)
+                },
+                onLongClick = {
+                    if (selectionMode) onToggleSelection() else onStartSelection()
+                },
+            ),
+        colors = if (selected) {
+            CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.secondaryContainer,
+            )
+        } else {
+            CardDefaults.cardColors()
+        },
     ) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
+            if (selectionMode) {
+                Checkbox(
+                    checked = selected,
+                    onCheckedChange = { onToggleSelection() },
+                    modifier = Modifier.padding(start = 8.dp, top = 8.dp),
+                )
+            }
             Column(
                 Modifier
                     .weight(1f)
-                    .padding(start = 16.dp, top = 16.dp, bottom = 16.dp),
+                    .padding(
+                        start = if (selectionMode) 8.dp else 16.dp,
+                        top = 16.dp,
+                        bottom = 16.dp,
+                    ),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 Text(
@@ -420,12 +581,14 @@ private fun CustomListThreadCard(
                 )
                 ThreadLastReadPosition(thread.threadId)
             }
-            Box(Modifier.padding(4.dp)) {
-                IconButton(onClick = onExclude) {
-                    Icon(
-                        Icons.Rounded.Block,
-                        contentDescription = stringResource(R.string.custom_list_exclude_thread),
-                    )
+            if (!selectionMode) {
+                Box(Modifier.padding(4.dp)) {
+                    IconButton(onClick = onExclude) {
+                        Icon(
+                            Icons.Rounded.Block,
+                            contentDescription = stringResource(R.string.custom_list_exclude_thread),
+                        )
+                    }
                 }
             }
         }

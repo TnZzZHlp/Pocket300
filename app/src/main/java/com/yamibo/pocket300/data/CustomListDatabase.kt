@@ -250,22 +250,37 @@ class CustomListDatabase private constructor(context: Context) :
     }
 
     fun excludeThread(listId: Long, threadId: Int, now: Long = System.currentTimeMillis()) {
-        writableDatabase.transaction {
-            insertWithOnConflict(
-                "custom_list_exclusions",
-                null,
-                ContentValues().apply {
-                    put("list_id", listId)
-                    put("thread_id", threadId)
-                    put("excluded_at", now)
-                },
-                SQLiteDatabase.CONFLICT_IGNORE,
-            )
-            delete(
-                "custom_list_threads",
-                "list_id = ? AND thread_id = ?",
-                arrayOf(listId.toString(), threadId.toString()),
-            )
+        excludeThreads(listId, listOf(threadId), now)
+    }
+
+    fun excludeThreads(
+        listId: Long,
+        threadIds: Collection<Int>,
+        now: Long = System.currentTimeMillis(),
+    ): Int {
+        val uniqueThreadIds = threadIds.distinct()
+        if (uniqueThreadIds.isEmpty()) return 0
+        return writableDatabase.transaction {
+            var addedExclusions = 0
+            uniqueThreadIds.forEach { threadId ->
+                val inserted = insertWithOnConflict(
+                    "custom_list_exclusions",
+                    null,
+                    ContentValues().apply {
+                        put("list_id", listId)
+                        put("thread_id", threadId)
+                        put("excluded_at", now)
+                    },
+                    SQLiteDatabase.CONFLICT_IGNORE,
+                )
+                if (inserted != -1L) addedExclusions++
+                delete(
+                    "custom_list_threads",
+                    "list_id = ? AND thread_id = ?",
+                    arrayOf(listId.toString(), threadId.toString()),
+                )
+            }
+            addedExclusions
         }
     }
 
