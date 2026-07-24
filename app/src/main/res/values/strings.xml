@@ -83,6 +83,13 @@
     <string name="custom_list_sync_failed">刷新列表失败</string>
     <string name="custom_list_more_actions">更多操作</string>
     <string name="custom_list_full_refresh">全量刷新</string>
+    <string name="custom_list_select_threads">选择主题</string>
+    <string name="custom_list_selected_count">已选择 %1$d 项</string>
+    <string name="custom_list_select_all">全选当前结果</string>
+    <string name="custom_list_clear_selection">取消全选当前结果</string>
+    <string name="custom_list_mark_selected_read">将所选主题设为已读</string>
+    <string name="custom_list_exclude_selected">排除所选主题</string>
+    <string name="custom_list_bulk_action_failed">批量操作失败</string>
     <string name="custom_list_thread_metadata">%1$s · %2$s · %3$d 回复 · %4$d 浏览</string>
     <string name="custom_list_exclude_thread">从列表中排除</string>
     <string name="custom_list_clear_exclusions">清除排除记录</string>

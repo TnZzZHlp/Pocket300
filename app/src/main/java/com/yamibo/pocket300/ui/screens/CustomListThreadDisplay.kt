@@ -8,6 +8,22 @@ internal enum class ThreadReadFilter { ALL, READ, UNREAD }
 
 internal enum class ThreadPublicationOrder { NEWEST_FIRST, OLDEST_FIRST }
 
+internal fun toggleThreadSelection(selectedThreadIds: Set<Int>, threadId: Int): Set<Int> =
+    if (threadId in selectedThreadIds) selectedThreadIds - threadId
+    else selectedThreadIds + threadId
+
+internal fun toggleAllDisplayedThreads(
+    selectedThreadIds: Set<Int>,
+    displayedThreadIds: Collection<Int>,
+): Set<Int> {
+    val displayed = displayedThreadIds.toSet()
+    return if (displayed.isNotEmpty() && selectedThreadIds.containsAll(displayed)) {
+        selectedThreadIds - displayed
+    } else {
+        selectedThreadIds + displayed
+    }
+}
+
 internal fun filterAndSortCustomListThreads(
     threads: List<CustomListThread>,
     readThreadIds: Set<Int>,
