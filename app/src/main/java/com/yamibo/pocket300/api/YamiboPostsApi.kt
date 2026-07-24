@@ -11,6 +11,12 @@ data class GetThreadPostsInput(
     val authorId: Int? = null,
 )
 
+data class VoteInPollInput(
+    val forumId: Int,
+    val optionIds: List<Int>,
+    val threadId: Int,
+)
+
 data class YamiboPostAuthor(
     val avatarUrl: String?,
     val groupIconId: String?,
@@ -80,7 +86,7 @@ data class YamiboThreadPoll(
     val maxChoices: Int,
     val multiple: Boolean,
     val options: List<YamiboPollOption>,
-    val resultsVisible: Boolean,
+    val resultsHiddenUntilVote: Boolean,
     val voterCount: Int,
 )
 
@@ -173,6 +179,31 @@ class YamiboPostsApi(private val client: YamiboClient) {
         return page.copy(posts = posts)
     }
 
+    suspend fun voteInPoll(input: VoteInPollInput) {
+        require(input.forumId > 0) { "forumId must be a positive integer" }
+        require(input.threadId > 0) { "threadId must be a positive integer" }
+        require(input.optionIds.isNotEmpty()) { "optionIds must not be empty" }
+        require(input.optionIds.all { it > 0 }) { "optionIds must contain positive integers" }
+        require(input.optionIds.distinct().size == input.optionIds.size) {
+            "optionIds must not contain duplicates"
+        }
+
+        val session = parseSession(client.requestMobileApi(mapOf("module" to "login")))
+            ?: throw YamiboApiException(
+                YamiboApiErrorCode.SERVER_ERROR,
+                "请先登录百合会",
+                "not_authenticated",
+            )
+        if (session.formHash.isBlank()) invalidResponse("百合会未返回投票所需的校验值")
+
+        val response = client.requestPage(
+            path = "/forum.php",
+            parameters = pollVoteParameters(input),
+            formFields = pollVoteForm(session.formHash, input.optionIds),
+        )
+        requireSuccessfulPollVote(response, input.threadId)
+    }
+
     suspend fun getPostRatings(threadId: Int, postId: Int): List<YamiboPostRating> {
         require(threadId > 0) { "threadId must be a positive integer" }
         require(postId > 0) { "postId must be a positive integer" }
@@ -209,6 +240,44 @@ internal fun threadPostsParameters(input: GetThreadPostsInput): Map<String, Stri
     put("page", input.page.toString())
     put("tid", input.threadId.toString())
     input.authorId?.let { put("authorid", it.toString()) }
+}
+
+internal fun pollVoteParameters(input: VoteInPollInput): Map<String, String> = mapOf(
+    "action" to "votepoll",
+    "fid" to input.forumId.toString(),
+    "mobile" to "2",
+    "mod" to "misc",
+    "pollsubmit" to "yes",
+    "quickforward" to "yes",
+    "tid" to input.threadId.toString(),
+)
+
+internal fun pollVoteForm(formHash: String, optionIds: List<Int>): List<Pair<String, String>> =
+    listOf("formhash" to formHash) + optionIds.map { "pollanswers[]" to it.toString() }
+
+internal fun requireSuccessfulPollVote(response: YamiboPageResponse, expectedThreadId: Int) {
+    val url = response.url.toHttpUrlOrNull()
+    val queryThreadId = url?.queryParameter("tid")?.toIntOrNull()
+    val rewrittenThreadId = url?.encodedPath?.let { path ->
+        Regex("(?:^|/)thread-(\\d+)-\\d+(?:-|\\.|/|$)", RegexOption.IGNORE_CASE)
+            .find(path)
+            ?.groupValues
+            ?.get(1)
+            ?.toIntOrNull()
+    }
+    val returnedToThread = (url != null &&
+        queryThreadId == expectedThreadId &&
+        url.queryParameter("mod").equals("viewthread", ignoreCase = true)) ||
+        rewrittenThreadId == expectedThreadId
+    if (returnedToThread) return
+
+    val message = Regex(
+        """<div\b[^>]*\bid=["']messagetext["'][^>]*>[\s\S]*?<p\b[^>]*>([\s\S]*?)</p>""",
+        RegexOption.IGNORE_CASE,
+    ).find(response.html)?.groupValues?.get(1)?.let(::ratingHtmlText)
+        ?.takeIf(String::isNotBlank)
+        ?: "投票未完成，请稍后重试"
+    throw YamiboApiException(YamiboApiErrorCode.SERVER_ERROR, message)
 }
 
 internal fun parsePostPageUrl(url: String, expectedThreadId: Int): Int? {
@@ -507,7 +576,7 @@ private fun parsePoll(raw: Any?): YamiboThreadPoll? {
                 voteCount = option.postNonNegative("votes"),
             )
         }.toList(),
-        resultsVisible = value.postFlag("visiblepoll"),
+        resultsHiddenUntilVote = value.postFlag("visiblepoll"),
         voterCount = value.postNonNegative("voterscount"),
     )
 }
