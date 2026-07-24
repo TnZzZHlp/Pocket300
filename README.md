@@ -95,6 +95,16 @@ Windows 下可以使用仓库根目录的 `build-release.ps1` 构建并签名 AP
 .\build-release.ps1
 ```
 
+如需指定版本号：
+
+```powershell
+.\build-release.ps1 -VersionName 1.3.1
+```
+
+构建会根据版本名称自动生成递增的 Android `versionCode`。版本名称支持正式版
+（例如 `1.3.1`）以及 `alpha`、`beta`、`rc` 预发布版（例如
+`1.3.1-beta.1`）。
+
 脚本会提示输入密钥库密码，并将签名后的 APK 输出到：
 
 ```text
