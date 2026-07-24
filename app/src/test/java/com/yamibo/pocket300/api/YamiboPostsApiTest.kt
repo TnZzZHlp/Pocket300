@@ -33,6 +33,7 @@ class YamiboPostsApiTest {
         assertEquals("点评", post.comments.single().message)
         assertEquals("#ff00aa", page.poll?.options?.single()?.color)
         assertEquals(25.5, page.poll?.options?.single()?.percentage ?: -1.0, 0.0)
+        assertTrue(page.poll?.resultsHiddenUntilVote == true)
     }
 
     @Test
@@ -73,6 +74,70 @@ class YamiboPostsApiTest {
         fixture.getJSONObject("special_poll").put("expirations", "4294967295")
 
         assertEquals(4_294_967_295_000L, parseThreadPosts(fixture).poll?.expiresAt)
+    }
+
+    @Test
+    fun buildsPollVoteRequestWithRepeatedAnswerFields() {
+        val input = VoteInPollInput(
+            forumId = 300,
+            optionIds = listOf(7, 9),
+            threadId = 1000,
+        )
+
+        assertEquals(
+            mapOf(
+                "action" to "votepoll",
+                "fid" to "300",
+                "mobile" to "2",
+                "mod" to "misc",
+                "pollsubmit" to "yes",
+                "quickforward" to "yes",
+                "tid" to "1000",
+            ),
+            pollVoteParameters(input),
+        )
+        assertEquals(
+            listOf(
+                "formhash" to "hash",
+                "pollanswers[]" to "7",
+                "pollanswers[]" to "9",
+            ),
+            pollVoteForm("hash", input.optionIds),
+        )
+    }
+
+    @Test
+    fun acceptsPollVoteRedirectBackToThread() {
+        requireSuccessfulPollVote(
+            YamiboPageResponse(
+                html = "<html></html>",
+                url = "$YAMIBO_ORIGIN/forum.php?mod=viewthread&tid=1000&mobile=2",
+            ),
+            expectedThreadId = 1000,
+        )
+        requireSuccessfulPollVote(
+            YamiboPageResponse(
+                html = "<html></html>",
+                url = "$YAMIBO_ORIGIN/thread-1000-1-1.html",
+            ),
+            expectedThreadId = 1000,
+        )
+    }
+
+    @Test
+    fun reportsPollVoteErrorMessage() {
+        val error = runCatching {
+            requireSuccessfulPollVote(
+                YamiboPageResponse(
+                    html = """<div id="messagetext"><p>您已经投过票，谢谢您的参与</p></div>""",
+                    url = "$YAMIBO_ORIGIN/forum.php?mod=misc&action=votepoll",
+                ),
+                expectedThreadId = 1000,
+            )
+        }.exceptionOrNull()
+
+        assertTrue(error is YamiboApiException)
+        assertEquals("您已经投过票，谢谢您的参与", error?.message)
     }
 
     @Test(expected = YamiboApiException::class)

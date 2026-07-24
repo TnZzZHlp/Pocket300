@@ -106,6 +106,22 @@ class YamiboClient(
         path: String,
         parameters: Map<String, String> = emptyMap(),
         form: Map<String, String>? = null,
+    ): YamiboPageResponse = requestPageInternal(
+        path = path,
+        parameters = parameters,
+        formFields = form?.map { (key, value) -> key to value },
+    )
+
+    suspend fun requestPage(
+        path: String,
+        parameters: Map<String, String>,
+        formFields: List<Pair<String, String>>,
+    ): YamiboPageResponse = requestPageInternal(path, parameters, formFields)
+
+    private suspend fun requestPageInternal(
+        path: String,
+        parameters: Map<String, String>,
+        formFields: List<Pair<String, String>>?,
     ): YamiboPageResponse = withContext(Dispatchers.IO) {
         require(path.startsWith('/') && !path.startsWith("//")) {
             "path must be an absolute Yamibo path"
@@ -115,9 +131,9 @@ class YamiboClient(
             parameters.forEach { (key, value) -> addQueryParameter(key, value) }
         }.build()
         val request = Request.Builder().url(url).apply {
-            if (form != null) {
+            if (formFields != null) {
                 val body = FormBody.Builder().apply {
-                    form.forEach { (key, value) -> add(key, value) }
+                    formFields.forEach { (key, value) -> add(key, value) }
                 }.build()
                 post(body)
             }
