@@ -54,6 +54,7 @@ import com.yamibo.pocket300.ui.Loading
 import com.yamibo.pocket300.ui.LocalReadingHistory
 import com.yamibo.pocket300.ui.ScreenScaffold
 import com.yamibo.pocket300.ui.api
+import com.yamibo.pocket300.ui.components.ThreadLastReadPosition
 import com.yamibo.pocket300.ui.dimIfRead
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.collect
@@ -417,6 +418,7 @@ private fun CustomListThreadCard(
                     ),
                     style = MaterialTheme.typography.labelMedium,
                 )
+                ThreadLastReadPosition(thread.threadId)
             }
             Box(Modifier.padding(4.dp)) {
                 IconButton(onClick = onExclude) {
