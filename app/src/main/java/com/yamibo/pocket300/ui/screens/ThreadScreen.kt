@@ -24,8 +24,10 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.MenuBook
 import androidx.compose.material.icons.outlined.FavoriteBorder
 import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.DoneAll
 import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.Remove
+import androidx.compose.material.icons.rounded.RemoveDone
 import androidx.compose.material3.Badge
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -72,6 +74,7 @@ import com.yamibo.pocket300.api.YamiboThreadPostsPage
 import com.yamibo.pocket300.data.ReadingHistoryDatabase
 import com.yamibo.pocket300.ui.LoadContent
 import com.yamibo.pocket300.ui.LoadState
+import com.yamibo.pocket300.ui.LocalReadingHistory
 import com.yamibo.pocket300.ui.PostHtml
 import com.yamibo.pocket300.ui.PostLinkTarget
 import com.yamibo.pocket300.ui.ReaderPreferences
@@ -112,6 +115,7 @@ internal fun ThreadScreen(
     val viewModel: ThreadViewModel = viewModel()
     val context = LocalContext.current
     val historyDatabase = remember(context) { ReadingHistoryDatabase.getInstance(context) }
+    val readingHistory = LocalReadingHistory.current
     var reload by remember { mutableIntStateOf(0) }
     var pageNumber by rememberSaveable(threadId, initialPostId, initialPage) {
         mutableIntStateOf(if (initialPostId > 0) initialPage.coerceAtLeast(1) else 1)
@@ -135,6 +139,10 @@ internal fun ThreadScreen(
     ) { mutableStateOf(initialFavoriteId > 0) }
     var favoriteBusy by remember(threadId) { mutableStateOf(false) }
     var originalPosterOnly by rememberSaveable(threadId) { mutableStateOf(false) }
+    var trackReadingProgress by rememberSaveable(threadId) { mutableStateOf(true) }
+    var lastVisibleFloor by rememberSaveable(threadId) {
+        mutableIntStateOf(initialFloor.coerceAtLeast(1))
+    }
     val showThreadTitle by remember {
         derivedStateOf { shouldShowThreadTitle(listState.firstVisibleItemIndex) }
     }
@@ -153,6 +161,9 @@ internal fun ThreadScreen(
     val state = viewModel.state
     val loadedContent = (state as? LoadState.Ready)?.value
     val loadedThread = loadedContent?.page?.thread
+    val isRead = threadId in readingHistory
+    val markedReadMessage = stringResource(R.string.thread_marked_read)
+    val markedUnreadMessage = stringResource(R.string.thread_marked_unread)
     LaunchedEffect(loadedContent, targetFloor, targetPostId, restoredFloor) {
         val content = loadedContent ?: return@LaunchedEffect
         if (restoredFloor) return@LaunchedEffect
@@ -182,14 +193,16 @@ internal fun ThreadScreen(
         }
     }
     LaunchedEffect(loadedThread?.id, loadedThread?.subject) {
-        loadedThread?.let { thread ->
-            historyDatabase.record(
-                thread,
-                initialFloor.coerceAtLeast(1)
-            )
+        if (trackReadingProgress) {
+            loadedThread?.let { thread ->
+                historyDatabase.record(
+                    thread,
+                    lastVisibleFloor,
+                )
+            }
         }
     }
-    LaunchedEffect(listState, loadedContent, restoredFloor) {
+    LaunchedEffect(listState, loadedContent, restoredFloor, trackReadingProgress) {
         val content = loadedContent ?: return@LaunchedEffect
         if (!restoredFloor) return@LaunchedEffect
         snapshotFlow {
@@ -201,8 +214,11 @@ internal fun ThreadScreen(
             .collectLatest { floor ->
                 val thread = loadedThread ?: return@collectLatest
                 floor ?: return@collectLatest
-                delay(300.milliseconds)
-                historyDatabase.record(thread, floor)
+                lastVisibleFloor = floor
+                if (trackReadingProgress) {
+                    delay(300.milliseconds)
+                    historyDatabase.record(thread, floor)
+                }
             }
     }
     ScreenScaffold(
@@ -217,6 +233,49 @@ internal fun ThreadScreen(
         onRefresh = { viewModel.refresh(); pageNumber = 1; reload++ },
         isRefreshing = viewModel.isRefreshing,
         onTopBarDoubleClick = { coroutineScope.launch { listState.animateScrollToItem(0) } },
+        actions = {
+            loadedThread?.let { thread ->
+                val action = threadReadAction(isRead)
+                IconButton(
+                    onClick = {
+                        when (action) {
+                            ThreadReadAction.MARK_READ -> {
+                                trackReadingProgress = true
+                                historyDatabase.record(thread, lastVisibleFloor)
+                                Toast.makeText(
+                                    context,
+                                    markedReadMessage,
+                                    Toast.LENGTH_SHORT,
+                                ).show()
+                            }
+
+                            ThreadReadAction.MARK_UNREAD -> {
+                                trackReadingProgress = false
+                                historyDatabase.remove(threadId)
+                                Toast.makeText(
+                                    context,
+                                    markedUnreadMessage,
+                                    Toast.LENGTH_SHORT,
+                                ).show()
+                            }
+                        }
+                    },
+                ) {
+                    Icon(
+                        imageVector = when (action) {
+                            ThreadReadAction.MARK_READ -> Icons.Rounded.DoneAll
+                            ThreadReadAction.MARK_UNREAD -> Icons.Rounded.RemoveDone
+                        },
+                        contentDescription = stringResource(
+                            when (action) {
+                                ThreadReadAction.MARK_READ -> R.string.thread_mark_read
+                                ThreadReadAction.MARK_UNREAD -> R.string.thread_mark_unread
+                            },
+                        ),
+                    )
+                }
+            }
+        },
     ) { padding ->
         LoadContent(state, padding) { content ->
             val page = content.page
@@ -329,6 +388,11 @@ internal fun ThreadScreen(
 
 internal fun shouldShowThreadTitle(firstVisibleItemIndex: Int): Boolean =
     firstVisibleItemIndex > 0
+
+internal enum class ThreadReadAction { MARK_READ, MARK_UNREAD }
+
+internal fun threadReadAction(isRead: Boolean): ThreadReadAction =
+    if (isRead) ThreadReadAction.MARK_UNREAD else ThreadReadAction.MARK_READ
 
 @Composable
 internal fun ReaderSettingsSheet(

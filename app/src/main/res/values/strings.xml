@@ -144,6 +144,10 @@
     <string name="reader_image_progress">第 %1$d / %2$d 张</string>
     <string name="reader_image_description">帖子图片，第 %1$d / %2$d 张</string>
     <string name="thread_original_poster_only">仅看楼主</string>
+    <string name="thread_mark_read">设为已读</string>
+    <string name="thread_mark_unread">取消已读</string>
+    <string name="thread_marked_read">已设为已读</string>
+    <string name="thread_marked_unread">已取消已读</string>
     <string name="thread_resume_title">继续上次阅读？</string>
     <string name="thread_resume_message">上次看到第 %1$d 楼，是否跳转到该位置？</string>
     <string name="thread_start_from_beginning">从头阅读</string>
