@@ -18,6 +18,7 @@
     <string name="history_search_label">搜索主题标题或作者</string>
     <string name="history_search_empty_title">没有匹配的阅读记录</string>
     <string name="history_search_empty_message">没有找到与“%1$s”相关的阅读记录。</string>
+    <string name="history_thread_metadata">%1$s · 阅读于 %2$s</string>
     <string name="search_type_label">搜索范围</string>
     <string name="search_type_keyword">全文</string>
     <string name="search_type_title">标题</string>
@@ -152,6 +153,7 @@
     <string name="thread_resume_message">上次看到第 %1$d 楼，是否跳转到该位置？</string>
     <string name="thread_start_from_beginning">从头阅读</string>
     <string name="thread_jump_to_last_read">跳转</string>
+    <string name="thread_last_read_position">上次看到第 %1$d 楼</string>
     <string name="forum_sticky_threads">置顶帖子（%1$d）</string>
     <string name="forum_expand_sticky_threads">展开置顶帖子</string>
     <string name="forum_collapse_sticky_threads">收起置顶帖子</string>

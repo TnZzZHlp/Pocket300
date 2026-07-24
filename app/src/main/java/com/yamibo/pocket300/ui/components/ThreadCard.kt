@@ -26,6 +26,7 @@ internal fun ThreadCard(thread: YamiboThread, onClick: (YamiboThread) -> Unit, m
             if (thread.typeName != null) Text(thread.typeName, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
             Text(thread.subject, style = MaterialTheme.typography.titleMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
             Text("${thread.author.name} · ${thread.createdAtText} · ${thread.replyCount} 回复", style = MaterialTheme.typography.labelMedium)
+            ThreadLastReadPosition(thread.id)
         }
     }
 }

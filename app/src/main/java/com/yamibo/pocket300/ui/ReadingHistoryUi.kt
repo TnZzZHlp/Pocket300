@@ -17,6 +17,11 @@ internal fun threadAlpha(hasReadingHistory: Boolean): Float =
 internal fun Modifier.dimIfRead(threadId: Int, histories: Map<Int, ReadingHistoryEntry>): Modifier =
     alpha(threadAlpha(threadId in histories))
 
+internal fun lastReadFloor(
+    threadId: Int,
+    histories: Map<Int, ReadingHistoryEntry>,
+): Int? = histories[threadId]?.lastReadFloor
+
 internal fun routeWithLastReadFloor(route: String, floor: Int): String {
     val separator = if ('?' in route) '&' else '?'
     return "$route${separator}floor=${floor.coerceAtLeast(1)}"

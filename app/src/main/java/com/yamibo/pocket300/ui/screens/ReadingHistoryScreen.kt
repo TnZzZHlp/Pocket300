@@ -43,6 +43,7 @@ import com.yamibo.pocket300.ui.EmptyState
 import com.yamibo.pocket300.ui.LoadContent
 import com.yamibo.pocket300.ui.LoadState
 import com.yamibo.pocket300.ui.ScreenScaffold
+import com.yamibo.pocket300.ui.components.LastReadPosition
 import com.yamibo.pocket300.ui.components.LocalSearchField
 import com.yamibo.pocket300.ui.components.matchesLocalSearch
 import com.yamibo.pocket300.ui.load
@@ -186,8 +187,9 @@ private fun ReadingHistoryCard(
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
             )
+            LastReadPosition(entry.lastReadFloor)
             Text(
-                "${entry.authorName} · 看到 #${entry.lastReadFloor} · 阅读于 $readAtText",
+                stringResource(R.string.history_thread_metadata, entry.authorName, readAtText),
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )

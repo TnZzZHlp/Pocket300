@@ -60,6 +60,7 @@ import com.yamibo.pocket300.ui.Loading
 import com.yamibo.pocket300.ui.LocalReadingHistory
 import com.yamibo.pocket300.ui.ScreenScaffold
 import com.yamibo.pocket300.ui.components.AutoLoadNextPage
+import com.yamibo.pocket300.ui.components.ThreadLastReadPosition
 import com.yamibo.pocket300.ui.dimIfRead
 import com.yamibo.pocket300.ui.viewmodels.SearchContent
 import com.yamibo.pocket300.ui.viewmodels.SearchQueryError
@@ -399,6 +400,7 @@ private fun SearchThreadCard(
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+            ThreadLastReadPosition(thread.id)
         }
     }
 }
