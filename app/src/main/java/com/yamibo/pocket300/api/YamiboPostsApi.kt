@@ -1,5 +1,6 @@
 package com.yamibo.pocket300.api
 
+import com.yamibo.pocket300.logging.AppLogger
 import org.json.JSONArray
 import org.json.JSONObject
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
@@ -211,7 +212,11 @@ class YamiboPostsApi(private val client: YamiboClient) {
             parameters = replyToThreadParameters(input),
             form = replyToThreadForm(session.formHash, message),
         )
-        return parseReplyResult(response, input.threadId)
+        val result = parseReplyResult(response, input.threadId)
+        AppLogger.info(TAG) {
+            "Reply submitted for thread ${input.threadId}; pendingModeration=${result.pendingModeration}"
+        }
+        return result
     }
 
     suspend fun commentOnPost(input: CommentOnPostInput) {
@@ -237,6 +242,7 @@ class YamiboPostsApi(private val client: YamiboClient) {
             form = commentOnPostForm(session.formHash, message),
         )
         parseCommentResult(response, input.threadId, input.postId)
+        AppLogger.info(TAG) { "Comment submitted for thread ${input.threadId}, post ${input.postId}" }
     }
 
     suspend fun getPostComments(threadId: Int, postId: Int): List<YamiboPostComment> {
@@ -289,6 +295,10 @@ class YamiboPostsApi(private val client: YamiboClient) {
             ),
         )
         return parsePostPageUrl(response.url, threadId)
+    }
+
+    private companion object {
+        const val TAG = "Posts"
     }
 }
 

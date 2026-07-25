@@ -2,6 +2,7 @@ package com.yamibo.pocket300.ui
 
 import android.content.Context
 import androidx.core.content.edit
+import com.yamibo.pocket300.logging.AppLogger
 
 internal enum class ReaderTone { SYSTEM, PAPER, MINT, NIGHT }
 internal enum class ReaderMode { TEXT, IMAGES }
@@ -20,7 +21,10 @@ internal class ReaderPreferencesStore(context: Context) {
         lineHeightMultiplier = preferences.getFloat("line_height_multiplier", 1.65f).coerceIn(1.35f, 2f),
         tone = runCatching {
             ReaderTone.valueOf(preferences.getString("tone", ReaderTone.SYSTEM.name).orEmpty())
-        }.getOrDefault(ReaderTone.SYSTEM),
+        }.getOrElse { error ->
+            AppLogger.warn(TAG, error) { "Invalid saved reader tone; using the system tone" }
+            ReaderTone.SYSTEM
+        },
     )
 
     fun save(value: ReaderPreferences) {
@@ -33,9 +37,16 @@ internal class ReaderPreferencesStore(context: Context) {
 
     fun loadMode(): ReaderMode = runCatching {
         ReaderMode.valueOf(preferences.getString("mode", ReaderMode.TEXT.name).orEmpty())
-    }.getOrDefault(ReaderMode.TEXT)
+    }.getOrElse { error ->
+        AppLogger.warn(TAG, error) { "Invalid saved reader mode; using text mode" }
+        ReaderMode.TEXT
+    }
 
     fun saveMode(value: ReaderMode) {
         preferences.edit { putString("mode", value.name) }
+    }
+
+    private companion object {
+        const val TAG = "Preferences"
     }
 }

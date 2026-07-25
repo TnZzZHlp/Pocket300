@@ -36,6 +36,8 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.yamibo.pocket300.R
+import com.yamibo.pocket300.logging.AppLogger
+import kotlinx.coroutines.CancellationException
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -162,6 +164,9 @@ internal fun ScrollableEmptyState(title: String, message: String, modifier: Modi
 
 internal suspend fun <T> load(block: suspend () -> T): LoadState<T> = try {
     LoadState.Ready(block())
+} catch (error: CancellationException) {
+    throw error
 } catch (error: Exception) {
+    AppLogger.warn("ScreenLoad", error) { "Screen operation failed" }
     LoadState.Failed(error.message ?: "发生未知错误")
 }

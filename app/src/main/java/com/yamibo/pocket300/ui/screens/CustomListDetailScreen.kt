@@ -54,6 +54,7 @@ import com.yamibo.pocket300.data.CustomListRepository
 import com.yamibo.pocket300.data.CustomListSyncProgress
 import com.yamibo.pocket300.data.CustomListThread
 import com.yamibo.pocket300.data.CustomThreadList
+import com.yamibo.pocket300.logging.AppLogger
 import com.yamibo.pocket300.data.ReadingHistoryDatabase
 import com.yamibo.pocket300.ui.EmptyState
 import com.yamibo.pocket300.ui.Loading
@@ -63,6 +64,7 @@ import com.yamibo.pocket300.ui.api
 import com.yamibo.pocket300.ui.components.ThreadLastReadPosition
 import com.yamibo.pocket300.ui.dimIfRead
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.launch
@@ -131,8 +133,12 @@ internal fun CustomListDetailScreen(
         progress = null
         runCatching {
             repository.refresh(target, mode) { progress = it }
-        }.onFailure {
-            error = it.message ?: syncFailedMessage
+        }.onFailure { failure ->
+            if (failure is CancellationException) throw failure
+            AppLogger.warn(TAG, failure) {
+                "Custom list $listId refresh failed; mode=$mode"
+            }
+            error = failure.message ?: syncFailedMessage
         }
         loadLocal()
         syncing = false
@@ -171,6 +177,10 @@ internal fun CustomListDetailScreen(
                 withContext(Dispatchers.IO) { historyDatabase.markRead(targets) }
                 exitSelectionMode()
             } catch (failure: Exception) {
+                if (failure is CancellationException) throw failure
+                AppLogger.error(TAG, failure) {
+                    "Could not mark ${targets.size} selected custom-list threads as read"
+                }
                 error = failure.message ?: bulkActionFailedMessage
             } finally {
                 applyingSelectionAction = false
@@ -188,6 +198,10 @@ internal fun CustomListDetailScreen(
                 loadLocal()
                 exitSelectionMode()
             } catch (failure: Exception) {
+                if (failure is CancellationException) throw failure
+                AppLogger.error(TAG, failure) {
+                    "Could not exclude ${targetIds.size} selected threads from custom list $listId"
+                }
                 error = failure.message ?: bulkActionFailedMessage
             } finally {
                 applyingSelectionAction = false
@@ -436,6 +450,8 @@ internal fun CustomListDetailScreen(
         }
     }
 }
+
+private const val TAG = "CustomListScreen"
 
 @Composable
 private fun CustomListDisplayControls(

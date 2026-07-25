@@ -1,5 +1,6 @@
 package com.yamibo.pocket300.api
 
+import com.yamibo.pocket300.logging.AppLogger
 import java.net.URI
 
 data class SecurityQuestionOption(val id: Int, val label: String)
@@ -87,7 +88,9 @@ class YamiboAuthApi(private val client: YamiboClient) {
                 "username" to account,
             ),
         )
-        return parseSession(response) ?: throwResponseError(response)
+        val session = parseSession(response) ?: throwResponseError(response)
+        AppLogger.info(TAG) { "Login completed successfully" }
+        return session
     }
 
     suspend fun getLoginSecurityQuestions(): List<SecurityQuestionOption> = authCall {
@@ -120,7 +123,11 @@ class YamiboAuthApi(private val client: YamiboClient) {
     suspend fun getCurrentSession(): YamiboSession? = parseSession(request(mapOf("module" to "login")))
 
     suspend fun logout() {
-        val session = getCurrentSession() ?: return
+        val session = getCurrentSession()
+        if (session == null) {
+            AppLogger.debug(TAG) { "Logout skipped because no authenticated session exists" }
+            return
+        }
         if (session.formHash.isEmpty()) {
             throw YamiboAuthException(
                 YamiboAuthErrorCode.INVALID_RESPONSE,
@@ -131,6 +138,7 @@ class YamiboAuthApi(private val client: YamiboClient) {
         if (getCurrentSession() != null) {
             throw YamiboAuthException(YamiboAuthErrorCode.SERVER_ERROR, "退出登录失败")
         }
+        AppLogger.info(TAG) { "Logout completed successfully" }
     }
 
     private suspend fun request(
@@ -147,6 +155,10 @@ class YamiboAuthApi(private val client: YamiboClient) {
             error.serverCode,
             error,
         )
+    }
+
+    private companion object {
+        const val TAG = "Authentication"
     }
 }
 

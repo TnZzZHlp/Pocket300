@@ -1,5 +1,6 @@
 package com.yamibo.pocket300.api
 
+import com.yamibo.pocket300.logging.AppLogger
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -45,6 +46,7 @@ class YamiboFavoritesApi(private val client: YamiboClient) {
                 "type" to "thread",
             ),
         )
+        AppLogger.info(TAG) { "Thread $threadId added to favorites" }
     }
 
     suspend fun removeThread(favoriteId: Int) {
@@ -57,6 +59,11 @@ class YamiboFavoritesApi(private val client: YamiboClient) {
             removeFavoriteParameters(favoriteId),
             removeFavoriteForm(session.formHash),
         )
+        AppLogger.info(TAG) { "Favorite $favoriteId removed" }
+    }
+
+    private companion object {
+        const val TAG = "Favorites"
     }
 }
 

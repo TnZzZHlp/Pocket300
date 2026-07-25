@@ -1,5 +1,7 @@
 package com.yamibo.pocket300.api
 
+import com.yamibo.pocket300.logging.AppLogger
+
 enum class YamiboDailyCheckInState { AVAILABLE, CHECKED_IN }
 
 data class YamiboDailyCheckInStatus(
@@ -28,7 +30,10 @@ class YamiboDailyCheckInApi(private val client: YamiboClient) {
     suspend fun checkIn(): YamiboDailyCheckInStatus = checkInCall {
         requireSession()
         val current = requestStatus()
-        if (current.status.state == YamiboDailyCheckInState.CHECKED_IN) return@checkInCall current.status
+        if (current.status.state == YamiboDailyCheckInState.CHECKED_IN) {
+            AppLogger.debug(TAG) { "Daily check-in skipped because it is already complete" }
+            return@checkInCall current.status
+        }
 
         val token = current.signToken ?: checkInInvalid("百合会签到页缺少打卡校验值")
         val response = client.requestPage(
@@ -46,6 +51,7 @@ class YamiboDailyCheckInApi(private val client: YamiboClient) {
                 "签到未完成，请稍后重试",
             )
         }
+        AppLogger.info(TAG) { "Daily check-in completed successfully" }
         result.status
     }
 
@@ -92,6 +98,10 @@ class YamiboDailyCheckInApi(private val client: YamiboClient) {
             error.message ?: "百合会请求失败",
             error,
         )
+    }
+
+    private companion object {
+        const val TAG = "DailyCheckIn"
     }
 }
 

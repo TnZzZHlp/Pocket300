@@ -66,6 +66,7 @@ import com.yamibo.pocket300.api.SecurityQuestionOption
 import com.yamibo.pocket300.api.YamiboDailyCheckInState
 import com.yamibo.pocket300.api.YamiboDailyCheckInStatus
 import com.yamibo.pocket300.api.YamiboSession
+import com.yamibo.pocket300.logging.AppLogger
 import com.yamibo.pocket300.api.YamiboUserProfile
 import com.yamibo.pocket300.ui.EmptyState
 import com.yamibo.pocket300.ui.LoadState
@@ -75,6 +76,7 @@ import com.yamibo.pocket300.ui.api
 import com.yamibo.pocket300.ui.components.SectionLabel
 import com.yamibo.pocket300.ui.load
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.CancellationException
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -143,9 +145,13 @@ private fun LoginPanel(
     var submitting by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(Unit) {
-        questions = runCatching { api.auth.getLoginSecurityQuestions() }.getOrDefault(
+        questions = runCatching { api.auth.getLoginSecurityQuestions() }.getOrElse { failure ->
+            if (failure is CancellationException) throw failure
+            AppLogger.warn(TAG, failure) {
+                "Could not load login security questions; using built-in defaults"
+            }
             DEFAULT_SECURITY_QUESTIONS
-        )
+        }
     }
 
     LazyColumn(
@@ -500,7 +506,11 @@ private fun ProfileSummary(
     if (loggingOut) LaunchedEffect(Unit) {
         runCatching { api.auth.logout() }
             .onSuccess { onLoggedOut() }
-            .onFailure { error = it.message ?: "退出失败" }
+            .onFailure { failure ->
+                if (failure is CancellationException) throw failure
+                AppLogger.warn(TAG, failure) { "Logout failed" }
+                error = failure.message ?: "退出失败"
+            }
         loggingOut = false
     }
     if (checkingIn) LaunchedEffect(Unit) {
@@ -508,6 +518,8 @@ private fun ProfileSummary(
         checkingIn = false
     }
 }
+
+private const val TAG = "ProfileScreen"
 
 @Composable
 private fun DailyCheckInCard(

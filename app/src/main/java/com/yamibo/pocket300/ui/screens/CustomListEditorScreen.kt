@@ -36,9 +36,11 @@ import com.yamibo.pocket300.api.YamiboThreadSearchType
 import com.yamibo.pocket300.data.CustomListDatabase
 import com.yamibo.pocket300.data.DEFAULT_CUSTOM_LIST_AUTO_REFRESH_INTERVAL_HOURS
 import com.yamibo.pocket300.data.normalizeCustomListKeywords
+import com.yamibo.pocket300.logging.AppLogger
 import com.yamibo.pocket300.ui.Loading
 import com.yamibo.pocket300.ui.ScreenScaffold
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -183,8 +185,16 @@ internal fun CustomListEditorScreen(
                                             }
                                         }
                                     }
-                                }.onSuccess(onSaved).onFailure {
-                                    error = it.message ?: saveFailedMessage
+                                }.onSuccess(onSaved).onFailure { failure ->
+                                    if (failure is CancellationException) throw failure
+                                    AppLogger.error(TAG, failure) {
+                                        if (listId == null) {
+                                            "Could not create custom list"
+                                        } else {
+                                            "Could not update custom list $listId"
+                                        }
+                                    }
+                                    error = failure.message ?: saveFailedMessage
                                 }
                                 saving = false
                             }
@@ -243,6 +253,8 @@ internal fun CustomListEditorScreen(
         )
     }
 }
+
+private const val TAG = "CustomListEditor"
 
 private fun YamiboThreadSearchType.labelResource() = when (this) {
     YamiboThreadSearchType.KEYWORD -> R.string.custom_list_search_keyword

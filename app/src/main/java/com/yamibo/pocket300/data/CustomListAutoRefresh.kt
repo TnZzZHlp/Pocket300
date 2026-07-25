@@ -1,5 +1,6 @@
 package com.yamibo.pocket300.data
 
+import com.yamibo.pocket300.logging.AppLogger
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
@@ -46,6 +47,7 @@ internal class CustomListAutoRefreshScheduler(
 
     suspend fun refreshDueLists() {
         val dueLists = loadListsOrEmpty().filter { it.isAutoRefreshDue(nowMillis()) }
+        AppLogger.debug(TAG) { "Found ${dueLists.size} custom lists due for automatic refresh" }
         refreshLists(dueLists)
     }
 
@@ -56,7 +58,10 @@ internal class CustomListAutoRefreshScheduler(
                 refresh(list)
             } catch (error: CancellationException) {
                 throw error
-            } catch (_: Exception) {
+            } catch (error: Exception) {
+                AppLogger.warn(TAG, error) {
+                    "Automatic refresh failed for custom list ${list.id}; continuing with remaining lists"
+                }
                 // Continue refreshing the remaining lists.
             }
             if (index < lists.lastIndex) {
@@ -80,8 +85,13 @@ internal class CustomListAutoRefreshScheduler(
         loadLists()
     } catch (error: CancellationException) {
         throw error
-    } catch (_: Exception) {
+    } catch (error: Exception) {
+        AppLogger.error(TAG, error) { "Could not load custom lists for automatic refresh" }
         emptyList()
+    }
+
+    private companion object {
+        const val TAG = "CustomListRefresh"
     }
 }
 

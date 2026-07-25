@@ -7,6 +7,7 @@ import com.yamibo.pocket300.api.YamiboSearchException
 import com.yamibo.pocket300.api.YamiboSearchPage
 import com.yamibo.pocket300.api.YamiboSearchThread
 import com.yamibo.pocket300.api.YamiboThreadSearchType
+import com.yamibo.pocket300.logging.AppLogger
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.sync.Mutex
@@ -33,8 +34,14 @@ class CustomListRepository(
         onProgress: (CustomListSyncProgress) -> Unit = {},
     ): Int = refreshMutex.withLock {
         val currentList = withContext(Dispatchers.IO) { database.getList(list.id) }
-            ?: return@withLock 0
+        if (currentList == null) {
+            AppLogger.debug(TAG) { "Custom list ${list.id} disappeared before refresh started" }
+            return@withLock 0
+        }
         val fetchAllPages = currentList.shouldFetchAllPages(mode)
+        AppLogger.info(TAG) {
+            "Refreshing custom list ${currentList.id}; mode=$mode, fetchAllPages=$fetchAllPages"
+        }
         val results = collectCustomListThreads(
             list = currentList,
             fetchAllPages = fetchAllPages,
@@ -49,6 +56,9 @@ class CustomListRepository(
             }
         }
         CustomListRefreshEvents.notifyRefreshed(currentList.id)
+        AppLogger.info(TAG) {
+            "Refreshed custom list ${currentList.id}; collectedThreads=${results.size}"
+        }
         results.size
     }
 
@@ -69,7 +79,12 @@ class CustomListRepository(
                     throw error
                 }
                 retries++
-                delay((error.retryAfterMillis ?: DEFAULT_RETRY_MILLIS) + RETRY_BUFFER_MILLIS)
+                val retryDelay = (error.retryAfterMillis ?: DEFAULT_RETRY_MILLIS) + RETRY_BUFFER_MILLIS
+                AppLogger.warn(TAG) {
+                    "Custom list search was rate limited; retry=$retries/$MAX_RATE_LIMIT_RETRIES, " +
+                        "delayMillis=$retryDelay"
+                }
+                delay(retryDelay)
             }
         }
     }
@@ -78,6 +93,7 @@ class CustomListRepository(
         const val MAX_RATE_LIMIT_RETRIES = 3
         const val DEFAULT_RETRY_MILLIS = 10_000L
         const val RETRY_BUFFER_MILLIS = 500L
+        const val TAG = "CustomListRepository"
         val refreshMutex = Mutex()
     }
 }
