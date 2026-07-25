@@ -22,9 +22,11 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.MenuBook
+import androidx.compose.material.icons.automirrored.rounded.Reply
 import androidx.compose.material.icons.automirrored.rounded.Send
 import androidx.compose.material.icons.outlined.FavoriteBorder
 import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.DoneAll
 import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.Remove
@@ -62,6 +64,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
@@ -144,6 +148,10 @@ internal fun ThreadScreen(
     var favoriteBusy by remember(threadId) { mutableStateOf(false) }
     var replyDraft by rememberSaveable(threadId) { mutableStateOf("") }
     var replySubmitting by remember(threadId) { mutableStateOf(false) }
+    var replyToPostId by rememberSaveable(threadId) { mutableIntStateOf(0) }
+    var replyToPostNumber by rememberSaveable(threadId) { mutableIntStateOf(0) }
+    var replyToAuthorName by rememberSaveable(threadId) { mutableStateOf("") }
+    val replyFocusRequester = remember(threadId) { FocusRequester() }
     var originalPosterOnly by rememberSaveable(threadId) { mutableStateOf(false) }
     var trackReadingProgress by rememberSaveable(threadId) { mutableStateOf(true) }
     var lastVisibleFloor by rememberSaveable(threadId) {
@@ -291,7 +299,15 @@ internal fun ThreadScreen(
                     draft = replyDraft,
                     submitting = replySubmitting,
                     threadClosed = content.page.thread.isClosed,
+                    replyToAuthorName = replyToAuthorName.takeIf { replyToPostId > 0 },
+                    replyToPostNumber = replyToPostNumber.takeIf { replyToPostId > 0 },
+                    focusRequester = replyFocusRequester,
                     onDraftChange = { replyDraft = it },
+                    onCancelReplyToPost = {
+                        replyToPostId = 0
+                        replyToPostNumber = 0
+                        replyToAuthorName = ""
+                    },
                     onSubmit = {
                         if (!replySubmitting) {
                             val message = replyDraft.trim()
@@ -304,12 +320,16 @@ internal fun ThreadScreen(
                                                 forumId = content.page.thread.forumId,
                                                 threadId = threadId,
                                                 message = message,
+                                                replyToPostId = replyToPostId.takeIf { it > 0 },
                                             ),
                                         )
                                     }
                                     when (result) {
                                         is LoadState.Ready -> {
                                             replyDraft = ""
+                                            replyToPostId = 0
+                                            replyToPostNumber = 0
+                                            replyToAuthorName = ""
                                             originalPosterOnly = false
                                             targetFloor = 0
                                             if (result.value.pendingModeration) {
@@ -429,6 +449,17 @@ internal fun ThreadScreen(
                         typography = threadTypography,
                         onForum = onForum,
                         onRatings = { onRatings(post.threadId, post.id) },
+                        replyEnabled = !page.thread.isClosed && !replySubmitting,
+                        onReply = if (post.isOriginalPost) {
+                            null
+                        } else {
+                            {
+                                replyToPostId = post.id
+                                replyToPostNumber = post.number
+                                replyToAuthorName = post.author.name
+                                replyFocusRequester.requestFocus()
+                            }
+                        },
                         onReader = {
                             val postPage = ((post.position - 1) / page.pagination.pageSize) + 1
                             onReader(
@@ -481,42 +512,85 @@ private fun ThreadReplyBar(
     draft: String,
     submitting: Boolean,
     threadClosed: Boolean,
+    replyToAuthorName: String?,
+    replyToPostNumber: Int?,
+    focusRequester: FocusRequester,
     onDraftChange: (String) -> Unit,
+    onCancelReplyToPost: () -> Unit,
     onSubmit: () -> Unit,
 ) {
     BottomAppBar(
         contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
     ) {
-        OutlinedTextField(
-            value = draft,
-            onValueChange = onDraftChange,
-            modifier = Modifier.weight(1f),
-            enabled = !threadClosed && !submitting,
-            maxLines = 5,
-            placeholder = {
-                Text(
-                    stringResource(
-                        if (threadClosed) R.string.thread_reply_closed
-                        else R.string.thread_reply_hint,
-                    ),
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            if (replyToAuthorName != null && replyToPostNumber != null) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = stringResource(
+                            R.string.thread_reply_to_post,
+                            replyToAuthorName,
+                            replyToPostNumber,
+                        ),
+                        modifier = Modifier
+                            .weight(1f)
+                            .padding(start = 4.dp),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.primary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    IconButton(
+                        onClick = onCancelReplyToPost,
+                        modifier = Modifier.size(32.dp),
+                        enabled = !submitting,
+                    ) {
+                        Icon(
+                            Icons.Rounded.Close,
+                            contentDescription = stringResource(R.string.thread_reply_cancel_target),
+                            modifier = Modifier.size(18.dp),
+                        )
+                    }
+                }
+            }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                OutlinedTextField(
+                    value = draft,
+                    onValueChange = onDraftChange,
+                    modifier = Modifier
+                        .weight(1f)
+                        .focusRequester(focusRequester),
+                    enabled = !threadClosed && !submitting,
+                    maxLines = 5,
+                    placeholder = {
+                        Text(
+                            stringResource(
+                                if (threadClosed) R.string.thread_reply_closed
+                                else R.string.thread_reply_hint,
+                            ),
+                        )
+                    },
                 )
-            },
-        )
-        Spacer(Modifier.width(8.dp))
-        IconButton(
-            onClick = onSubmit,
-            enabled = draft.isNotBlank() && !submitting && !threadClosed,
-        ) {
-            if (submitting) {
-                CircularProgressIndicator(
-                    modifier = Modifier.size(24.dp),
-                    strokeWidth = 2.dp,
-                )
-            } else {
-                Icon(
-                    Icons.AutoMirrored.Rounded.Send,
-                    contentDescription = stringResource(R.string.thread_reply_action),
-                )
+                Spacer(Modifier.width(8.dp))
+                IconButton(
+                    onClick = onSubmit,
+                    enabled = draft.isNotBlank() && !submitting && !threadClosed,
+                ) {
+                    if (submitting) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(24.dp),
+                            strokeWidth = 2.dp,
+                        )
+                    } else {
+                        Icon(
+                            Icons.AutoMirrored.Rounded.Send,
+                            contentDescription = stringResource(R.string.thread_reply_action),
+                        )
+                    }
+                }
             }
         }
     }
@@ -678,6 +752,8 @@ private fun PostCard(
     typography: ThreadTypography,
     onForum: (Int) -> Unit,
     onRatings: () -> Unit,
+    replyEnabled: Boolean,
+    onReply: (() -> Unit)?,
     onReader: () -> Unit,
     onThread: (PostLinkTarget.Thread) -> Unit,
 ) {
@@ -697,13 +773,22 @@ private fun PostCard(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Row(
+                    modifier = Modifier.weight(1f),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
                     PostAuthorAvatar(post.author, size = 40.dp)
-                    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Column(
+                        modifier = Modifier.weight(1f),
+                        verticalArrangement = Arrangement.spacedBy(2.dp),
+                    ) {
                         SelectionContainer {
-                            Text(post.author.name, style = typography.byline)
+                            Text(
+                                text = post.author.name,
+                                style = typography.byline,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
                         }
                         Text(
                             post.createdAtText,
@@ -723,6 +808,17 @@ private fun PostCard(
                             style = typography.label,
                             color = MaterialTheme.colorScheme.onPrimaryContainer,
                         )
+                    }
+                    onReply?.let {
+                        IconButton(onClick = it, enabled = replyEnabled) {
+                            Icon(
+                                Icons.AutoMirrored.Rounded.Reply,
+                                contentDescription = stringResource(
+                                    R.string.thread_reply_to_post_action,
+                                    post.number,
+                                ),
+                            )
+                        }
                     }
                     IconButton(onClick = onReader) {
                         Icon(

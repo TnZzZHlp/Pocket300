@@ -15,12 +15,20 @@ data class ReplyToThreadInput(
     val forumId: Int,
     val threadId: Int,
     val message: String,
+    val replyToPostId: Int? = null,
 )
 
 data class YamiboReplyResult(
     val pendingModeration: Boolean,
     val postId: Int,
     val threadId: Int,
+)
+
+internal data class ReplyToPostForm(
+    val noticeAuthor: String,
+    val noticeAuthorMessage: String,
+    val noticeTrimString: String,
+    val postId: Int,
 )
 
 data class YamiboPostAuthor(
@@ -188,6 +196,9 @@ class YamiboPostsApi(private val client: YamiboClient) {
     suspend fun replyToThread(input: ReplyToThreadInput): YamiboReplyResult {
         require(input.forumId > 0) { "forumId must be a positive integer" }
         require(input.threadId > 0) { "threadId must be a positive integer" }
+        require(input.replyToPostId == null || input.replyToPostId > 0) {
+            "replyToPostId must be a positive integer"
+        }
         val message = input.message.trim()
         require(message.isNotEmpty()) { "message must not be blank" }
 
@@ -199,9 +210,16 @@ class YamiboPostsApi(private val client: YamiboClient) {
             )
         if (session.formHash.isBlank()) invalidResponse("百合会未返回回帖所需的校验值")
 
+        val replyToPostForm = input.replyToPostId?.let { postId ->
+            val page = client.requestPage(
+                path = "/forum.php",
+                parameters = replyToPostPageParameters(input, postId),
+            )
+            parseReplyToPostForm(page.html, postId)
+        }
         val response = client.requestMobileApi(
             parameters = replyToThreadParameters(input),
-            form = replyToThreadForm(session.formHash, message),
+            form = replyToThreadForm(session.formHash, message, replyToPostForm),
         )
         return parseReplyResult(response, input.threadId)
     }
@@ -251,10 +269,88 @@ internal fun replyToThreadParameters(input: ReplyToThreadInput): Map<String, Str
     "tid" to input.threadId.toString(),
 )
 
-internal fun replyToThreadForm(formHash: String, message: String): Map<String, String> = mapOf(
-    "formhash" to formHash,
-    "message" to message,
+internal fun replyToPostPageParameters(
+    input: ReplyToThreadInput,
+    postId: Int,
+): Map<String, String> = mapOf(
+    "action" to "reply",
+    "fid" to input.forumId.toString(),
+    "mobile" to "2",
+    "mod" to "post",
+    "repquote" to postId.toString(),
+    "tid" to input.threadId.toString(),
 )
+
+internal fun replyToThreadForm(
+    formHash: String,
+    message: String,
+    replyToPost: ReplyToPostForm? = null,
+): Map<String, String> = buildMap {
+    put("formhash", formHash)
+    put("message", message)
+    replyToPost?.let { target ->
+        put("noticeauthor", target.noticeAuthor)
+        put("noticeauthormsg", target.noticeAuthorMessage)
+        put("noticetrimstr", target.noticeTrimString)
+        put("reppid", target.postId.toString())
+        put("reppost", target.postId.toString())
+    }
+}
+
+internal fun parseReplyToPostForm(html: String, expectedPostId: Int): ReplyToPostForm {
+    require(expectedPostId > 0) { "expectedPostId must be a positive integer" }
+    val fields = htmlInputTag.findAll(html)
+        .mapNotNull { tag ->
+            val attributes = htmlAttribute.findAll(tag.value).associate {
+                it.groupValues[1].lowercase() to decodeHtmlAttribute(it.groupValues[3])
+            }
+            attributes["name"]?.lowercase()?.let { name -> name to attributes["value"].orEmpty() }
+        }
+        .toMap()
+    val postId = fields["reppost"]?.toIntOrNull()?.takeIf { it > 0 }
+        ?: invalidResponse("百合会未返回引用回复所需的楼层 ID")
+    val replyPostId = fields["reppid"]?.let {
+        it.toIntOrNull()?.takeIf { id -> id > 0 }
+            ?: invalidResponse("百合会返回了无效的引用回复关联楼层 ID")
+    }
+    if (postId != expectedPostId || (replyPostId != null && replyPostId != expectedPostId)) {
+        invalidResponse("百合会引用回复表单与楼层 ID 不一致")
+    }
+    return ReplyToPostForm(
+        noticeAuthor = fields["noticeauthor"]?.takeIf(String::isNotBlank)
+            ?: invalidResponse("百合会未返回引用回复所需的通知校验值"),
+        noticeAuthorMessage = fields["noticeauthormsg"].orEmpty(),
+        noticeTrimString = fields["noticetrimstr"]?.takeIf(String::isNotBlank)
+            ?: invalidResponse("百合会未返回引用回复所需的引用内容"),
+        postId = postId,
+    )
+}
+
+private val htmlInputTag = Regex("""<input\b[^>]*>""", RegexOption.IGNORE_CASE)
+private val htmlAttribute = Regex(
+    """([a-z_:][-a-z0-9_:.]*)\s*=\s*(["'])(.*?)\2""",
+    setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL),
+)
+
+private fun decodeHtmlAttribute(value: String): String =
+    Regex("""&(?:#(\d+)|#x([\da-f]+)|([a-z]+));""", RegexOption.IGNORE_CASE)
+        .replace(value) { match ->
+            val codePoint = match.groupValues[1].toIntOrNull()
+                ?: match.groupValues[2].toIntOrNull(16)
+            if (codePoint != null && Character.isValidCodePoint(codePoint)) {
+                String(Character.toChars(codePoint))
+            } else {
+                when (match.groupValues[3].lowercase()) {
+                    "amp" -> "&"
+                    "apos" -> "'"
+                    "gt" -> ">"
+                    "lt" -> "<"
+                    "nbsp" -> " "
+                    "quot" -> "\""
+                    else -> match.value
+                }
+            }
+        }
 
 internal fun parseReplyResult(
     response: DiscuzResponse,

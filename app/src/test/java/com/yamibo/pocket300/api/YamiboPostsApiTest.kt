@@ -64,6 +64,81 @@ class YamiboPostsApiTest {
     }
 
     @Test
+    fun buildsQuotedReplyFromDiscuzPreparedForm() {
+        val input = ReplyToThreadInput(
+            forumId = 300,
+            threadId = 1000,
+            message = "回复内容",
+            replyToPostId = 42,
+        )
+        val prepared = parseReplyToPostForm(
+            """
+            <form>
+              <input type="hidden" value="token&amp;42" name="noticeauthor">
+              <input name="noticeauthormsg" value="原回复 &quot;内容&quot;" type="hidden">
+              <input type="hidden" name="noticetrimstr" value="[quote]Alice &amp; Bob[/quote]">
+              <input type="hidden" name="reppid" value="42">
+              <input value="42" type="hidden" name="reppost">
+            </form>
+            """.trimIndent(),
+            expectedPostId = 42,
+        )
+
+        assertEquals(
+            mapOf(
+                "action" to "reply",
+                "fid" to "300",
+                "mobile" to "2",
+                "mod" to "post",
+                "repquote" to "42",
+                "tid" to "1000",
+            ),
+            replyToPostPageParameters(input, postId = 42),
+        )
+        assertEquals(
+            mapOf(
+                "formhash" to "hash",
+                "message" to "回复内容",
+                "noticeauthor" to "token&42",
+                "noticeauthormsg" to "原回复 \"内容\"",
+                "noticetrimstr" to "[quote]Alice & Bob[/quote]",
+                "reppid" to "42",
+                "reppost" to "42",
+            ),
+            replyToThreadForm("hash", input.message, prepared),
+        )
+    }
+
+    @Test(expected = YamiboApiException::class)
+    fun rejectsQuotedReplyFormAssignedToDifferentPost() {
+        parseReplyToPostForm(
+            """
+            <input name="noticeauthor" value="token">
+            <input name="noticeauthormsg" value="原回复">
+            <input name="noticetrimstr" value="[quote]原回复[/quote]">
+            <input name="reppid" value="43">
+            <input name="reppost" value="43">
+            """.trimIndent(),
+            expectedPostId = 42,
+        )
+    }
+
+    @Test
+    fun acceptsQuotedReplyFormWithoutOptionalReplyPostField() {
+        val prepared = parseReplyToPostForm(
+            """
+            <input name="noticeauthor" value="token">
+            <input name="noticetrimstr" value="[quote]原回复[/quote]">
+            <input name="reppost" value="42">
+            """.trimIndent(),
+            expectedPostId = 42,
+        )
+
+        assertEquals(42, prepared.postId)
+        assertEquals("", prepared.noticeAuthorMessage)
+    }
+
+    @Test
     fun parsesSuccessfulReplyResult() {
         val result = parseReplyResult(
             DiscuzResponse(
