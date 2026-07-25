@@ -161,6 +161,11 @@
     <string name="thread_start_from_beginning">从头阅读</string>
     <string name="thread_jump_to_last_read">跳转</string>
     <string name="thread_last_read_position">上次看到第 %1$d 楼</string>
+    <string name="thread_reply_hint">写下你的回复</string>
+    <string name="thread_reply_action">发送回帖</string>
+    <string name="thread_reply_submitted">回帖已提交</string>
+    <string name="thread_reply_pending_moderation">回帖已提交，等待审核</string>
+    <string name="thread_reply_closed">主题已关闭，无法回帖</string>
     <string name="forum_sticky_threads">置顶帖子（%1$d）</string>
     <string name="forum_expand_sticky_threads">展开置顶帖子</string>
     <string name="forum_collapse_sticky_threads">收起置顶帖子</string>

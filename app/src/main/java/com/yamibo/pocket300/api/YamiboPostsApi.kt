@@ -11,6 +11,18 @@ data class GetThreadPostsInput(
     val authorId: Int? = null,
 )
 
+data class ReplyToThreadInput(
+    val forumId: Int,
+    val threadId: Int,
+    val message: String,
+)
+
+data class YamiboReplyResult(
+    val pendingModeration: Boolean,
+    val postId: Int,
+    val threadId: Int,
+)
+
 data class YamiboPostAuthor(
     val avatarUrl: String?,
     val groupIconId: String?,
@@ -173,6 +185,27 @@ class YamiboPostsApi(private val client: YamiboClient) {
         return page.copy(posts = posts)
     }
 
+    suspend fun replyToThread(input: ReplyToThreadInput): YamiboReplyResult {
+        require(input.forumId > 0) { "forumId must be a positive integer" }
+        require(input.threadId > 0) { "threadId must be a positive integer" }
+        val message = input.message.trim()
+        require(message.isNotEmpty()) { "message must not be blank" }
+
+        val session = YamiboAuthApi(client).getCurrentSession()
+            ?: throw YamiboApiException(
+                YamiboApiErrorCode.SERVER_ERROR,
+                "请先登录百合会",
+                "not_authenticated",
+            )
+        if (session.formHash.isBlank()) invalidResponse("百合会未返回回帖所需的校验值")
+
+        val response = client.requestMobileApi(
+            parameters = replyToThreadParameters(input),
+            form = replyToThreadForm(session.formHash, message),
+        )
+        return parseReplyResult(response, input.threadId)
+    }
+
     suspend fun getPostRatings(threadId: Int, postId: Int): List<YamiboPostRating> {
         require(threadId > 0) { "threadId must be a positive integer" }
         require(postId > 0) { "postId must be a positive integer" }
@@ -209,6 +242,57 @@ internal fun threadPostsParameters(input: GetThreadPostsInput): Map<String, Stri
     put("page", input.page.toString())
     put("tid", input.threadId.toString())
     input.authorId?.let { put("authorid", it.toString()) }
+}
+
+internal fun replyToThreadParameters(input: ReplyToThreadInput): Map<String, String> = mapOf(
+    "fid" to input.forumId.toString(),
+    "module" to "sendreply",
+    "replysubmit" to "yes",
+    "tid" to input.threadId.toString(),
+)
+
+internal fun replyToThreadForm(formHash: String, message: String): Map<String, String> = mapOf(
+    "formhash" to formHash,
+    "message" to message,
+)
+
+internal fun parseReplyResult(
+    response: DiscuzResponse,
+    expectedThreadId: Int,
+): YamiboReplyResult {
+    val serverCode = response.message?.code?.takeIf(String::isNotBlank)
+        ?: response.error?.takeIf(String::isNotBlank)
+    val successCodes = setOf("post_reply_succeed", "post_reply_mod_succeed")
+    if (serverCode != null && serverCode !in successCodes) {
+        val serverMessage = response.message?.message?.takeIf(String::isNotBlank)
+        val message = when {
+            serverCode == "post_sm_isnull" -> "请输入回帖内容"
+            serverCode == "post_thread_closed" ||
+                serverCode.startsWith("post_autoclose") -> "主题已关闭，无法回帖"
+            serverCode == "post_flood_ctrl" ||
+                serverCode == "post_flood_ctrl_posts_per_hour" -> "回帖过于频繁，请稍后再试"
+            serverCode.startsWith("replyperm_login_nopermission") -> "请先登录百合会"
+            serverCode == "replyperm_none_nopermission" ||
+                serverCode == "post_forum_newreply_nopermission" ||
+                serverCode == "group_nopermission" -> "当前账号无权在这个主题回帖"
+            "seccode" in serverCode || "secqaa" in serverCode ->
+                "网站要求进行额外安全验证，请稍后重试"
+            else -> serverMessage ?: "回帖失败"
+        }
+        throw YamiboApiException(YamiboApiErrorCode.SERVER_ERROR, message, serverCode)
+    }
+
+    val variables = response.variables ?: invalidResponse("百合会未返回回帖结果")
+    val threadId = variables.stringOrNull("tid")?.toIntOrNull()?.takeIf { it > 0 }
+        ?: invalidResponse("百合会返回了无效的回帖主题 ID")
+    val postId = variables.stringOrNull("pid")?.toIntOrNull()?.takeIf { it > 0 }
+        ?: invalidResponse("百合会返回了无效的回帖楼层 ID")
+    if (threadId != expectedThreadId) invalidResponse("百合会回帖结果与主题 ID 不一致")
+    return YamiboReplyResult(
+        pendingModeration = serverCode == "post_reply_mod_succeed",
+        postId = postId,
+        threadId = threadId,
+    )
 }
 
 internal fun parsePostPageUrl(url: String, expectedThreadId: Int): Int? {

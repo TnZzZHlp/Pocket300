@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -22,6 +23,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.MenuBook
+import androidx.compose.material.icons.automirrored.rounded.Send
 import androidx.compose.material.icons.outlined.FavoriteBorder
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.DoneAll
@@ -29,6 +31,7 @@ import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.Remove
 import androidx.compose.material.icons.rounded.RemoveDone
 import androidx.compose.material3.Badge
+import androidx.compose.material3.BottomAppBar
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -39,6 +42,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedIconButton
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
@@ -68,6 +72,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.yamibo.pocket300.R
 import com.yamibo.pocket300.api.GetThreadPostsInput
+import com.yamibo.pocket300.api.ReplyToThreadInput
 import com.yamibo.pocket300.api.YamiboPost
 import com.yamibo.pocket300.api.YamiboThreadPoll
 import com.yamibo.pocket300.api.YamiboThreadPostsPage
@@ -138,6 +143,8 @@ internal fun ThreadScreen(
         initialFavoriteId
     ) { mutableStateOf(initialFavoriteId > 0) }
     var favoriteBusy by remember(threadId) { mutableStateOf(false) }
+    var replyDraft by rememberSaveable(threadId) { mutableStateOf("") }
+    var replySubmitting by remember(threadId) { mutableStateOf(false) }
     var originalPosterOnly by rememberSaveable(threadId) { mutableStateOf(false) }
     var trackReadingProgress by rememberSaveable(threadId) { mutableStateOf(true) }
     var lastVisibleFloor by rememberSaveable(threadId) {
@@ -164,6 +171,9 @@ internal fun ThreadScreen(
     val isRead = threadId in readingHistory
     val markedReadMessage = stringResource(R.string.thread_marked_read)
     val markedUnreadMessage = stringResource(R.string.thread_marked_unread)
+    val replySubmittedMessage = stringResource(R.string.thread_reply_submitted)
+    val replyPendingModerationMessage =
+        stringResource(R.string.thread_reply_pending_moderation)
     LaunchedEffect(loadedContent, targetFloor, targetPostId, restoredFloor) {
         val content = loadedContent ?: return@LaunchedEffect
         if (restoredFloor) return@LaunchedEffect
@@ -274,6 +284,73 @@ internal fun ThreadScreen(
                         ),
                     )
                 }
+            }
+        },
+        bottomBar = {
+            loadedContent?.let { content ->
+                ThreadReplyBar(
+                    draft = replyDraft,
+                    submitting = replySubmitting,
+                    threadClosed = content.page.thread.isClosed,
+                    onDraftChange = { replyDraft = it },
+                    onSubmit = {
+                        if (!replySubmitting) {
+                            val message = replyDraft.trim()
+                            if (message.isNotEmpty()) {
+                                replySubmitting = true
+                                coroutineScope.launch {
+                                    val result = load {
+                                        api.posts.replyToThread(
+                                            ReplyToThreadInput(
+                                                forumId = content.page.thread.forumId,
+                                                threadId = threadId,
+                                                message = message,
+                                            ),
+                                        )
+                                    }
+                                    when (result) {
+                                        is LoadState.Ready -> {
+                                            replyDraft = ""
+                                            originalPosterOnly = false
+                                            targetFloor = 0
+                                            if (result.value.pendingModeration) {
+                                                targetPostId = 0
+                                                restoredFloor = true
+                                            } else {
+                                                targetPostId = result.value.postId
+                                                restoredFloor = false
+                                                pageNumber = pageForNewReply(
+                                                    totalPosts = content.page.pagination.totalPosts,
+                                                    pageSize = content.page.pagination.pageSize,
+                                                )
+                                            }
+                                            viewModel.invalidate()
+                                            reload++
+                                            Toast.makeText(
+                                                context,
+                                                if (result.value.pendingModeration) {
+                                                    replyPendingModerationMessage
+                                                } else {
+                                                    replySubmittedMessage
+                                                },
+                                                Toast.LENGTH_SHORT,
+                                            ).show()
+                                        }
+
+                                        is LoadState.Failed -> Toast.makeText(
+                                            context,
+                                            result.message,
+                                            Toast.LENGTH_LONG,
+                                        ).show()
+
+                                        LoadState.Loading -> Unit
+                                    }
+                                    replySubmitting = false
+                                }
+                            }
+                        }
+                    },
+                )
             }
         },
     ) { padding ->
@@ -389,10 +466,63 @@ internal fun ThreadScreen(
 internal fun shouldShowThreadTitle(firstVisibleItemIndex: Int): Boolean =
     firstVisibleItemIndex > 0
 
+internal fun pageForNewReply(totalPosts: Int, pageSize: Int): Int {
+    require(totalPosts >= 0) { "totalPosts must not be negative" }
+    require(pageSize > 0) { "pageSize must be a positive integer" }
+    return totalPosts / pageSize + 1
+}
+
 internal enum class ThreadReadAction { MARK_READ, MARK_UNREAD }
 
 internal fun threadReadAction(isRead: Boolean): ThreadReadAction =
     if (isRead) ThreadReadAction.MARK_UNREAD else ThreadReadAction.MARK_READ
+
+@Composable
+private fun ThreadReplyBar(
+    draft: String,
+    submitting: Boolean,
+    threadClosed: Boolean,
+    onDraftChange: (String) -> Unit,
+    onSubmit: () -> Unit,
+) {
+    BottomAppBar(
+        modifier = Modifier.imePadding(),
+        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+    ) {
+        OutlinedTextField(
+            value = draft,
+            onValueChange = onDraftChange,
+            modifier = Modifier.weight(1f),
+            enabled = !threadClosed && !submitting,
+            maxLines = 5,
+            placeholder = {
+                Text(
+                    stringResource(
+                        if (threadClosed) R.string.thread_reply_closed
+                        else R.string.thread_reply_hint,
+                    ),
+                )
+            },
+        )
+        Spacer(Modifier.width(8.dp))
+        IconButton(
+            onClick = onSubmit,
+            enabled = draft.isNotBlank() && !submitting && !threadClosed,
+        ) {
+            if (submitting) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(24.dp),
+                    strokeWidth = 2.dp,
+                )
+            } else {
+                Icon(
+                    Icons.AutoMirrored.Rounded.Send,
+                    contentDescription = stringResource(R.string.thread_reply_action),
+                )
+            }
+        }
+    }
+}
 
 @Composable
 internal fun ReaderSettingsSheet(
