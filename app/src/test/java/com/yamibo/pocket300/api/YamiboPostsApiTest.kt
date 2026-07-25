@@ -45,6 +45,91 @@ class YamiboPostsApiTest {
     }
 
     @Test
+    fun buildsReplyRequestWithDiscuzValidationFields() {
+        val input = ReplyToThreadInput(forumId = 300, threadId = 1000, message = "回复内容")
+
+        assertEquals(
+            mapOf(
+                "fid" to "300",
+                "module" to "sendreply",
+                "replysubmit" to "yes",
+                "tid" to "1000",
+            ),
+            replyToThreadParameters(input),
+        )
+        assertEquals(
+            mapOf("formhash" to "hash", "message" to "回复内容"),
+            replyToThreadForm("hash", input.message),
+        )
+    }
+
+    @Test
+    fun parsesSuccessfulReplyResult() {
+        val result = parseReplyResult(
+            DiscuzResponse(
+                variables = JSONObject("""{"tid":"1000","pid":"42"}"""),
+                message = DiscuzMessage("回复发布成功", "post_reply_succeed"),
+                error = null,
+                version = "4",
+                charset = "UTF-8",
+            ),
+            expectedThreadId = 1000,
+        )
+
+        assertEquals(1000, result.threadId)
+        assertEquals(42, result.postId)
+        assertFalse(result.pendingModeration)
+    }
+
+    @Test
+    fun recognizesReplyPendingModerationAsSuccessfulSubmission() {
+        val result = parseReplyResult(
+            DiscuzResponse(
+                variables = JSONObject("""{"tid":"1000","pid":"42"}"""),
+                message = DiscuzMessage("回复需要审核", "post_reply_mod_succeed"),
+                error = null,
+                version = "4",
+                charset = "UTF-8",
+            ),
+            expectedThreadId = 1000,
+        )
+
+        assertTrue(result.pendingModeration)
+    }
+
+    @Test
+    fun exposesClosedThreadReplyError() {
+        val response = DiscuzResponse(
+            variables = null,
+            message = DiscuzMessage("主题已关闭", "post_thread_closed"),
+            error = null,
+            version = "4",
+            charset = "UTF-8",
+        )
+
+        val error = runCatching { parseReplyResult(response, expectedThreadId = 1000) }
+            .exceptionOrNull()
+
+        assertTrue(error is YamiboApiException)
+        assertEquals("主题已关闭，无法回帖", error?.message)
+        assertEquals("post_thread_closed", (error as YamiboApiException).serverCode)
+    }
+
+    @Test(expected = YamiboApiException::class)
+    fun rejectsReplyAssignedToDifferentThread() {
+        parseReplyResult(
+            DiscuzResponse(
+                variables = JSONObject("""{"tid":"1001","pid":"42"}"""),
+                message = null,
+                error = null,
+                version = "4",
+                charset = "UTF-8",
+            ),
+            expectedThreadId = 1000,
+        )
+    }
+
+    @Test
     fun keepsOnlyRequestedAuthorAndUsesFilteredPageSizeForPagination() {
         val fixture = JSONObject(FIXTURE)
         fixture.put("ppp", "1")

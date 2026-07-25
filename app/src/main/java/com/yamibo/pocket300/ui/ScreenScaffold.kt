@@ -49,6 +49,7 @@ internal fun ScreenScaffold(
     onSettings: (() -> Unit)? = null,
     onTopBarDoubleClick: (() -> Unit)? = null,
     actions: @Composable RowScope.() -> Unit = {},
+    bottomBar: @Composable () -> Unit = {},
     content: @Composable (PaddingValues) -> Unit,
 ) = Scaffold(
     modifier = modifier,
@@ -77,6 +78,7 @@ internal fun ScreenScaffold(
             colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surface),
         )
     },
+    bottomBar = bottomBar,
     content = { padding ->
         if (onRefresh == null) {
             content(padding)

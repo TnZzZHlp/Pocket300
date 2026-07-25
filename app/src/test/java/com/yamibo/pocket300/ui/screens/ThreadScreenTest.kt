@@ -25,4 +25,10 @@ class ThreadScreenTest {
     fun offersMarkReadForUnreadThread() {
         assertEquals(ThreadReadAction.MARK_READ, threadReadAction(isRead = false))
     }
+
+    @Test
+    fun keepsNewReplyOnCurrentPageUntilPageBoundary() {
+        assertEquals(1, pageForNewReply(totalPosts = 19, pageSize = 20))
+        assertEquals(2, pageForNewReply(totalPosts = 20, pageSize = 20))
+    }
 }
