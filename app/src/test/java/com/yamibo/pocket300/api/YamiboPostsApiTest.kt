@@ -15,6 +15,7 @@ class YamiboPostsApiTest {
         assertEquals(2, page.pagination.totalPosts)
         assertEquals(1, page.pagination.totalPages)
         assertFalse(page.pagination.hasNextPage)
+        assertTrue(page.canComment)
         val post = page.posts.single()
         assertTrue(post.isOriginalPost)
         assertEquals(
@@ -64,78 +65,139 @@ class YamiboPostsApiTest {
     }
 
     @Test
-    fun buildsQuotedReplyFromDiscuzPreparedForm() {
-        val input = ReplyToThreadInput(
+    fun requiresDirectCommentPermission() {
+        val fixture = JSONObject(FIXTURE)
+        fixture.put("allowpostcomment", org.json.JSONArray(listOf("2")))
+
+        assertFalse(parseThreadPosts(fixture).canComment)
+    }
+
+    @Test
+    fun buildsPostCommentRequestWithDiscuzSubmissionFields() {
+        val input = CommentOnPostInput(
             forumId = 300,
             threadId = 1000,
-            message = "回复内容",
-            replyToPostId = 42,
-        )
-        val prepared = parseReplyToPostForm(
-            """
-            <form>
-              <input type="hidden" value="token&amp;42" name="noticeauthor">
-              <input name="noticeauthormsg" value="原回复 &quot;内容&quot;" type="hidden">
-              <input type="hidden" name="noticetrimstr" value="[quote]Alice &amp; Bob[/quote]">
-              <input type="hidden" name="reppid" value="42">
-              <input value="42" type="hidden" name="reppost">
-            </form>
-            """.trimIndent(),
-            expectedPostId = 42,
+            postId = 42,
+            message = "点评内容",
         )
 
         assertEquals(
             mapOf(
-                "action" to "reply",
+                "comment" to "yes",
+                "commentsubmit" to "yes",
                 "fid" to "300",
-                "mobile" to "2",
-                "mod" to "post",
-                "repquote" to "42",
+                "module" to "sendreply",
+                "pid" to "42",
                 "tid" to "1000",
             ),
-            replyToPostPageParameters(input, postId = 42),
+            commentOnPostParameters(input),
         )
         assertEquals(
+            mapOf("formhash" to "hash", "message" to "点评内容"),
+            commentOnPostForm("hash", input.message),
+        )
+        assertEquals(200, POST_COMMENT_MAX_LENGTH)
+    }
+
+    @Test
+    fun buildsTargetPostCommentRefreshRequest() {
+        assertEquals(
             mapOf(
-                "formhash" to "hash",
-                "message" to "回复内容",
-                "noticeauthor" to "token&42",
-                "noticeauthormsg" to "原回复 \"内容\"",
-                "noticetrimstr" to "[quote]Alice & Bob[/quote]",
-                "reppid" to "42",
-                "reppost" to "42",
+                "module" to "viewthread",
+                "tid" to "1000",
+                "viewpid" to "9",
             ),
-            replyToThreadForm("hash", input.message, prepared),
+            postCommentsParameters(threadId = 1000, postId = 9),
         )
     }
 
+    @Test
+    fun parsesCommentsForRequestedPost() {
+        val comments = parsePostCommentsForTarget(
+            JSONObject(FIXTURE),
+            expectedThreadId = 1000,
+            expectedPostId = 9,
+        )
+
+        assertEquals(listOf("点评"), comments.map { it.message })
+    }
+
     @Test(expected = YamiboApiException::class)
-    fun rejectsQuotedReplyFormAssignedToDifferentPost() {
-        parseReplyToPostForm(
-            """
-            <input name="noticeauthor" value="token">
-            <input name="noticeauthormsg" value="原回复">
-            <input name="noticetrimstr" value="[quote]原回复[/quote]">
-            <input name="reppid" value="43">
-            <input name="reppost" value="43">
-            """.trimIndent(),
+    fun rejectsCommentRefreshAssignedToDifferentPost() {
+        parsePostCommentsForTarget(
+            JSONObject(FIXTURE),
+            expectedThreadId = 1000,
+            expectedPostId = 10,
+        )
+    }
+
+    @Test
+    fun recognizesSuccessfulPostComment() {
+        parseCommentResult(
+            DiscuzResponse(
+                variables = JSONObject("""{"tid":"1000","pid":"42"}"""),
+                message = DiscuzMessage("帖子点评成功", "comment_add_succeed"),
+                error = null,
+                version = "4",
+                charset = "UTF-8",
+            ),
+            expectedThreadId = 1000,
             expectedPostId = 42,
         )
     }
 
     @Test
-    fun acceptsQuotedReplyFormWithoutOptionalReplyPostField() {
-        val prepared = parseReplyToPostForm(
-            """
-            <input name="noticeauthor" value="token">
-            <input name="noticetrimstr" value="[quote]原回复[/quote]">
-            <input name="reppost" value="42">
-            """.trimIndent(),
+    fun explainsPostCommentPermissionFailure() {
+        val error = runCatching {
+            parseCommentResult(
+                DiscuzResponse(
+                    variables = null,
+                    message = DiscuzMessage("抱歉，您不能点评此帖", "postcomment_error"),
+                    error = null,
+                    version = "4",
+                    charset = "UTF-8",
+                ),
+                expectedThreadId = 1000,
+                expectedPostId = 42,
+            )
+        }.exceptionOrNull()
+
+        assertTrue(error is YamiboApiException)
+        assertEquals(
+            "无法点评此楼层，可能没有权限、不能点评自己的内容，或楼层不存在",
+            error?.message,
+        )
+        assertEquals("postcomment_error", (error as YamiboApiException).serverCode)
+    }
+
+    @Test(expected = YamiboApiException::class)
+    fun rejectsPostCommentResponseWithoutResultCode() {
+        parseCommentResult(
+            DiscuzResponse(
+                variables = JSONObject(),
+                message = null,
+                error = null,
+                version = "4",
+                charset = "UTF-8",
+            ),
+            expectedThreadId = 1000,
             expectedPostId = 42,
         )
+    }
 
-        assertEquals(42, prepared.postId)
-        assertEquals("", prepared.noticeAuthorMessage)
+    @Test(expected = YamiboApiException::class)
+    fun rejectsPostCommentResultAssignedToDifferentPost() {
+        parseCommentResult(
+            DiscuzResponse(
+                variables = JSONObject("""{"tid":"1000","pid":"43"}"""),
+                message = DiscuzMessage("帖子点评成功", "comment_add_succeed"),
+                error = null,
+                version = "4",
+                charset = "UTF-8",
+            ),
+            expectedThreadId = 1000,
+            expectedPostId = 42,
+        )
     }
 
     @Test
@@ -347,6 +409,7 @@ class YamiboPostsApiTest {
         val FIXTURE = """
           {
             "ppp":"20",
+            "allowpostcomment":["1"],
             "thread":{"tid":"1000","author":"alice","authorid":"42","dateline":"10","digest":"0","fid":"300","attachment":"0","heats":"1","rate":"1","closed":"0","lastposter":"bob","lastpost":"刚刚","maxposition":"2","price":"0","readperm":"0","recommend_add":"1","replies":"1","special":"1","subject":"投票","typeid":"0","views":"12"},
             "postlist":[{"author":"alice","authorid":"42","anonymous":"0","groupiconid":"","groupid":"10","pid":"9","dbdateline":"10","dateline":"刚刚","message":"<p>不可信正文</p>","attachment":"1","attachments":{"8":{"aid":"8","url":"data/attachment/forum/","attachment":"202607/example.jpg","filename":"example.jpg","isimage":"1"}},"first":"1","number":"1","position":"1","ratetimes":"4","replycredit":"0","status":"0","tid":"1000"}],
             "comments":{"9":[{"author":"bob","authorid":"43","avatar":"//example.com/a.png","dateline":"刚刚","id":"2","comment":"点评","pid":"9","tid":"1000"}]},

@@ -21,16 +21,16 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.Comment
 import androidx.compose.material.icons.automirrored.rounded.MenuBook
-import androidx.compose.material.icons.automirrored.rounded.Reply
 import androidx.compose.material.icons.automirrored.rounded.Send
 import androidx.compose.material.icons.outlined.FavoriteBorder
 import androidx.compose.material.icons.rounded.Add
-import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.DoneAll
 import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.Remove
 import androidx.compose.material.icons.rounded.RemoveDone
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BottomAppBar
 import androidx.compose.material3.Card
@@ -64,8 +64,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
@@ -74,7 +72,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.yamibo.pocket300.R
+import com.yamibo.pocket300.api.CommentOnPostInput
 import com.yamibo.pocket300.api.GetThreadPostsInput
+import com.yamibo.pocket300.api.POST_COMMENT_MAX_LENGTH
 import com.yamibo.pocket300.api.ReplyToThreadInput
 import com.yamibo.pocket300.api.YamiboPost
 import com.yamibo.pocket300.api.YamiboThreadPoll
@@ -148,10 +148,12 @@ internal fun ThreadScreen(
     var favoriteBusy by remember(threadId) { mutableStateOf(false) }
     var replyDraft by rememberSaveable(threadId) { mutableStateOf("") }
     var replySubmitting by remember(threadId) { mutableStateOf(false) }
-    var replyToPostId by rememberSaveable(threadId) { mutableIntStateOf(0) }
-    var replyToPostNumber by rememberSaveable(threadId) { mutableIntStateOf(0) }
-    var replyToAuthorName by rememberSaveable(threadId) { mutableStateOf("") }
-    val replyFocusRequester = remember(threadId) { FocusRequester() }
+    var commentTargetPostId by rememberSaveable(threadId) { mutableIntStateOf(0) }
+    var commentTargetPostNumber by rememberSaveable(threadId) { mutableIntStateOf(0) }
+    var commentTargetAuthorName by rememberSaveable(threadId) { mutableStateOf("") }
+    var commentTargetIsOriginalPost by rememberSaveable(threadId) { mutableStateOf(false) }
+    var commentDraft by rememberSaveable(threadId) { mutableStateOf("") }
+    var commentSubmitting by remember(threadId) { mutableStateOf(false) }
     var originalPosterOnly by rememberSaveable(threadId) { mutableStateOf(false) }
     var trackReadingProgress by rememberSaveable(threadId) { mutableStateOf(true) }
     var lastVisibleFloor by rememberSaveable(threadId) {
@@ -181,6 +183,9 @@ internal fun ThreadScreen(
     val replySubmittedMessage = stringResource(R.string.thread_reply_submitted)
     val replyPendingModerationMessage =
         stringResource(R.string.thread_reply_pending_moderation)
+    val commentSubmittedMessage = stringResource(R.string.thread_comment_submitted)
+    val commentSubmittedRefreshFailedMessage =
+        stringResource(R.string.thread_comment_submitted_refresh_failed)
     LaunchedEffect(loadedContent, targetFloor, targetPostId, restoredFloor) {
         val content = loadedContent ?: return@LaunchedEffect
         if (restoredFloor) return@LaunchedEffect
@@ -299,15 +304,7 @@ internal fun ThreadScreen(
                     draft = replyDraft,
                     submitting = replySubmitting,
                     threadClosed = content.page.thread.isClosed,
-                    replyToAuthorName = replyToAuthorName.takeIf { replyToPostId > 0 },
-                    replyToPostNumber = replyToPostNumber.takeIf { replyToPostId > 0 },
-                    focusRequester = replyFocusRequester,
                     onDraftChange = { replyDraft = it },
-                    onCancelReplyToPost = {
-                        replyToPostId = 0
-                        replyToPostNumber = 0
-                        replyToAuthorName = ""
-                    },
                     onSubmit = {
                         if (!replySubmitting) {
                             val message = replyDraft.trim()
@@ -320,16 +317,12 @@ internal fun ThreadScreen(
                                                 forumId = content.page.thread.forumId,
                                                 threadId = threadId,
                                                 message = message,
-                                                replyToPostId = replyToPostId.takeIf { it > 0 },
                                             ),
                                         )
                                     }
                                     when (result) {
                                         is LoadState.Ready -> {
                                             replyDraft = ""
-                                            replyToPostId = 0
-                                            replyToPostNumber = 0
-                                            replyToAuthorName = ""
                                             originalPosterOnly = false
                                             targetFloor = 0
                                             if (result.value.pendingModeration) {
@@ -449,16 +442,15 @@ internal fun ThreadScreen(
                         typography = threadTypography,
                         onForum = onForum,
                         onRatings = { onRatings(post.threadId, post.id) },
-                        replyEnabled = !page.thread.isClosed && !replySubmitting,
-                        onReply = if (post.isOriginalPost) {
-                            null
-                        } else {
-                            {
-                                replyToPostId = post.id
-                                replyToPostNumber = post.number
-                                replyToAuthorName = post.author.name
-                                replyFocusRequester.requestFocus()
-                            }
+                        commentEnabled = page.canComment &&
+                            !page.thread.isClosed &&
+                            !commentSubmitting,
+                        onComment = {
+                            commentTargetPostId = post.id
+                            commentTargetPostNumber = post.number
+                            commentTargetAuthorName = post.author.name
+                            commentTargetIsOriginalPost = post.isOriginalPost
+                            commentDraft = ""
                         },
                         onReader = {
                             val postPage = ((post.position - 1) / page.pagination.pageSize) + 1
@@ -491,6 +483,86 @@ internal fun ThreadScreen(
             }
         }
     }
+    if (commentTargetPostId > 0) {
+        PostCommentDialog(
+            authorName = commentTargetAuthorName,
+            draft = commentDraft,
+            isOriginalPost = commentTargetIsOriginalPost,
+            postNumber = commentTargetPostNumber,
+            submitting = commentSubmitting,
+            onDraftChange = { proposed ->
+                if (proposed.length <= POST_COMMENT_MAX_LENGTH) commentDraft = proposed
+            },
+            onDismiss = {
+                if (!commentSubmitting) {
+                    commentTargetPostId = 0
+                    commentTargetPostNumber = 0
+                    commentTargetAuthorName = ""
+                    commentTargetIsOriginalPost = false
+                    commentDraft = ""
+                }
+            },
+            onSubmit = {
+                if (!commentSubmitting) {
+                    val message = commentDraft.trim()
+                    val forumId = loadedThread?.forumId
+                    if (message.isNotEmpty() && forumId != null) {
+                        val postId = commentTargetPostId
+                        commentSubmitting = true
+                        coroutineScope.launch {
+                            val result = load {
+                                api.posts.commentOnPost(
+                                    CommentOnPostInput(
+                                        forumId = forumId,
+                                        threadId = threadId,
+                                        postId = postId,
+                                        message = message,
+                                    ),
+                                )
+                            }
+                            when (result) {
+                                is LoadState.Ready -> {
+                                    commentTargetPostId = 0
+                                    commentTargetPostNumber = 0
+                                    commentTargetAuthorName = ""
+                                    commentTargetIsOriginalPost = false
+                                    commentDraft = ""
+                                    val refreshed = load {
+                                        api.posts.getPostComments(threadId, postId)
+                                    }
+                                    val refreshSucceeded =
+                                        refreshed is LoadState.Ready &&
+                                            viewModel.updatePostComments(
+                                                postId,
+                                                refreshed.value,
+                                            )
+                                    Toast.makeText(
+                                        context,
+                                        if (refreshSucceeded) {
+                                            commentSubmittedMessage
+                                        } else {
+                                            commentSubmittedRefreshFailedMessage
+                                        },
+                                        if (refreshSucceeded) Toast.LENGTH_SHORT
+                                        else Toast.LENGTH_LONG,
+                                    ).show()
+                                }
+
+                                is LoadState.Failed -> Toast.makeText(
+                                    context,
+                                    result.message,
+                                    Toast.LENGTH_LONG,
+                                ).show()
+
+                                LoadState.Loading -> Unit
+                            }
+                            commentSubmitting = false
+                        }
+                    }
+                }
+            },
+        )
+    }
 }
 
 internal fun shouldShowThreadTitle(firstVisibleItemIndex: Int): Boolean =
@@ -508,89 +580,123 @@ internal fun threadReadAction(isRead: Boolean): ThreadReadAction =
     if (isRead) ThreadReadAction.MARK_UNREAD else ThreadReadAction.MARK_READ
 
 @Composable
+private fun PostCommentDialog(
+    authorName: String,
+    draft: String,
+    isOriginalPost: Boolean,
+    postNumber: Int,
+    submitting: Boolean,
+    onDraftChange: (String) -> Unit,
+    onDismiss: () -> Unit,
+    onSubmit: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.thread_comment_title)) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text(
+                    text = if (isOriginalPost) {
+                        stringResource(R.string.thread_comment_target_original, authorName)
+                    } else {
+                        stringResource(
+                            R.string.thread_comment_target_floor,
+                            authorName,
+                            postNumber,
+                        )
+                    },
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                OutlinedTextField(
+                    value = draft,
+                    onValueChange = onDraftChange,
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = !submitting,
+                    minLines = 3,
+                    maxLines = 6,
+                    placeholder = { Text(stringResource(R.string.thread_comment_hint)) },
+                    supportingText = {
+                        Text(
+                            stringResource(
+                                R.string.thread_comment_character_count,
+                                draft.length,
+                                POST_COMMENT_MAX_LENGTH,
+                            ),
+                        )
+                    },
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = onSubmit,
+                enabled = draft.isNotBlank() && !submitting,
+            ) {
+                if (submitting) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(18.dp),
+                        strokeWidth = 2.dp,
+                    )
+                    Spacer(Modifier.width(8.dp))
+                }
+                Text(
+                    stringResource(
+                        if (submitting) R.string.thread_comment_submitting
+                        else R.string.thread_comment_submit,
+                    ),
+                )
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss, enabled = !submitting) {
+                Text(stringResource(R.string.thread_comment_cancel))
+            }
+        },
+    )
+}
+
+@Composable
 private fun ThreadReplyBar(
     draft: String,
     submitting: Boolean,
     threadClosed: Boolean,
-    replyToAuthorName: String?,
-    replyToPostNumber: Int?,
-    focusRequester: FocusRequester,
     onDraftChange: (String) -> Unit,
-    onCancelReplyToPost: () -> Unit,
     onSubmit: () -> Unit,
 ) {
     BottomAppBar(
         contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
     ) {
-        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            if (replyToAuthorName != null && replyToPostNumber != null) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(
-                        text = stringResource(
-                            R.string.thread_reply_to_post,
-                            replyToAuthorName,
-                            replyToPostNumber,
-                        ),
-                        modifier = Modifier
-                            .weight(1f)
-                            .padding(start = 4.dp),
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.primary,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                    IconButton(
-                        onClick = onCancelReplyToPost,
-                        modifier = Modifier.size(32.dp),
-                        enabled = !submitting,
-                    ) {
-                        Icon(
-                            Icons.Rounded.Close,
-                            contentDescription = stringResource(R.string.thread_reply_cancel_target),
-                            modifier = Modifier.size(18.dp),
-                        )
-                    }
-                }
-            }
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                OutlinedTextField(
-                    value = draft,
-                    onValueChange = onDraftChange,
-                    modifier = Modifier
-                        .weight(1f)
-                        .focusRequester(focusRequester),
-                    enabled = !threadClosed && !submitting,
-                    maxLines = 5,
-                    placeholder = {
-                        Text(
-                            stringResource(
-                                if (threadClosed) R.string.thread_reply_closed
-                                else R.string.thread_reply_hint,
-                            ),
-                        )
-                    },
+        OutlinedTextField(
+            value = draft,
+            onValueChange = onDraftChange,
+            modifier = Modifier.weight(1f),
+            enabled = !threadClosed && !submitting,
+            maxLines = 5,
+            placeholder = {
+                Text(
+                    stringResource(
+                        if (threadClosed) R.string.thread_reply_closed
+                        else R.string.thread_reply_hint,
+                    ),
                 )
-                Spacer(Modifier.width(8.dp))
-                IconButton(
-                    onClick = onSubmit,
-                    enabled = draft.isNotBlank() && !submitting && !threadClosed,
-                ) {
-                    if (submitting) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(24.dp),
-                            strokeWidth = 2.dp,
-                        )
-                    } else {
-                        Icon(
-                            Icons.AutoMirrored.Rounded.Send,
-                            contentDescription = stringResource(R.string.thread_reply_action),
-                        )
-                    }
-                }
+            },
+        )
+        Spacer(Modifier.width(8.dp))
+        IconButton(
+            onClick = onSubmit,
+            enabled = draft.isNotBlank() && !submitting && !threadClosed,
+        ) {
+            if (submitting) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(24.dp),
+                    strokeWidth = 2.dp,
+                )
+            } else {
+                Icon(
+                    Icons.AutoMirrored.Rounded.Send,
+                    contentDescription = stringResource(R.string.thread_reply_action),
+                )
             }
         }
     }
@@ -752,8 +858,8 @@ private fun PostCard(
     typography: ThreadTypography,
     onForum: (Int) -> Unit,
     onRatings: () -> Unit,
-    replyEnabled: Boolean,
-    onReply: (() -> Unit)?,
+    commentEnabled: Boolean,
+    onComment: () -> Unit,
     onReader: () -> Unit,
     onThread: (PostLinkTarget.Thread) -> Unit,
 ) {
@@ -809,16 +915,15 @@ private fun PostCard(
                             color = MaterialTheme.colorScheme.onPrimaryContainer,
                         )
                     }
-                    onReply?.let {
-                        IconButton(onClick = it, enabled = replyEnabled) {
-                            Icon(
-                                Icons.AutoMirrored.Rounded.Reply,
-                                contentDescription = stringResource(
-                                    R.string.thread_reply_to_post_action,
-                                    post.number,
-                                ),
-                            )
-                        }
+                    IconButton(onClick = onComment, enabled = commentEnabled) {
+                        Icon(
+                            Icons.AutoMirrored.Rounded.Comment,
+                            contentDescription = if (post.isOriginalPost) {
+                                stringResource(R.string.thread_comment_original_post_action)
+                            } else {
+                                stringResource(R.string.thread_comment_post_action, post.number)
+                            },
+                        )
                     }
                     IconButton(onClick = onReader) {
                         Icon(
