@@ -1,6 +1,7 @@
 package com.yamibo.pocket300.api
 
 import android.webkit.CookieManager
+import com.yamibo.pocket300.logging.AppLogger
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.FormBody
@@ -80,6 +81,9 @@ class YamiboClient(
         val root = try {
             JSONObject(text.body)
         } catch (error: JSONException) {
+            AppLogger.error(TAG, error) {
+                "Could not parse mobile API response; responseLength=${text.body.length}"
+            }
             throw YamiboApiException(
                 YamiboApiErrorCode.INVALID_RESPONSE,
                 "百合会返回了无法解析的数据",
@@ -88,6 +92,7 @@ class YamiboClient(
         }
         val variables = root.objectOrNull("Variables")
         if (root.has("Variables") && variables == null) {
+            AppLogger.error(TAG) { "Mobile API response contained an invalid Variables field" }
             throw YamiboApiException(YamiboApiErrorCode.INVALID_RESPONSE, "百合会返回了无法识别的数据")
         }
         val messageObject = root.objectOrNull("Message")
@@ -127,9 +132,16 @@ class YamiboClient(
     }
 
     private fun execute(request: Request): TextResponse {
+        val requestSummary = request.safeLogSummary()
+        val startedAtNanos = System.nanoTime()
+        AppLogger.debug(TAG) { "$requestSummary started" }
         try {
             http.newCall(request).execute().use { response ->
                 if (!response.isSuccessful) {
+                    AppLogger.warn(TAG) {
+                        "$requestSummary failed with HTTP ${response.code} in " +
+                            "${elapsedMillis(startedAtNanos)} ms"
+                    }
                     throw YamiboApiException(
                         YamiboApiErrorCode.SERVER_ERROR,
                         "百合会请求失败（HTTP ${response.code}）",
@@ -138,11 +150,18 @@ class YamiboClient(
                 val body = try {
                     response.body.string()
                 } catch (error: IOException) {
+                    AppLogger.error(TAG, error) {
+                        "$requestSummary response could not be read after ${elapsedMillis(startedAtNanos)} ms"
+                    }
                     throw YamiboApiException(
                         YamiboApiErrorCode.INVALID_RESPONSE,
                         "百合会返回了无法读取的数据",
                         cause = error,
                     )
+                }
+                AppLogger.debug(TAG) {
+                    "$requestSummary completed with HTTP ${response.code} in " +
+                        "${elapsedMillis(startedAtNanos)} ms; responseLength=${body.length}"
                 }
                 return TextResponse(body, response.request.url.toString())
             }
@@ -150,6 +169,10 @@ class YamiboClient(
             throw error
         } catch (error: IOException) {
             val timedOut = error is java.net.SocketTimeoutException || error is java.io.InterruptedIOException
+            AppLogger.warn(TAG, error) {
+                "$requestSummary ${if (timedOut) "timed out" else "failed"} after " +
+                    "${elapsedMillis(startedAtNanos)} ms"
+            }
             throw YamiboApiException(
                 YamiboApiErrorCode.NETWORK_ERROR,
                 if (timedOut) "连接百合会超时" else "无法连接百合会",
@@ -159,7 +182,20 @@ class YamiboClient(
     }
 
     private data class TextResponse(val body: String, val url: String)
+
+    private companion object {
+        const val TAG = "YamiboClient"
+
+        fun elapsedMillis(startedAtNanos: Long): Long =
+            TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedAtNanos)
+    }
 }
+
+/**
+ * Deliberately excludes query parameters, request headers, cookies, and form
+ * bodies because they may contain credentials or user-provided content.
+ */
+internal fun Request.safeLogSummary(): String = "$method ${url.encodedPath}"
 
 /**
  * Bridges OkHttp to Android's persistent cookie store. This preserves Discuz

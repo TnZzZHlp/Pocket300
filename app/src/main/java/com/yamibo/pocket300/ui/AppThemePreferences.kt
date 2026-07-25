@@ -2,6 +2,7 @@ package com.yamibo.pocket300.ui
 
 import android.content.Context
 import androidx.core.content.edit
+import com.yamibo.pocket300.logging.AppLogger
 
 internal enum class AppColorTheme {
     SYSTEM,
@@ -19,9 +20,16 @@ internal class AppThemePreferencesStore(context: Context) {
             "SAKURA" -> AppColorTheme.BEIGE
             else -> AppColorTheme.valueOf(savedTheme)
         }
-    }.getOrDefault(AppColorTheme.BEIGE)
+    }.getOrElse { error ->
+        AppLogger.warn(TAG, error) { "Invalid saved app theme; using the default theme" }
+        AppColorTheme.BEIGE
+    }
 
     fun save(value: AppColorTheme) {
         preferences.edit { putString("color_theme", value.name) }
+    }
+
+    private companion object {
+        const val TAG = "Preferences"
     }
 }
