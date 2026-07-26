@@ -40,8 +40,8 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import com.yamibo.pocket300.Pocket300Application
 import com.yamibo.pocket300.R
-import com.yamibo.pocket300.api.YamiboApi
 import com.yamibo.pocket300.data.ReadingHistoryDatabase
 import com.yamibo.pocket300.data.ReadingHistoryEntry
 import com.yamibo.pocket300.ui.screens.CustomListDetailScreen
@@ -54,16 +54,16 @@ import com.yamibo.pocket300.ui.screens.ListScreen
 import com.yamibo.pocket300.ui.screens.LogScreen
 import com.yamibo.pocket300.ui.screens.ProfileScreen
 import com.yamibo.pocket300.ui.screens.ReaderContent
+import com.yamibo.pocket300.ui.screens.ReaderContentSource
 import com.yamibo.pocket300.ui.screens.ReaderScreen
 import com.yamibo.pocket300.ui.screens.RatingsScreen
 import com.yamibo.pocket300.ui.screens.ReadingHistoryScreen
 import com.yamibo.pocket300.ui.screens.SearchScreen
 import com.yamibo.pocket300.ui.screens.SettingsScreen
 import com.yamibo.pocket300.ui.screens.ThreadScreen
-import com.yamibo.pocket300.ui.screens.toReaderContent
 import com.yamibo.pocket300.ui.theme.PocketTheme
 
-internal val api = YamiboApi()
+internal val api = Pocket300Application.api
 
 private data class Tab(val route: String, @param:StringRes val label: Int, val icon: ImageVector)
 
@@ -226,13 +226,12 @@ fun Pocket300App() {
             }
             composable("downloads") {
                 DownloadsScreen(
+                    sharedTransitionScope = sharedTransitionScope,
+                    animatedVisibilityScope = this,
                     onBack = navController::navigateUp,
                     onOpen = { download ->
-                        val content = download.toReaderContent()
-                        readerContent = content
-                        navController.navigate(
-                            "reader/${content.thread.id}/${content.post.id}/1?offline=true",
-                        )
+                        readerContent = null
+                        navController.navigate("thread/${download.key.threadId}?offline=true")
                     },
                 )
             }
@@ -287,21 +286,28 @@ fun Pocket300App() {
                 )
             }
             composable(
-                route = "thread/{threadId}?floor={floor}&postId={postId}&page={page}&favoriteId={favoriteId}",
+                route = "thread/{threadId}?floor={floor}&postId={postId}&page={page}" +
+                    "&favoriteId={favoriteId}&offline={offline}",
                 arguments = listOf(
                     navArgument("threadId") { type = NavType.IntType },
                     navArgument("floor") { type = NavType.IntType; defaultValue = 0 },
                     navArgument("postId") { type = NavType.IntType; defaultValue = 0 },
                     navArgument("page") { type = NavType.IntType; defaultValue = 0 },
                     navArgument("favoriteId") { type = NavType.IntType; defaultValue = 0 },
+                    navArgument("offline") {
+                        type = NavType.BoolType
+                        defaultValue = false
+                    },
                 ),
             ) { backStack ->
+                val offlineOnly = backStack.arguments?.getBoolean("offline") ?: false
                 ThreadScreen(
                     threadId = backStack.arguments?.getInt("threadId") ?: return@composable,
                     initialFloor = backStack.arguments?.getInt("floor") ?: 0,
                     initialPostId = backStack.arguments?.getInt("postId") ?: 0,
                     initialPage = backStack.arguments?.getInt("page") ?: 0,
                     initialFavoriteId = backStack.arguments?.getInt("favoriteId") ?: 0,
+                    offlineOnly = offlineOnly,
                     sharedTransitionScope = sharedTransitionScope,
                     animatedVisibilityScope = this,
                     onBack = navController::navigateUp,
@@ -309,13 +315,15 @@ fun Pocket300App() {
                     onRatings = { threadId, postId -> navController.navigate("ratings/$threadId/$postId") },
                     onReader = { content, page ->
                         readerContent = content
+                        val offline = content.source == ReaderContentSource.DOWNLOAD
                         navController.navigate(
-                            "reader/${content.thread.id}/${content.post.id}/$page",
+                            "reader/${content.thread.id}/${content.post.id}/$page?offline=$offline",
                         )
                     },
                     onThread = {
                         navController.navigate(
-                            "thread/${it.id}?postId=${it.postId ?: 0}&page=${it.page ?: 0}",
+                            "thread/${it.id}?postId=${it.postId ?: 0}" +
+                                "&page=${it.page ?: 0}&offline=$offlineOnly",
                         )
                     },
                 )
@@ -332,17 +340,19 @@ fun Pocket300App() {
                     },
                 ),
             ) { backStack ->
+                val offlineOnly = backStack.arguments?.getBoolean("offline") ?: false
                 ReaderScreen(
                     threadId = backStack.arguments?.getInt("threadId") ?: return@composable,
                     postId = backStack.arguments?.getInt("postId") ?: return@composable,
                     initialPage = backStack.arguments?.getInt("page") ?: 1,
                     initialContent = readerContent,
-                    offlineOnly = backStack.arguments?.getBoolean("offline") ?: false,
+                    offlineOnly = offlineOnly,
                     onBack = navController::navigateUp,
                     onForum = { navController.navigate("forum/$it") },
                     onThread = {
                         navController.navigate(
-                            "thread/${it.id}?postId=${it.postId ?: 0}&page=${it.page ?: 0}",
+                            "thread/${it.id}?postId=${it.postId ?: 0}" +
+                                "&page=${it.page ?: 0}&offline=$offlineOnly",
                         )
                     },
                 )

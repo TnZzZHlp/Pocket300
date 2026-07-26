@@ -4,13 +4,19 @@ import com.yamibo.pocket300.api.YamiboPost
 import com.yamibo.pocket300.api.YamiboPostAuthor
 import com.yamibo.pocket300.api.YamiboThreadDetails
 import com.yamibo.pocket300.api.YamiboThreadSpecialType
+import com.yamibo.pocket300.data.download.DownloadedThread
+import com.yamibo.pocket300.data.download.ThreadDownloadImage
+import com.yamibo.pocket300.data.download.ThreadDownloadManifest
+import com.yamibo.pocket300.data.download.ThreadDownloadSnapshot
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
 import org.junit.Test
+import java.io.File
 
 class ReaderScreenTest {
     @Test
@@ -43,7 +49,7 @@ class ReaderScreenTest {
     }
 
     @Test
-    fun fallsBackToDownloadedPostWhenNetworkFails() = runBlocking {
+    fun fallsBackToDownloadedThreadPostWhenNetworkFails() = runBlocking {
         val downloaded = readerContent(source = ReaderContentSource.DOWNLOAD)
 
         val result = resolveReaderContent(
@@ -142,6 +148,66 @@ class ReaderScreenTest {
                 mapOf("https://example.com/first.jpg" to "file:/downloads/first.bin"),
             ),
         )
+    }
+
+    @Test
+    fun offlineReaderOmitsImagesThatAreNotStoredLocally() {
+        assertEquals(
+            listOf("file:/downloads/first.bin"),
+            resolveReaderImageUrls(
+                remoteImageUrls = listOf(
+                    "https://example.com/first.jpg",
+                    "https://example.com/missing.jpg",
+                ),
+                localImageUrls = mapOf(
+                    "https://example.com/first.jpg" to "file:/downloads/first.bin",
+                ),
+                allowRemoteImages = false,
+            ),
+        )
+    }
+
+    @Test
+    fun downloadedThreadReaderContentSelectsRequestedFloorAndSharesThreadImages() {
+        val original = readerContent()
+        val reply = original.post.copy(
+            id = 2001,
+            isOriginalPost = false,
+            number = 2,
+            position = 2,
+        )
+        val downloaded = DownloadedThread(
+            manifest = ThreadDownloadManifest(
+                snapshot = ThreadDownloadSnapshot(
+                    thread = original.thread.copy(replyCount = 1, maxPosition = 2),
+                    poll = null,
+                    posts = listOf(original.post, reply),
+                    capturedPageCount = 1,
+                    sourcePageSize = 20,
+                    sourceTotalPosts = 2,
+                ),
+                images = listOf(
+                    ThreadDownloadImage(
+                        remoteUrl = "https://example.com/page.jpg",
+                        relativePath = "images/0001.img",
+                        byteCount = 1,
+                        sha256 = "0".repeat(64),
+                        contentType = "image/jpeg",
+                    ),
+                ),
+                requestedAt = 1L,
+                completedAt = 2L,
+            ),
+            directory = File("downloads"),
+        )
+
+        val result = requireNotNull(downloaded.toReaderContent(reply.id))
+
+        assertEquals(reply, result.post)
+        assertEquals(downloaded.snapshot.thread, result.thread)
+        assertEquals(downloaded.localImageUris, result.localImageUrls)
+        assertEquals(ReaderContentSource.DOWNLOAD, result.source)
+        assertNull(downloaded.toReaderContent(postId = 9999))
     }
 
     private fun readerContent(

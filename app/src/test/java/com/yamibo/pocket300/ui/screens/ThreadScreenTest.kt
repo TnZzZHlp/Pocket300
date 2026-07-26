@@ -2,7 +2,7 @@ package com.yamibo.pocket300.ui.screens
 
 import com.yamibo.pocket300.api.YamiboPostRatingForm
 import com.yamibo.pocket300.api.YamiboPostRatingOption
-import com.yamibo.pocket300.data.download.PostDownloadPhase
+import com.yamibo.pocket300.data.download.ThreadDownloadPhase
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -102,23 +102,27 @@ class ThreadScreenTest {
     }
 
     @Test
-    fun mapsPostDownloadPhasesToCardActions() {
-        assertEquals(PostDownloadCardAction.DOWNLOAD, postDownloadCardAction(null))
+    fun mapsThreadDownloadPhasesToTopBarActions() {
+        assertEquals(ThreadDownloadAction.DOWNLOAD, threadDownloadAction(null))
         assertEquals(
-            PostDownloadCardAction.DOWNLOADING,
-            postDownloadCardAction(PostDownloadPhase.QUEUED),
+            ThreadDownloadAction.DOWNLOADING,
+            threadDownloadAction(ThreadDownloadPhase.QUEUED),
         )
         assertEquals(
-            PostDownloadCardAction.DOWNLOADING,
-            postDownloadCardAction(PostDownloadPhase.DOWNLOADING),
+            ThreadDownloadAction.DOWNLOADING,
+            threadDownloadAction(ThreadDownloadPhase.FETCHING_PAGES),
         )
         assertEquals(
-            PostDownloadCardAction.RETRY,
-            postDownloadCardAction(PostDownloadPhase.FAILED),
+            ThreadDownloadAction.DOWNLOADING,
+            threadDownloadAction(ThreadDownloadPhase.DOWNLOADING_IMAGES),
         )
         assertEquals(
-            PostDownloadCardAction.DOWNLOADED,
-            postDownloadCardAction(PostDownloadPhase.COMPLETED),
+            ThreadDownloadAction.RETRY,
+            threadDownloadAction(ThreadDownloadPhase.FAILED),
+        )
+        assertEquals(
+            ThreadDownloadAction.DOWNLOADED,
+            threadDownloadAction(ThreadDownloadPhase.COMPLETED),
         )
     }
 

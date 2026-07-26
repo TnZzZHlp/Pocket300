@@ -23,6 +23,7 @@ internal fun PostAuthorAvatar(
     author: YamiboPostAuthor,
     size: Dp,
     modifier: Modifier = Modifier,
+    allowRemoteImage: Boolean = true,
 ) {
     Surface(
         modifier = modifier.size(size),
@@ -34,7 +35,7 @@ internal fun PostAuthorAvatar(
                 text = author.name.firstOrNull()?.toString().orEmpty(),
                 color = MaterialTheme.colorScheme.onPrimaryContainer,
             )
-            author.avatarUrl?.let { avatarUrl ->
+            author.avatarUrl?.takeIf { allowRemoteImage }?.let { avatarUrl ->
                 AsyncImage(
                     model = avatarUrl,
                     contentDescription = stringResource(R.string.post_author_avatar, author.name),
