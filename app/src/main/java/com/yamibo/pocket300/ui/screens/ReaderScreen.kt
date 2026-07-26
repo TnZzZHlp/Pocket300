@@ -8,11 +8,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.pager.HorizontalPager
-import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.PaddingValues
@@ -25,7 +21,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
@@ -48,15 +43,13 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.layout.Layout
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
@@ -65,7 +58,6 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.sp
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
@@ -84,9 +76,13 @@ import com.yamibo.pocket300.ui.ReaderMode
 import com.yamibo.pocket300.ui.api
 import com.yamibo.pocket300.ui.load
 import com.yamibo.pocket300.ui.postImageUrls
-import com.yamibo.pocket300.ui.rememberPostImageRequest
+import com.yamibo.pocket300.ui.reader.ImageReader
+import com.yamibo.pocket300.ui.reader.ImageReaderBottomBar
+import com.yamibo.pocket300.ui.reader.ImageReaderPreferences
+import com.yamibo.pocket300.ui.reader.ImageReaderPreferencesStore
+import com.yamibo.pocket300.ui.reader.ImageReaderSettingsSheet
+import com.yamibo.pocket300.ui.reader.ImageReaderScaleType
 import com.yamibo.pocket300.ui.resolvePostLink
-import coil.compose.AsyncImage
 import kotlinx.coroutines.launch
 
 internal data class ReaderContent(val thread: YamiboThreadDetails, val post: YamiboPost)
@@ -104,7 +100,9 @@ internal fun ReaderScreen(
 ) {
     val context = LocalContext.current
     val preferencesStore = remember(context) { ReaderPreferencesStore(context) }
+    val imagePreferencesStore = remember(context) { ImageReaderPreferencesStore(context) }
     var preferences by remember { mutableStateOf(preferencesStore.load()) }
+    var imagePreferences by remember { mutableStateOf(imagePreferencesStore.load()) }
     val reusableContent = initialContent?.takeUnless {
         needsReaderContentLoad(it.thread.id, it.post.id, threadId, postId)
     }
@@ -113,10 +111,10 @@ internal fun ReaderScreen(
     }
     var controlsVisible by remember { mutableStateOf(true) }
     var settingsVisible by remember { mutableStateOf(false) }
+    var imageSettingsVisible by remember { mutableStateOf(false) }
     var readerMode by remember(threadId, postId) { mutableStateOf(preferencesStore.loadMode()) }
-    var imageIndex by remember(threadId, postId) { mutableStateOf(0) }
+    var imageIndex by remember(threadId, postId) { mutableIntStateOf(0) }
     val scrollState = rememberScrollState()
-    var activeImageScrollState by remember { mutableStateOf<ScrollState?>(null) }
     val coroutineScope = rememberCoroutineScope()
     val uriHandler = LocalUriHandler.current
     val view = LocalView.current
@@ -125,17 +123,17 @@ internal fun ReaderScreen(
     LaunchedEffect(view, controlsVisible) {
         val controller = ViewCompat.getWindowInsetsController(view) ?: return@LaunchedEffect
         if (controlsVisible) {
-            controller.show(WindowInsetsCompat.Type.statusBars())
+            controller.show(WindowInsetsCompat.Type.systemBars())
         } else {
             controller.systemBarsBehavior =
                 WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-            controller.hide(WindowInsetsCompat.Type.statusBars())
+            controller.hide(WindowInsetsCompat.Type.systemBars())
         }
     }
     DisposableEffect(view) {
         onDispose {
             ViewCompat.getWindowInsetsController(view)
-                ?.show(WindowInsetsCompat.Type.statusBars())
+                ?.show(WindowInsetsCompat.Type.systemBars())
         }
     }
 
@@ -161,6 +159,10 @@ internal fun ReaderScreen(
         preferences = it
         preferencesStore.save(it)
     }
+    val updateImagePreferences: (ImageReaderPreferences) -> Unit = {
+        imagePreferences = it
+        imagePreferencesStore.save(it)
+    }
     ReaderTheme(preferences.tone) {
         val statusBarPadding = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
         val navigationBarPadding = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
@@ -177,6 +179,11 @@ internal fun ReaderScreen(
         if (settingsVisible) {
             ModalBottomSheet(onDismissRequest = { settingsVisible = false }) {
                 ReaderSettingsSheet(preferences, updatePreferences)
+            }
+        }
+        if (imageSettingsVisible) {
+            ModalBottomSheet(onDismissRequest = { imageSettingsVisible = false }) {
+                ImageReaderSettingsSheet(imagePreferences, updateImagePreferences)
             }
         }
         Scaffold(
@@ -197,7 +204,7 @@ internal fun ReaderScreen(
                         modifier = Modifier.pointerInput(Unit) {
                             detectTapGestures(onDoubleTap = {
                                 coroutineScope.launch {
-                                    (activeImageScrollState ?: scrollState).animateScrollTo(0)
+                                    scrollState.animateScrollTo(0)
                                 }
                             })
                         },
@@ -244,10 +251,16 @@ internal fun ReaderScreen(
                                     }
                                 }
                             }
-                            if (effectiveMode == ReaderMode.TEXT) {
-                                IconButton(onClick = { settingsVisible = true }) {
-                                    Icon(Icons.Rounded.Settings, stringResource(R.string.reader_settings))
-                                }
+                            IconButton(
+                                onClick = {
+                                    if (effectiveMode == ReaderMode.TEXT) {
+                                        settingsVisible = true
+                                    } else {
+                                        imageSettingsVisible = true
+                                    }
+                                },
+                            ) {
+                                Icon(Icons.Rounded.Settings, stringResource(R.string.reader_settings))
                             }
                         },
                         colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background),
@@ -267,25 +280,30 @@ internal fun ReaderScreen(
                     ),
                 ) {
                     Surface(color = MaterialTheme.colorScheme.surface, tonalElevation = 3.dp) {
-                        Column(
-                            Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 10.dp),
-                            verticalArrangement = Arrangement.spacedBy(6.dp),
-                        ) {
-                            val content = (state as? LoadState.Ready)?.value
-                            val attachmentUrls = content?.post?.attachments
-                                ?.filter { it.isImage }
-                                ?.map { it.url }
-                                .orEmpty()
-                            val imageCount = content?.let {
-                                postImageUrls(it.post.html, attachmentUrls).size
-                            } ?: 0
-                            if (readerMode == ReaderMode.IMAGES && imageCount > 0) {
-                                Text(
-                                    stringResource(R.string.reader_image_progress, imageIndex + 1, imageCount),
-                                    modifier = Modifier.align(Alignment.CenterHorizontally),
-                                    style = MaterialTheme.typography.labelMedium,
-                                )
-                            } else {
+                        val content = (state as? LoadState.Ready)?.value
+                        val attachmentUrls = content?.post?.attachments
+                            ?.filter { it.isImage }
+                            ?.map { it.url }
+                            .orEmpty()
+                        val imageCount = content?.let {
+                            postImageUrls(it.post.html, attachmentUrls).size
+                        } ?: 0
+                        if (readerMode == ReaderMode.IMAGES && imageCount > 0) {
+                            ImageReaderBottomBar(
+                                currentPage = imageIndex,
+                                pageCount = imageCount,
+                                preferences = imagePreferences,
+                                onCurrentPageChange = { imageIndex = it },
+                                onOpenSettings = { imageSettingsVisible = true },
+                                onScaleTypeChange = { scaleType: ImageReaderScaleType ->
+                                    updateImagePreferences(imagePreferences.copy(scaleType = scaleType))
+                                },
+                            )
+                        } else {
+                            Column(
+                                Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 10.dp),
+                                verticalArrangement = Arrangement.spacedBy(6.dp),
+                            ) {
                                 val progress = if (scrollState.maxValue == 0) 0f
                                 else scrollState.value.toFloat() / scrollState.maxValue
                                 LinearProgressIndicator(
@@ -317,81 +335,15 @@ internal fun ReaderScreen(
                     postImageUrls(content.post.html, attachmentUrls)
                 }
                 if (readerMode == ReaderMode.IMAGES && images.isNotEmpty()) {
-                    val currentImageIndex = imageIndex.coerceIn(images.indices)
-                    val pagerState = rememberPagerState(initialPage = currentImageIndex) { images.size }
-                    LaunchedEffect(pagerState) {
-                        snapshotFlow { pagerState.currentPage }.collect { page -> imageIndex = page }
-                    }
-                    LaunchedEffect(currentImageIndex) {
-                        if (pagerState.currentPage != currentImageIndex) {
-                            pagerState.animateScrollToPage(currentImageIndex)
-                        }
-                    }
-                    HorizontalPager(
-                        state = pagerState,
-                        modifier = Modifier
-                            .fillMaxSize(),
-                        key = { images[it] },
-                    ) { page ->
-                        val pageScrollState = rememberScrollState()
-                        LaunchedEffect(page, imageIndex, pageScrollState) {
-                            if (page == imageIndex) activeImageScrollState = pageScrollState
-                        }
-                        BoxWithConstraints(Modifier.fillMaxSize()) {
-                            val viewportHeight = constraints.maxHeight
-                            Box(
-                                Modifier
-                                    .fillMaxSize()
-                                    .verticalScroll(pageScrollState)
-                                    .pointerInput(images.size, page) {
-                                        detectTapGestures(onTap = { offset ->
-                                            val action = readerImageTapAction(offset.x, size.width.toFloat())
-                                            when (action) {
-                                                ReaderImageTapAction.TOGGLE_CONTROLS -> {
-                                                    controlsVisible = !controlsVisible
-                                                }
-                                                ReaderImageTapAction.NONE -> Unit
-                                                else -> imageIndex = readerImageIndexAfterTap(
-                                                    currentIndex = page,
-                                                    lastIndex = images.lastIndex,
-                                                    action = action,
-                                                )
-                                            }
-                                        })
-                                    },
-                            ) {
-                                Layout(
-                                    content = {
-                                        AsyncImage(
-                                            model = rememberPostImageRequest(images[page], content.post.threadId),
-                                            contentDescription = stringResource(
-                                                R.string.reader_image_description,
-                                                page + 1,
-                                                images.size,
-                                            ),
-                                            contentScale = ContentScale.FillWidth,
-                                            modifier = Modifier.fillMaxWidth(),
-                                        )
-                                    },
-                                    modifier = Modifier.fillMaxWidth(),
-                                ) { measurables, layoutConstraints ->
-                                    val image = measurables.single().measure(
-                                        layoutConstraints.copy(
-                                            minHeight = 0,
-                                            maxHeight = Constraints.Infinity,
-                                        ),
-                                    )
-                                    val contentHeight = maxOf(viewportHeight, image.height)
-                                    layout(layoutConstraints.maxWidth, contentHeight) {
-                                        image.placeRelative(
-                                            x = (layoutConstraints.maxWidth - image.width) / 2,
-                                            y = readerImageTopOffset(viewportHeight, image.height),
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                    }
+                    ImageReader(
+                        images = images,
+                        threadId = content.post.threadId,
+                        currentPage = imageIndex,
+                        preferences = imagePreferences,
+                        controlsVisible = controlsVisible,
+                        onCurrentPageChange = { imageIndex = it },
+                        onToggleControls = { controlsVisible = !controlsVisible },
+                    )
                 } else {
                     Column(
                         Modifier
@@ -445,30 +397,3 @@ internal fun needsReaderContentLoad(
     threadId: Int,
     postId: Int,
 ): Boolean = cachedThreadId != threadId || cachedPostId != postId
-
-private const val READER_IMAGE_EDGE_FRACTION = 0.25f
-
-internal enum class ReaderImageTapAction { PREVIOUS, TOGGLE_CONTROLS, NEXT, NONE }
-
-internal fun readerImageTapAction(x: Float, width: Float): ReaderImageTapAction {
-    if (width <= 0f || x < 0f || x > width) return ReaderImageTapAction.NONE
-    val edgeWidth = width * READER_IMAGE_EDGE_FRACTION
-    return when {
-        x <= edgeWidth -> ReaderImageTapAction.PREVIOUS
-        x >= width - edgeWidth -> ReaderImageTapAction.NEXT
-        else -> ReaderImageTapAction.TOGGLE_CONTROLS
-    }
-}
-
-internal fun readerImageTopOffset(viewportHeight: Int, imageHeight: Int): Int =
-    ((viewportHeight - imageHeight).coerceAtLeast(0)) / 2
-
-internal fun readerImageIndexAfterTap(
-    currentIndex: Int,
-    lastIndex: Int,
-    action: ReaderImageTapAction,
-): Int = when (action) {
-    ReaderImageTapAction.PREVIOUS -> (currentIndex - 1).coerceAtLeast(0)
-    ReaderImageTapAction.NEXT -> (currentIndex + 1).coerceAtMost(lastIndex)
-    else -> currentIndex
-}
