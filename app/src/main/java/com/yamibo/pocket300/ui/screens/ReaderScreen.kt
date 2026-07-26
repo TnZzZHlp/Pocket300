@@ -1,5 +1,6 @@
 package com.yamibo.pocket300.ui.screens
 
+import android.widget.Toast
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.tween
@@ -18,6 +19,7 @@ import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.rememberScrollState
@@ -25,8 +27,13 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.automirrored.rounded.MenuBook
+import androidx.compose.material.icons.rounded.Download
+import androidx.compose.material.icons.rounded.DownloadDone
 import androidx.compose.material.icons.rounded.Image
+import androidx.compose.material.icons.rounded.OfflinePin
 import androidx.compose.material.icons.rounded.Settings
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -37,11 +44,13 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -55,6 +64,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -66,6 +77,12 @@ import com.yamibo.pocket300.R
 import com.yamibo.pocket300.api.GetThreadPostsInput
 import com.yamibo.pocket300.api.YamiboPost
 import com.yamibo.pocket300.api.YamiboThreadDetails
+import com.yamibo.pocket300.data.download.DownloadedPost
+import com.yamibo.pocket300.data.download.PostDownloadKey
+import com.yamibo.pocket300.data.download.PostDownloadPhase
+import com.yamibo.pocket300.data.download.PostDownloadRepository
+import com.yamibo.pocket300.data.download.PostDownloadRequest
+import com.yamibo.pocket300.ui.EmptyState
 import com.yamibo.pocket300.ui.LoadContent
 import com.yamibo.pocket300.ui.LoadState
 import com.yamibo.pocket300.ui.PostHtml
@@ -82,10 +99,19 @@ import com.yamibo.pocket300.ui.reader.ImageReaderPreferences
 import com.yamibo.pocket300.ui.reader.ImageReaderPreferencesStore
 import com.yamibo.pocket300.ui.reader.ImageReaderSettingsSheet
 import com.yamibo.pocket300.ui.reader.ImageReaderScaleType
+import com.yamibo.pocket300.ui.resolvePostImageUrl
 import com.yamibo.pocket300.ui.resolvePostLink
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 
-internal data class ReaderContent(val thread: YamiboThreadDetails, val post: YamiboPost)
+internal enum class ReaderContentSource { NETWORK, DOWNLOAD }
+
+internal data class ReaderContent(
+    val thread: YamiboThreadDetails,
+    val post: YamiboPost,
+    val localImageUrls: Map<String, String> = emptyMap(),
+    val source: ReaderContentSource = ReaderContentSource.NETWORK,
+)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -94,11 +120,16 @@ internal fun ReaderScreen(
     postId: Int,
     initialPage: Int,
     initialContent: ReaderContent?,
+    offlineOnly: Boolean,
     onBack: () -> Unit,
     onForum: (Int) -> Unit,
     onThread: (PostLinkTarget.Thread) -> Unit,
 ) {
     val context = LocalContext.current
+    val downloadRepository = remember(context) { PostDownloadRepository.getInstance(context) }
+    val downloadStatuses by downloadRepository.statuses.collectAsState()
+    val downloadKey = remember(threadId, postId) { PostDownloadKey(threadId, postId) }
+    val downloadStatus = downloadStatuses[downloadKey]
     val preferencesStore = remember(context) { ReaderPreferencesStore(context) }
     val imagePreferencesStore = remember(context) { ImageReaderPreferencesStore(context) }
     var preferences by remember { mutableStateOf(preferencesStore.load()) }
@@ -106,12 +137,25 @@ internal fun ReaderScreen(
     val reusableContent = initialContent?.takeUnless {
         needsReaderContentLoad(it.thread.id, it.post.id, threadId, postId)
     }
-    var state: LoadState<ReaderContent> by remember(threadId, postId, reusableContent) {
-        mutableStateOf(reusableContent?.let { LoadState.Ready(it) } ?: LoadState.Loading)
+    var state: LoadState<ReaderContent> by remember(
+        threadId,
+        postId,
+        reusableContent,
+        offlineOnly,
+    ) {
+        mutableStateOf(
+            reusableContent
+                ?.takeUnless {
+                    offlineOnly || it.source == ReaderContentSource.DOWNLOAD
+                }
+                ?.let { LoadState.Ready(it) }
+                ?: LoadState.Loading,
+        )
     }
     var controlsVisible by remember { mutableStateOf(true) }
     var settingsVisible by remember { mutableStateOf(false) }
     var imageSettingsVisible by remember { mutableStateOf(false) }
+    var deleteDownloadVisible by remember { mutableStateOf(false) }
     var readerMode by remember(threadId, postId) { mutableStateOf(preferencesStore.loadMode()) }
     var imageIndex by remember(threadId, postId) { mutableIntStateOf(0) }
     val scrollState = rememberScrollState()
@@ -119,6 +163,11 @@ internal fun ReaderScreen(
     val uriHandler = LocalUriHandler.current
     val view = LocalView.current
     val postNotFoundMessage = stringResource(R.string.reader_post_not_found)
+    val offlineUnavailableMessage = stringResource(R.string.downloads_content_unavailable_message)
+    val offlineUnavailableTitle = stringResource(R.string.downloads_content_unavailable)
+    val downloadStartedMessage = stringResource(R.string.reader_download_started)
+    val downloadFailedMessage = stringResource(R.string.reader_download_failed)
+    val deleteFailedMessage = stringResource(R.string.downloads_delete_failed)
 
     LaunchedEffect(view, controlsVisible) {
         val controller = ViewCompat.getWindowInsetsController(view) ?: return@LaunchedEffect
@@ -137,21 +186,46 @@ internal fun ReaderScreen(
         }
     }
 
-    LaunchedEffect(threadId, postId, initialPage, reusableContent) {
-        if (reusableContent != null) return@LaunchedEffect
+    LaunchedEffect(threadId, postId, initialPage, reusableContent, offlineOnly) {
         state = load {
-            var page = api.posts.getThreadPosts(GetThreadPostsInput(threadId, initialPage.coerceAtLeast(1)))
-            var post = page.posts.firstOrNull { it.id == postId }
-            if (post == null) {
-                val resolvedPage = api.posts.findPostPage(threadId, postId)
-                    ?: error(postNotFoundMessage)
-                page = api.posts.getThreadPosts(GetThreadPostsInput(threadId, resolvedPage))
-                post = page.posts.firstOrNull { it.id == postId }
-            }
-            ReaderContent(
-                thread = page.thread,
-                post = post ?: error(postNotFoundMessage),
+            resolveReaderContent(
+                threadId = threadId,
+                postId = postId,
+                initialContent = reusableContent,
+                offlineOnly = offlineOnly,
+                offlineUnavailableMessage = offlineUnavailableMessage,
+                loadDownloaded = {
+                    downloadRepository.read(downloadKey)?.toReaderContent()
+                },
+                loadNetwork = {
+                    var page = api.posts.getThreadPosts(
+                        GetThreadPostsInput(threadId, initialPage.coerceAtLeast(1)),
+                    )
+                    var post = page.posts.firstOrNull { it.id == postId }
+                    if (post == null) {
+                        val resolvedPage = api.posts.findPostPage(threadId, postId)
+                            ?: error(postNotFoundMessage)
+                        page = api.posts.getThreadPosts(GetThreadPostsInput(threadId, resolvedPage))
+                        post = page.posts.firstOrNull { it.id == postId }
+                    }
+                    ReaderContent(
+                        thread = page.thread,
+                        post = post ?: error(postNotFoundMessage),
+                    )
+                },
             )
+        }
+    }
+    LaunchedEffect(downloadStatus?.completed, state is LoadState.Ready) {
+        val current = (state as? LoadState.Ready)?.value ?: return@LaunchedEffect
+        if (current.source == ReaderContentSource.NETWORK) {
+            val downloaded = downloadStatus?.completed?.toReaderContent()
+            val updated = if (downloaded == null) {
+                current.copy(localImageUrls = emptyMap())
+            } else {
+                current.withDownloadedImages(downloaded)
+            }
+            if (updated != current) state = LoadState.Ready(updated)
         }
     }
 
@@ -186,6 +260,51 @@ internal fun ReaderScreen(
                 ImageReaderSettingsSheet(imagePreferences, updateImagePreferences)
             }
         }
+        if (deleteDownloadVisible) {
+            AlertDialog(
+                onDismissRequest = { deleteDownloadVisible = false },
+                title = { Text(stringResource(R.string.reader_download_delete_title)) },
+                text = { Text(stringResource(R.string.reader_download_delete_message)) },
+                confirmButton = {
+                    TextButton(
+                        onClick = {
+                            deleteDownloadVisible = false
+                            coroutineScope.launch {
+                                try {
+                                    downloadRepository.delete(downloadKey)
+                                    val current = (state as? LoadState.Ready)?.value
+                                    if (
+                                        offlineOnly ||
+                                        current?.source == ReaderContentSource.DOWNLOAD
+                                    ) {
+                                        onBack()
+                                    } else if (current != null) {
+                                        state = LoadState.Ready(
+                                            current.copy(localImageUrls = emptyMap()),
+                                        )
+                                    }
+                                } catch (error: CancellationException) {
+                                    throw error
+                                } catch (_: Exception) {
+                                    Toast.makeText(
+                                        context,
+                                        deleteFailedMessage,
+                                        Toast.LENGTH_SHORT,
+                                    ).show()
+                                }
+                            }
+                        },
+                    ) {
+                        Text(stringResource(R.string.downloads_confirm_delete))
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { deleteDownloadVisible = false }) {
+                        Text(stringResource(R.string.downloads_cancel))
+                    }
+                },
+            )
+        }
         Scaffold(
             containerColor = MaterialTheme.colorScheme.background,
             topBar = {
@@ -210,11 +329,24 @@ internal fun ReaderScreen(
                         },
                         title = {
                             val content = (state as? LoadState.Ready)?.value
-                            Text(
-                                content?.thread?.subject ?: stringResource(R.string.reader_default_title),
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            ) {
+                                if (content?.source == ReaderContentSource.DOWNLOAD) {
+                                    Icon(
+                                        Icons.Rounded.OfflinePin,
+                                        contentDescription = stringResource(R.string.reader_offline),
+                                        modifier = Modifier.size(20.dp),
+                                    )
+                                }
+                                Text(
+                                    content?.thread?.subject
+                                        ?: stringResource(R.string.reader_default_title),
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
                         },
                         navigationIcon = {
                             IconButton(onClick = onBack) {
@@ -223,12 +355,100 @@ internal fun ReaderScreen(
                         },
                         actions = {
                             val content = (state as? LoadState.Ready)?.value
+                            val downloadProgressDescription = downloadStatus
+                                ?.takeIf {
+                                    it.phase == PostDownloadPhase.QUEUED ||
+                                        it.phase == PostDownloadPhase.DOWNLOADING
+                                }
+                                ?.let {
+                                    if (it.progress.totalImages > 0) {
+                                        stringResource(
+                                            R.string.reader_download_progress,
+                                            it.progress.completedImages,
+                                            it.progress.totalImages,
+                                        )
+                                    } else {
+                                        stringResource(R.string.reader_download_saving)
+                                    }
+                                }
+                            if (content != null) {
+                                when (downloadStatus?.phase) {
+                                    PostDownloadPhase.QUEUED,
+                                    PostDownloadPhase.DOWNLOADING,
+                                    -> IconButton(onClick = {}, enabled = false) {
+                                        CircularProgressIndicator(
+                                            modifier = Modifier
+                                                .size(22.dp)
+                                                .semantics {
+                                                    contentDescription =
+                                                        requireNotNull(downloadProgressDescription)
+                                                },
+                                            strokeWidth = 2.dp,
+                                        )
+                                    }
+
+                                    PostDownloadPhase.COMPLETED -> IconButton(
+                                        onClick = { deleteDownloadVisible = true },
+                                    ) {
+                                        Icon(
+                                            Icons.Rounded.DownloadDone,
+                                            stringResource(R.string.reader_remove_download),
+                                        )
+                                    }
+
+                                    PostDownloadPhase.FAILED,
+                                    null,
+                                    -> IconButton(
+                                        onClick = {
+                                            val attachmentUrls = content.post.attachments
+                                                .filter { it.isImage }
+                                                .map { it.url }
+                                            val remoteImages = postImageUrls(
+                                                content.post.html,
+                                                attachmentUrls,
+                                            )
+                                            coroutineScope.launch {
+                                                try {
+                                                    downloadRepository.enqueue(
+                                                        PostDownloadRequest.create(
+                                                            thread = content.thread,
+                                                            post = content.post,
+                                                            remoteImageUrls = remoteImages,
+                                                        ),
+                                                    )
+                                                    Toast.makeText(
+                                                        context,
+                                                        downloadStartedMessage,
+                                                        Toast.LENGTH_SHORT,
+                                                    ).show()
+                                                } catch (error: CancellationException) {
+                                                    throw error
+                                                } catch (_: Exception) {
+                                                    Toast.makeText(
+                                                        context,
+                                                        downloadFailedMessage,
+                                                        Toast.LENGTH_SHORT,
+                                                    ).show()
+                                                }
+                                            }
+                                        },
+                                    ) {
+                                        Icon(
+                                            Icons.Rounded.Download,
+                                            stringResource(R.string.reader_download_post),
+                                        )
+                                    }
+                                }
+                            }
                             val attachmentUrls = content?.post?.attachments
                                 ?.filter { it.isImage }
                                 ?.map { it.url }
                                 .orEmpty()
                             val images = content?.let {
-                                postImageUrls(it.post.html, attachmentUrls)
+                                resolveReaderImageUrls(
+                                    postImageUrls(it.post.html, attachmentUrls),
+                                    it.localImageUrls,
+                                )
                             }.orEmpty()
                             val effectiveMode = if (images.isNotEmpty()) readerMode else ReaderMode.TEXT
                             if (images.isNotEmpty()) {
@@ -286,7 +506,10 @@ internal fun ReaderScreen(
                             ?.map { it.url }
                             .orEmpty()
                         val imageCount = content?.let {
-                            postImageUrls(it.post.html, attachmentUrls).size
+                            resolveReaderImageUrls(
+                                postImageUrls(it.post.html, attachmentUrls),
+                                it.localImageUrls,
+                            ).size
                         } ?: 0
                         if (readerMode == ReaderMode.IMAGES && imageCount > 0) {
                             ImageReaderBottomBar(
@@ -322,7 +545,14 @@ internal fun ReaderScreen(
                 }
             },
         ) { scaffoldPadding ->
-            LoadContent(state, PaddingValues()) { content ->
+            if (offlineOnly && state is LoadState.Failed) {
+                EmptyState(
+                    title = offlineUnavailableTitle,
+                    message = (state as LoadState.Failed).message,
+                    modifier = Modifier.padding(scaffoldPadding),
+                )
+            } else {
+                LoadContent(state, PaddingValues()) { content ->
                 val openLink: (String) -> Unit = { url ->
                     when (val target = resolvePostLink(url)) {
                         is PostLinkTarget.Forum -> onForum(target.id)
@@ -331,8 +561,11 @@ internal fun ReaderScreen(
                     }
                 }
                 val attachmentUrls = content.post.attachments.filter { it.isImage }.map { it.url }
-                val images = remember(content.post.html, attachmentUrls) {
-                    postImageUrls(content.post.html, attachmentUrls)
+                val images = remember(content.post.html, attachmentUrls, content.localImageUrls) {
+                    resolveReaderImageUrls(
+                        postImageUrls(content.post.html, attachmentUrls),
+                        content.localImageUrls,
+                    )
                 }
                 if (readerMode == ReaderMode.IMAGES && images.isNotEmpty()) {
                     ImageReader(
@@ -383,9 +616,12 @@ internal fun ReaderScreen(
                                 fontSize = preferences.fontSizeSp.sp,
                                 lineHeight = (preferences.fontSizeSp * preferences.lineHeightMultiplier).sp,
                             ),
+                            localImageUrls = content.localImageUrls,
+                            allowRemoteImages = content.source != ReaderContentSource.DOWNLOAD,
                         )
                     }
                 }
+            }
             }
         }
     }
@@ -397,3 +633,55 @@ internal fun needsReaderContentLoad(
     threadId: Int,
     postId: Int,
 ): Boolean = cachedThreadId != threadId || cachedPostId != postId
+
+internal suspend fun resolveReaderContent(
+    threadId: Int,
+    postId: Int,
+    initialContent: ReaderContent?,
+    offlineOnly: Boolean,
+    offlineUnavailableMessage: String,
+    loadDownloaded: suspend () -> ReaderContent?,
+    loadNetwork: suspend () -> ReaderContent,
+): ReaderContent {
+    val downloaded = try {
+        loadDownloaded()
+    } catch (error: CancellationException) {
+        throw error
+    } catch (_: Exception) {
+        null
+    }
+    if (offlineOnly) {
+        return downloaded ?: throw IllegalStateException(offlineUnavailableMessage)
+    }
+
+    val reusable = initialContent?.takeUnless {
+        needsReaderContentLoad(it.thread.id, it.post.id, threadId, postId) ||
+            (it.source == ReaderContentSource.DOWNLOAD && downloaded == null)
+    }
+    if (reusable != null) return reusable.withDownloadedImages(downloaded)
+
+    return try {
+        loadNetwork().withDownloadedImages(downloaded)
+    } catch (error: CancellationException) {
+        throw error
+    } catch (error: Exception) {
+        downloaded ?: throw error
+    }
+}
+
+private fun ReaderContent.withDownloadedImages(downloaded: ReaderContent?): ReaderContent {
+    if (downloaded == null || downloaded.localImageUrls.isEmpty()) return this
+    return copy(localImageUrls = downloaded.localImageUrls)
+}
+
+internal fun resolveReaderImageUrls(
+    remoteImageUrls: List<String>,
+    localImageUrls: Map<String, String>,
+): List<String> = remoteImageUrls.map { resolvePostImageUrl(it, localImageUrls) }
+
+internal fun DownloadedPost.toReaderContent(): ReaderContent = ReaderContent(
+    thread = snapshot.thread,
+    post = snapshot.post,
+    localImageUrls = localImageUris,
+    source = ReaderContentSource.DOWNLOAD,
+)

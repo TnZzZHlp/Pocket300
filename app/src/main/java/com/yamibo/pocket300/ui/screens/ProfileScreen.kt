@@ -22,6 +22,7 @@ import androidx.compose.material.icons.automirrored.rounded.Logout
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
 import androidx.compose.material.icons.rounded.CalendarMonth
 import androidx.compose.material.icons.rounded.CheckCircle
+import androidx.compose.material.icons.rounded.DownloadForOffline
 import androidx.compose.material.icons.rounded.History
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material3.Button
@@ -82,6 +83,7 @@ import kotlinx.coroutines.CancellationException
 @Composable
 internal fun ProfileScreen(
     onAuthStateChanged: () -> Unit,
+    onDownloads: () -> Unit,
     onHistory: () -> Unit,
     onSettings: () -> Unit,
 ) {
@@ -96,15 +98,27 @@ internal fun ProfileScreen(
         onTopBarDoubleClick = { coroutineScope.launch { listState.animateScrollToItem(0) } },
     ) { padding ->
         when (val current = sessionState) {
-            LoadState.Loading -> Loading(Modifier.padding(padding))
-            is LoadState.Failed -> EmptyState(
-                "无法读取登录状态",
-                current.message,
-                Modifier.padding(padding)
-            )
+            LoadState.Loading -> ProfileLocalActionsPanel(
+                modifier = Modifier.padding(padding),
+                onDownloads = onDownloads,
+                onHistory = onHistory,
+            ) {
+                Loading()
+            }
+
+            is LoadState.Failed -> ProfileLocalActionsPanel(
+                modifier = Modifier.padding(padding),
+                onDownloads = onDownloads,
+                onHistory = onHistory,
+            ) {
+                EmptyState(
+                    stringResource(R.string.profile_auth_status_unavailable),
+                    current.message,
+                )
+            }
 
             is LoadState.Ready -> if (current.value == null) {
-                LoginPanel(Modifier.padding(padding), onHistory, listState) {
+                LoginPanel(Modifier.padding(padding), onDownloads, onHistory, listState) {
                     sessionState = LoadState.Ready(it)
                     onAuthStateChanged()
                 }
@@ -112,6 +126,7 @@ internal fun ProfileScreen(
                 ProfileSummary(
                     session = current.value,
                     modifier = Modifier.padding(padding),
+                    onDownloads = onDownloads,
                     onHistory = onHistory,
                     onLoggedOut = {
                         sessionState = LoadState.Ready(null)
@@ -126,8 +141,32 @@ internal fun ProfileScreen(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
+private fun ProfileLocalActionsPanel(
+    modifier: Modifier,
+    onDownloads: () -> Unit,
+    onHistory: () -> Unit,
+    content: @Composable () -> Unit,
+) {
+    Column(
+        modifier = modifier
+            .fillMaxSize()
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        ProfileDownloadsItem(onDownloads)
+        ProfileHistoryItem(onHistory)
+        Box(Modifier.fillMaxWidth().weight(1f)) {
+            content()
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
 private fun LoginPanel(
     modifier: Modifier,
+    onDownloads: () -> Unit,
     onHistory: () -> Unit,
     listState: LazyListState,
     onLoggedIn: (YamiboSession) -> Unit,
@@ -279,6 +318,7 @@ private fun LoginPanel(
                 }
             }
         }
+        item { ProfileDownloadsItem(onDownloads) }
         item { ProfileHistoryItem(onHistory) }
     }
     if (submitting) LaunchedEffect(account, password, selectedQuestion, answer) {
@@ -296,6 +336,7 @@ private fun LoginPanel(
 private fun ProfileSummary(
     session: YamiboSession,
     modifier: Modifier,
+    onDownloads: () -> Unit,
     onHistory: () -> Unit,
     onLoggedOut: () -> Unit,
     listState: LazyListState,
@@ -433,6 +474,7 @@ private fun ProfileSummary(
                 onRetry = { checkInReload++ },
             )
         }
+        item { ProfileDownloadsItem(onDownloads) }
         item { ProfileHistoryItem(onHistory) }
         item { Box(Modifier
             .fillMaxWidth()
@@ -594,6 +636,47 @@ private fun DailyCheckInCard(
                     )
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun ProfileDownloadsItem(onClick: () -> Unit) {
+    Card(
+        onClick = onClick,
+        modifier = Modifier
+            .fillMaxWidth()
+            .widthIn(max = 720.dp),
+        shape = RoundedCornerShape(20.dp),
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 18.dp, vertical = 16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(16.dp),
+        ) {
+            Icon(
+                Icons.Rounded.DownloadForOffline,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+            )
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(
+                    stringResource(R.string.profile_downloads),
+                    style = MaterialTheme.typography.titleMedium,
+                )
+                Text(
+                    stringResource(R.string.profile_downloads_description),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Icon(
+                Icons.AutoMirrored.Rounded.KeyboardArrowRight,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
     }
 }

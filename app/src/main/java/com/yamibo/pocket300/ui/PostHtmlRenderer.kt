@@ -25,6 +25,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.LinkAnnotation
 import androidx.compose.ui.text.Placeholder
 import androidx.compose.ui.text.PlaceholderVerticalAlign
@@ -36,6 +37,7 @@ import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
+import com.yamibo.pocket300.R
 import com.yamibo.pocket300.api.POCKET300_USER_AGENT
 import com.yamibo.pocket300.api.YAMIBO_ORIGIN
 import com.yamibo.pocket300.logging.AppLogger
@@ -59,28 +61,60 @@ internal fun PostHtml(
     attachmentUrls: List<String>,
     onLink: (String) -> Unit,
     textStyle: TextStyle = MaterialTheme.typography.bodyLarge,
+    localImageUrls: Map<String, String> = emptyMap(),
+    allowRemoteImages: Boolean = true,
 ) {
     val parts = remember(html, attachmentUrls) { postHtmlParts(html, attachmentUrls) }
     val renderParts = remember(parts) { groupPostHtmlParts(parts) }
+    val imageCount = remember(renderParts) {
+        renderParts.count { it is PostRenderPart.Image }
+    }
     SelectionContainer {
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            renderParts.forEachIndexed { index, part ->
+            var imageNumber = 0
+            renderParts.forEach { part ->
                 when (part) {
-                    is PostRenderPart.Inline -> PostInlineHtml(part.parts, threadId, onLink, textStyle)
+                    is PostRenderPart.Inline -> PostInlineHtml(
+                        parts = part.parts,
+                        threadId = threadId,
+                        onLink = onLink,
+                        style = textStyle,
+                        localImageUrls = localImageUrls,
+                        allowRemoteImages = allowRemoteImages,
+                    )
                     is PostRenderPart.Image -> {
-                        val url = normalizePostImageUrl(part.url)
+                        imageNumber++
+                        val url = resolvePostImageSource(
+                            part.url,
+                            localImageUrls,
+                            allowRemoteImages,
+                        )
                         var failed by remember(url) { mutableStateOf(false) }
-                        val request = rememberPostImageRequest(url, threadId)
-                        if (failed) {
-                            Text("图片加载失败", color = MaterialTheme.colorScheme.error)
-                        } else {
-                            AsyncImage(
-                                model = request,
-                                contentDescription = "帖子图片 ${index + 1}",
-                                contentScale = ContentScale.FillWidth,
-                                onError = { failed = true },
-                                modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+                        if (url == null) {
+                            Text(
+                                stringResource(R.string.reader_offline_image_unavailable),
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
+                        } else {
+                            val request = rememberPostImageRequest(url, threadId)
+                            if (failed) {
+                                Text(
+                                    stringResource(R.string.reader_image_load_error),
+                                    color = MaterialTheme.colorScheme.error,
+                                )
+                            } else {
+                                AsyncImage(
+                                    model = request,
+                                    contentDescription = stringResource(
+                                        R.string.reader_image_description,
+                                        imageNumber,
+                                        imageCount,
+                                    ),
+                                    contentScale = ContentScale.FillWidth,
+                                    onError = { failed = true },
+                                    modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+                                )
+                            }
                         }
                     }
                 }
@@ -131,6 +165,8 @@ private fun PostInlineHtml(
     threadId: Int,
     onLink: (String) -> Unit,
     style: TextStyle,
+    localImageUrls: Map<String, String>,
+    allowRemoteImages: Boolean,
 ) {
     val linkStyle = SpanStyle(
         color = MaterialTheme.colorScheme.primary,
@@ -159,6 +195,11 @@ private fun PostInlineHtml(
     val inlineContent = buildMap {
         parts.forEachIndexed { index, part ->
             if (part is PostHtmlPart.Image) {
+                val resolved = resolvePostImageSource(
+                    part.url,
+                    localImageUrls,
+                    allowRemoteImages,
+                ) ?: return@forEachIndexed
                 put(
                     "smiley-$index",
                     InlineTextContent(
@@ -169,7 +210,10 @@ private fun PostInlineHtml(
                         ),
                     ) {
                         AsyncImage(
-                            model = rememberPostImageRequest(normalizePostImageUrl(part.url), threadId),
+                            model = rememberPostImageRequest(
+                                resolved,
+                                threadId,
+                            ),
 
                             contentDescription = "表情",
                             contentScale = ContentScale.Fit,
@@ -192,10 +236,12 @@ internal fun rememberPostImageRequest(url: String, threadId: Int): ImageRequest 
             .data(url)
             .crossfade(false)
             .apply {
-                val cookie = CookieManager.getInstance().getCookie(url)
-                if (!cookie.isNullOrBlank()) addHeader("Cookie", cookie)
-                addHeader("Referer", "$YAMIBO_ORIGIN/forum.php?mod=viewthread&tid=$threadId")
-                addHeader("User-Agent", userAgent)
+                if (url.startsWith("http://") || url.startsWith("https://")) {
+                    val cookie = CookieManager.getInstance().getCookie(url)
+                    if (!cookie.isNullOrBlank()) addHeader("Cookie", cookie)
+                    addHeader("Referer", "$YAMIBO_ORIGIN/forum.php?mod=viewthread&tid=$threadId")
+                    addHeader("User-Agent", userAgent)
+                }
             }
             .build()
             .also {
@@ -280,6 +326,9 @@ private fun addPostText(parts: MutableList<PostHtmlPart>, spanned: Spanned, star
 internal fun normalizePostImageUrl(source: String): String {
     val value = source.trim().replace("&amp;", "&")
     return when {
+        value.startsWith("file:", ignoreCase = true) ||
+            value.startsWith("content:", ignoreCase = true) ||
+            value.startsWith("android.resource:", ignoreCase = true) -> value
         value.startsWith("//") -> "https:$value"
         value.startsWith("/") -> "$YAMIBO_ORIGIN$value"
         value.startsWith("http://bbs.yamibo.com/") -> value.replaceFirst("http://", "https://")
@@ -287,6 +336,27 @@ internal fun normalizePostImageUrl(source: String): String {
         else -> "$YAMIBO_ORIGIN/${value.trimStart('/')}"
     }
 }
+
+internal fun resolvePostImageUrl(
+    source: String,
+    localImageUrls: Map<String, String>,
+): String = requireNotNull(
+    resolvePostImageSource(source, localImageUrls, allowRemoteImages = true),
+)
+
+internal fun resolvePostImageSource(
+    source: String,
+    localImageUrls: Map<String, String>,
+    allowRemoteImages: Boolean,
+): String? {
+    val normalized = normalizePostImageUrl(source)
+    return localImageUrls[normalized]
+        ?: localImageUrls[source]
+        ?: normalized.takeIf { allowRemoteImages || !it.isRemotePostImageUrl() }
+}
+
+private fun String.isRemotePostImageUrl(): Boolean =
+    startsWith("http://", ignoreCase = true) || startsWith("https://", ignoreCase = true)
 
 @Suppress("DEPRECATION")
 internal fun plainText(html: String): String =
