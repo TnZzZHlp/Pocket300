@@ -15,6 +15,7 @@ class YamiboPostsApiTest {
         assertEquals(2, page.pagination.totalPosts)
         assertEquals(1, page.pagination.totalPages)
         assertFalse(page.pagination.hasNextPage)
+        assertTrue(page.canComment)
         val post = page.posts.single()
         assertTrue(post.isOriginalPost)
         assertEquals(
@@ -25,7 +26,6 @@ class YamiboPostsApiTest {
             "https://example.com/a.png",
             post.comments.single().author.avatarUrl,
         )
-        assertTrue(page.thread.hasRatings)
         assertEquals(4, post.ratingCount)
         assertEquals("<p>不可信正文</p>", post.html)
         assertEquals("https://bbs.yamibo.com/data/attachment/forum/202607/example.jpg", post.attachments.single().url)
@@ -37,12 +37,241 @@ class YamiboPostsApiTest {
     }
 
     @Test
+    fun defaultsMissingPostRatingCountToZero() {
+        val fixture = JSONObject(FIXTURE)
+        fixture.getJSONArray("postlist").getJSONObject(0).remove("ratetimes")
+
+        assertEquals(0, parseThreadPosts(fixture, 1).posts.single().ratingCount)
+    }
+
+    @Test
     fun addsAuthorIdWhenRequestingOnlyOriginalPoster() {
         assertEquals(
             mapOf("module" to "viewthread", "page" to "2", "tid" to "1000", "authorid" to "42"),
             threadPostsParameters(GetThreadPostsInput(threadId = 1000, page = 2, authorId = 42)),
         )
         assertFalse(threadPostsParameters(GetThreadPostsInput(1000)).containsKey("authorid"))
+    }
+
+    @Test
+    fun buildsReplyRequestWithDiscuzValidationFields() {
+        val input = ReplyToThreadInput(forumId = 300, threadId = 1000, message = "回复内容")
+
+        assertEquals(
+            mapOf(
+                "fid" to "300",
+                "module" to "sendreply",
+                "replysubmit" to "yes",
+                "tid" to "1000",
+            ),
+            replyToThreadParameters(input),
+        )
+        assertEquals(
+            mapOf("formhash" to "hash", "message" to "回复内容"),
+            replyToThreadForm("hash", input.message),
+        )
+    }
+
+    @Test
+    fun requiresDirectCommentPermission() {
+        val fixture = JSONObject(FIXTURE)
+        fixture.put("allowpostcomment", org.json.JSONArray(listOf("2")))
+
+        assertFalse(parseThreadPosts(fixture).canComment)
+    }
+
+    @Test
+    fun buildsPostCommentRequestWithDiscuzSubmissionFields() {
+        val input = CommentOnPostInput(
+            forumId = 300,
+            threadId = 1000,
+            postId = 42,
+            message = "点评内容",
+        )
+
+        assertEquals(
+            mapOf(
+                "comment" to "yes",
+                "commentsubmit" to "yes",
+                "fid" to "300",
+                "module" to "sendreply",
+                "pid" to "42",
+                "tid" to "1000",
+            ),
+            commentOnPostParameters(input),
+        )
+        assertEquals(
+            mapOf("formhash" to "hash", "message" to "点评内容"),
+            commentOnPostForm("hash", input.message),
+        )
+        assertEquals(200, POST_COMMENT_MAX_LENGTH)
+    }
+
+    @Test
+    fun buildsTargetPostCommentRefreshRequest() {
+        assertEquals(
+            mapOf(
+                "module" to "viewthread",
+                "tid" to "1000",
+                "viewpid" to "9",
+            ),
+            postCommentsParameters(threadId = 1000, postId = 9),
+        )
+    }
+
+    @Test
+    fun parsesCommentsForRequestedPost() {
+        val comments = parsePostCommentsForTarget(
+            JSONObject(FIXTURE),
+            expectedThreadId = 1000,
+            expectedPostId = 9,
+        )
+
+        assertEquals(listOf("点评"), comments.map { it.message })
+    }
+
+    @Test(expected = YamiboApiException::class)
+    fun rejectsCommentRefreshAssignedToDifferentPost() {
+        parsePostCommentsForTarget(
+            JSONObject(FIXTURE),
+            expectedThreadId = 1000,
+            expectedPostId = 10,
+        )
+    }
+
+    @Test
+    fun recognizesSuccessfulPostComment() {
+        parseCommentResult(
+            DiscuzResponse(
+                variables = JSONObject("""{"tid":"1000","pid":"42"}"""),
+                message = DiscuzMessage("帖子点评成功", "comment_add_succeed"),
+                error = null,
+                version = "4",
+                charset = "UTF-8",
+            ),
+            expectedThreadId = 1000,
+            expectedPostId = 42,
+        )
+    }
+
+    @Test
+    fun explainsPostCommentPermissionFailure() {
+        val error = runCatching {
+            parseCommentResult(
+                DiscuzResponse(
+                    variables = null,
+                    message = DiscuzMessage("抱歉，您不能点评此帖", "postcomment_error"),
+                    error = null,
+                    version = "4",
+                    charset = "UTF-8",
+                ),
+                expectedThreadId = 1000,
+                expectedPostId = 42,
+            )
+        }.exceptionOrNull()
+
+        assertTrue(error is YamiboApiException)
+        assertEquals(
+            "无法点评此楼层，可能没有权限、不能点评自己的内容，或楼层不存在",
+            error?.message,
+        )
+        assertEquals("postcomment_error", (error as YamiboApiException).serverCode)
+    }
+
+    @Test(expected = YamiboApiException::class)
+    fun rejectsPostCommentResponseWithoutResultCode() {
+        parseCommentResult(
+            DiscuzResponse(
+                variables = JSONObject(),
+                message = null,
+                error = null,
+                version = "4",
+                charset = "UTF-8",
+            ),
+            expectedThreadId = 1000,
+            expectedPostId = 42,
+        )
+    }
+
+    @Test(expected = YamiboApiException::class)
+    fun rejectsPostCommentResultAssignedToDifferentPost() {
+        parseCommentResult(
+            DiscuzResponse(
+                variables = JSONObject("""{"tid":"1000","pid":"43"}"""),
+                message = DiscuzMessage("帖子点评成功", "comment_add_succeed"),
+                error = null,
+                version = "4",
+                charset = "UTF-8",
+            ),
+            expectedThreadId = 1000,
+            expectedPostId = 42,
+        )
+    }
+
+    @Test
+    fun parsesSuccessfulReplyResult() {
+        val result = parseReplyResult(
+            DiscuzResponse(
+                variables = JSONObject("""{"tid":"1000","pid":"42"}"""),
+                message = DiscuzMessage("回复发布成功", "post_reply_succeed"),
+                error = null,
+                version = "4",
+                charset = "UTF-8",
+            ),
+            expectedThreadId = 1000,
+        )
+
+        assertEquals(1000, result.threadId)
+        assertEquals(42, result.postId)
+        assertFalse(result.pendingModeration)
+    }
+
+    @Test
+    fun recognizesReplyPendingModerationAsSuccessfulSubmission() {
+        val result = parseReplyResult(
+            DiscuzResponse(
+                variables = JSONObject("""{"tid":"1000","pid":"42"}"""),
+                message = DiscuzMessage("回复需要审核", "post_reply_mod_succeed"),
+                error = null,
+                version = "4",
+                charset = "UTF-8",
+            ),
+            expectedThreadId = 1000,
+        )
+
+        assertTrue(result.pendingModeration)
+    }
+
+    @Test
+    fun exposesClosedThreadReplyError() {
+        val response = DiscuzResponse(
+            variables = null,
+            message = DiscuzMessage("主题已关闭", "post_thread_closed"),
+            error = null,
+            version = "4",
+            charset = "UTF-8",
+        )
+
+        val error = runCatching { parseReplyResult(response, expectedThreadId = 1000) }
+            .exceptionOrNull()
+
+        assertTrue(error is YamiboApiException)
+        assertEquals("主题已关闭，无法回帖", error?.message)
+        assertEquals("post_thread_closed", (error as YamiboApiException).serverCode)
+    }
+
+    @Test(expected = YamiboApiException::class)
+    fun rejectsReplyAssignedToDifferentThread() {
+        parseReplyResult(
+            DiscuzResponse(
+                variables = JSONObject("""{"tid":"1001","pid":"42"}"""),
+                message = null,
+                error = null,
+                version = "4",
+                charset = "UTF-8",
+            ),
+            expectedThreadId = 1000,
+        )
     }
 
     @Test
@@ -236,22 +465,11 @@ class YamiboPostsApiTest {
         assertEquals("", ratings[1].reason)
     }
 
-    @Test
-    fun findsEveryRatedPostFromThreadPage() {
-        val html = """
-            <dl id="ratelog_41291769" class="rate"></dl>
-            <div id="post_rate_div_41291771"></div>
-            <DL class='rate' ID='ratelog_41291772'></DL>
-            <dl id="ratelog_invalid"></dl>
-        """.trimIndent()
-
-        assertEquals(setOf(41291769, 41291772), parseRatedPostIds(html))
-    }
-
     private companion object {
         val FIXTURE = """
           {
             "ppp":"20",
+            "allowpostcomment":["1"],
             "thread":{"tid":"1000","author":"alice","authorid":"42","dateline":"10","digest":"0","fid":"300","attachment":"0","heats":"1","rate":"1","closed":"0","lastposter":"bob","lastpost":"刚刚","maxposition":"2","price":"0","readperm":"0","recommend_add":"1","replies":"1","special":"1","subject":"投票","typeid":"0","views":"12"},
             "postlist":[{"author":"alice","authorid":"42","anonymous":"0","groupiconid":"","groupid":"10","pid":"9","dbdateline":"10","dateline":"刚刚","message":"<p>不可信正文</p>","attachment":"1","attachments":{"8":{"aid":"8","url":"data/attachment/forum/","attachment":"202607/example.jpg","filename":"example.jpg","isimage":"1"}},"first":"1","number":"1","position":"1","ratetimes":"4","replycredit":"0","status":"0","tid":"1000"}],
             "comments":{"9":[{"author":"bob","authorid":"43","avatar":"//example.com/a.png","dateline":"刚刚","id":"2","comment":"点评","pid":"9","tid":"1000"}]},

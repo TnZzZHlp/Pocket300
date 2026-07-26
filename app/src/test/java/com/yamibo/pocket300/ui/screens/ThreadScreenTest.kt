@@ -17,6 +17,13 @@ class ThreadScreenTest {
     }
 
     @Test
+    fun offersRatingsActionForRatedPost() {
+        assertFalse(shouldShowRatingsAction(ratingCount = 0))
+        assertTrue(shouldShowRatingsAction(ratingCount = 1))
+        assertTrue(shouldShowRatingsAction(ratingCount = 4))
+    }
+
+    @Test
     fun offersMarkUnreadForReadThread() {
         assertEquals(ThreadReadAction.MARK_UNREAD, threadReadAction(isRead = true))
     }
@@ -59,5 +66,11 @@ class ThreadScreenTest {
             setOf(7, 9),
             togglePollOption(setOf(7, 9), optionId = 11, multiple = true, maxChoices = 2),
         )
+    }
+
+    @Test
+    fun keepsNewReplyOnCurrentPageUntilPageBoundary() {
+        assertEquals(1, pageForNewReply(totalPosts = 19, pageSize = 20))
+        assertEquals(2, pageForNewReply(totalPosts = 20, pageSize = 20))
     }
 }

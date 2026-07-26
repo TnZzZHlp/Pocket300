@@ -6,6 +6,7 @@ import android.database.sqlite.SQLiteDatabase
 import android.database.sqlite.SQLiteOpenHelper
 import com.yamibo.pocket300.api.YamiboSearchThread
 import com.yamibo.pocket300.api.YamiboThreadSearchType
+import com.yamibo.pocket300.logging.AppLogger
 
 class CustomListDatabase private constructor(context: Context) :
     SQLiteOpenHelper(context, DATABASE_NAME, null, DATABASE_VERSION) {
@@ -16,6 +17,7 @@ class CustomListDatabase private constructor(context: Context) :
     }
 
     override fun onCreate(database: SQLiteDatabase) {
+        AppLogger.info(TAG) { "Creating custom list database schema version $DATABASE_VERSION" }
         database.execSQL(
             """
             CREATE TABLE custom_lists (
@@ -66,6 +68,7 @@ class CustomListDatabase private constructor(context: Context) :
     }
 
     override fun onUpgrade(database: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
+        AppLogger.info(TAG) { "Upgrading custom list database from version $oldVersion to $newVersion" }
         if (oldVersion < 2) {
             database.execSQL(
                 "ALTER TABLE custom_lists ADD COLUMN search_type TEXT NOT NULL DEFAULT 'title'",
@@ -88,7 +91,9 @@ class CustomListDatabase private constructor(context: Context) :
         val values = listValues(name, keywords, searchType, now, autoRefreshIntervalHours).apply {
             put("created_at", now)
         }
-        return writableDatabase.insertOrThrow("custom_lists", null, values)
+        return writableDatabase.insertOrThrow("custom_lists", null, values).also { id ->
+            AppLogger.info(TAG) { "Created custom list $id" }
+        }
     }
 
     fun updateList(
@@ -111,10 +116,12 @@ class CustomListDatabase private constructor(context: Context) :
             "id = ?",
             arrayOf(id.toString()),
         )
+        AppLogger.info(TAG) { "Updated custom list $id" }
     }
 
     fun deleteList(id: Long) {
         writableDatabase.delete("custom_lists", "id = ?", arrayOf(id.toString()))
+        AppLogger.info(TAG) { "Deleted custom list $id" }
     }
 
     fun getLists(): List<CustomThreadList> = readableDatabase.rawQuery(
@@ -217,6 +224,7 @@ class CustomListDatabase private constructor(context: Context) :
                 arrayOf(listId.toString()),
             )
         }
+        AppLogger.debug(TAG) { "Replaced threads for custom list $listId; inputCount=${threads.size}" }
     }
 
     fun mergeThreads(
@@ -247,6 +255,7 @@ class CustomListDatabase private constructor(context: Context) :
                 arrayOf(listId.toString()),
             )
         }
+        AppLogger.debug(TAG) { "Merged threads for custom list $listId; inputCount=${threads.size}" }
     }
 
     fun excludeThread(listId: Long, threadId: Int, now: Long = System.currentTimeMillis()) {
@@ -281,6 +290,10 @@ class CustomListDatabase private constructor(context: Context) :
                 )
             }
             addedExclusions
+        }.also { addedExclusions ->
+            AppLogger.info(TAG) {
+                "Excluded $addedExclusions threads from custom list $listId"
+            }
         }
     }
 
@@ -290,6 +303,7 @@ class CustomListDatabase private constructor(context: Context) :
             "list_id = ?",
             arrayOf(listId.toString()),
         )
+        AppLogger.info(TAG) { "Cleared exclusions for custom list $listId" }
     }
 
     private fun listValues(
@@ -348,6 +362,7 @@ class CustomListDatabase private constructor(context: Context) :
     }
 
     companion object {
+        private const val TAG = "CustomListDatabase"
         private const val DATABASE_NAME = "custom_lists.db"
         private const val DATABASE_VERSION = 3
         private val THREAD_COLUMNS = arrayOf(

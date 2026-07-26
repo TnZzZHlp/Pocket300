@@ -1,5 +1,6 @@
 package com.yamibo.pocket300.api
 
+import com.yamibo.pocket300.logging.AppLogger
 import org.json.JSONArray
 import org.json.JSONObject
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
@@ -14,6 +15,25 @@ data class GetThreadPostsInput(
 data class VoteInPollInput(
     val forumId: Int,
     val optionIds: List<Int>,
+    val threadId: Int,
+)
+
+data class ReplyToThreadInput(
+    val forumId: Int,
+    val threadId: Int,
+    val message: String,
+)
+
+data class CommentOnPostInput(
+    val forumId: Int,
+    val threadId: Int,
+    val postId: Int,
+    val message: String,
+)
+
+data class YamiboReplyResult(
+    val pendingModeration: Boolean,
+    val postId: Int,
     val threadId: Int,
 )
 
@@ -66,7 +86,6 @@ data class YamiboPost(
     val number: Int,
     val position: Int,
     val ratingCount: Int,
-    val ratings: List<YamiboPostRating>,
     val replyCredit: Int,
     val status: Int,
     val threadId: Int,
@@ -96,7 +115,6 @@ data class YamiboThreadDetails(
     val digestLevel: Int,
     val forumId: Int,
     val heat: Int,
-    val hasRatings: Boolean,
     val hasAttachment: Boolean,
     val id: Int,
     val isClosed: Boolean,
@@ -124,6 +142,7 @@ data class YamiboThreadPostsPagination(
 )
 
 data class YamiboThreadPostsPage(
+    val canComment: Boolean,
     val pagination: YamiboThreadPostsPagination,
     val poll: YamiboThreadPoll?,
     val posts: List<YamiboPost>,
@@ -149,34 +168,84 @@ class YamiboPostsApi(private val client: YamiboClient) {
                 serverCode,
             )
         }
-        val page = parseThreadPosts(
+        return parseThreadPosts(
             response.variables ?: invalidResponse("百合会未返回主题楼层数据"),
             input.page,
             input.authorId,
         )
-        val ratedPostIds = if (page.thread.hasRatings) {
-            val threadPage = client.requestPage(
-                path = "/forum.php",
-                parameters = mapOf(
-                    "mobile" to "2",
-                    "mod" to "viewthread",
-                    "page" to input.page.toString(),
-                    "tid" to input.threadId.toString(),
-                ) + input.authorId?.let { mapOf("authorid" to it.toString()) }.orEmpty(),
+    }
+
+    suspend fun replyToThread(input: ReplyToThreadInput): YamiboReplyResult {
+        require(input.forumId > 0) { "forumId must be a positive integer" }
+        require(input.threadId > 0) { "threadId must be a positive integer" }
+        val message = input.message.trim()
+        require(message.isNotEmpty()) { "message must not be blank" }
+
+        val session = YamiboAuthApi(client).getCurrentSession()
+            ?: throw YamiboApiException(
+                YamiboApiErrorCode.SERVER_ERROR,
+                "请先登录百合会",
+                "not_authenticated",
             )
-            parseRatedPostIds(threadPage.html)
-        } else {
-            emptySet()
+        if (session.formHash.isBlank()) invalidResponse("百合会未返回回帖所需的校验值")
+
+        val response = client.requestMobileApi(
+            parameters = replyToThreadParameters(input),
+            form = replyToThreadForm(session.formHash, message),
+        )
+        val result = parseReplyResult(response, input.threadId)
+        AppLogger.info(TAG) {
+            "Reply submitted for thread ${input.threadId}; pendingModeration=${result.pendingModeration}"
         }
-        val posts = page.posts.map { post ->
-            if (post.id in ratedPostIds) {
-                val ratings = getPostRatings(input.threadId, post.id)
-                post.copy(ratingCount = ratings.size, ratings = ratings)
-            } else {
-                post
-            }
+        return result
+    }
+
+    suspend fun commentOnPost(input: CommentOnPostInput) {
+        require(input.forumId > 0) { "forumId must be a positive integer" }
+        require(input.threadId > 0) { "threadId must be a positive integer" }
+        require(input.postId > 0) { "postId must be a positive integer" }
+        val message = input.message.trim()
+        require(message.isNotEmpty()) { "message must not be blank" }
+        require(message.length <= POST_COMMENT_MAX_LENGTH) {
+            "message must not exceed $POST_COMMENT_MAX_LENGTH characters"
         }
-        return page.copy(posts = posts)
+
+        val session = YamiboAuthApi(client).getCurrentSession()
+            ?: throw YamiboApiException(
+                YamiboApiErrorCode.SERVER_ERROR,
+                "请先登录百合会",
+                "not_authenticated",
+            )
+        if (session.formHash.isBlank()) invalidResponse("百合会未返回点评所需的校验值")
+
+        val response = client.requestMobileApi(
+            parameters = commentOnPostParameters(input),
+            form = commentOnPostForm(session.formHash, message),
+        )
+        parseCommentResult(response, input.threadId, input.postId)
+        AppLogger.info(TAG) { "Comment submitted for thread ${input.threadId}, post ${input.postId}" }
+    }
+
+    suspend fun getPostComments(threadId: Int, postId: Int): List<YamiboPostComment> {
+        require(threadId > 0) { "threadId must be a positive integer" }
+        require(postId > 0) { "postId must be a positive integer" }
+        val response = client.requestMobileApi(
+            postCommentsParameters(threadId, postId),
+        )
+        val serverCode = response.message?.code?.takeIf(String::isNotBlank) ?: response.error
+        if (serverCode != null) {
+            throw YamiboApiException(
+                YamiboApiErrorCode.SERVER_ERROR,
+                response.message?.message?.takeIf(String::isNotBlank)
+                    ?: "百合会未能刷新点评",
+                serverCode,
+            )
+        }
+        return parsePostCommentsForTarget(
+            response.variables ?: invalidResponse("百合会未返回目标楼层数据"),
+            threadId,
+            postId,
+        )
     }
 
     suspend fun voteInPoll(input: VoteInPollInput) {
@@ -233,6 +302,10 @@ class YamiboPostsApi(private val client: YamiboClient) {
         )
         return parsePostPageUrl(response.url, threadId)
     }
+
+    private companion object {
+        const val TAG = "Posts"
+    }
 }
 
 internal fun threadPostsParameters(input: GetThreadPostsInput): Map<String, String> = buildMap {
@@ -280,6 +353,138 @@ internal fun requireSuccessfulPollVote(response: YamiboPageResponse, expectedThr
     throw YamiboApiException(YamiboApiErrorCode.SERVER_ERROR, message)
 }
 
+internal fun replyToThreadParameters(input: ReplyToThreadInput): Map<String, String> = mapOf(
+    "fid" to input.forumId.toString(),
+    "module" to "sendreply",
+    "replysubmit" to "yes",
+    "tid" to input.threadId.toString(),
+)
+
+internal fun replyToThreadForm(formHash: String, message: String): Map<String, String> = mapOf(
+    "formhash" to formHash,
+    "message" to message,
+)
+
+internal const val POST_COMMENT_MAX_LENGTH = 200
+
+internal fun commentOnPostParameters(input: CommentOnPostInput): Map<String, String> = mapOf(
+    "comment" to "yes",
+    "commentsubmit" to "yes",
+    "fid" to input.forumId.toString(),
+    "module" to "sendreply",
+    "pid" to input.postId.toString(),
+    "tid" to input.threadId.toString(),
+)
+
+internal fun commentOnPostForm(formHash: String, message: String): Map<String, String> = mapOf(
+    "formhash" to formHash,
+    "message" to message,
+)
+
+internal fun postCommentsParameters(threadId: Int, postId: Int): Map<String, String> = mapOf(
+    "module" to "viewthread",
+    "tid" to threadId.toString(),
+    "viewpid" to postId.toString(),
+)
+
+internal fun parseCommentResult(
+    response: DiscuzResponse,
+    expectedThreadId: Int,
+    expectedPostId: Int,
+) {
+    val serverCode = response.message?.code?.takeIf(String::isNotBlank)
+        ?: response.error?.takeIf(String::isNotBlank)
+        ?: invalidResponse("百合会未返回点评结果")
+    if (serverCode == "comment_add_succeed") {
+        val variables = response.variables ?: invalidResponse("百合会未返回点评结果")
+        val threadId = variables.stringOrNull("tid")?.toIntOrNull()?.takeIf { it > 0 }
+            ?: invalidResponse("百合会返回了无效的点评主题 ID")
+        val postId = variables.stringOrNull("pid")?.toIntOrNull()?.takeIf { it > 0 }
+            ?: invalidResponse("百合会返回了无效的点评楼层 ID")
+        if (threadId != expectedThreadId || postId != expectedPostId) {
+            invalidResponse("百合会点评结果与目标楼层不一致")
+        }
+        return
+    }
+
+    val serverMessage = response.message?.message?.takeIf(String::isNotBlank)
+    val message = when {
+        serverCode == "post_sm_isnull" -> "请输入点评内容"
+        serverCode == "postcomment_closed" -> "网站已关闭点评功能"
+        serverCode == "postcomment_error" ->
+            "无法点评此楼层，可能没有权限、不能点评自己的内容，或楼层不存在"
+        serverCode == "thread_closed" ||
+            serverCode == "post_thread_closed" ||
+            serverCode.startsWith("post_autoclose") -> "主题已关闭，无法点评"
+        serverCode == "post_flood_ctrl" ||
+            serverCode == "post_flood_ctrl_posts_per_hour" -> "点评过于频繁，请稍后再试"
+        serverCode.startsWith("replyperm_login_nopermission") -> "请先登录百合会"
+        serverCode == "replyperm_none_nopermission" ||
+            serverCode == "post_forum_newreply_nopermission" ||
+            serverCode == "group_nopermission" -> "当前账号无权点评这个楼层"
+        "seccode" in serverCode || "secqaa" in serverCode ->
+            "网站要求进行额外安全验证，请稍后重试"
+        else -> serverMessage ?: "点评失败"
+    }
+    throw YamiboApiException(YamiboApiErrorCode.SERVER_ERROR, message, serverCode)
+}
+
+internal fun parsePostCommentsForTarget(
+    variables: JSONObject,
+    expectedThreadId: Int,
+    expectedPostId: Int,
+): List<YamiboPostComment> {
+    val page = parseThreadPosts(variables)
+    if (page.thread.id != expectedThreadId) {
+        invalidResponse("百合会返回的点评主题与目标不一致")
+    }
+    val post = page.posts.singleOrNull()
+        ?: invalidResponse("百合会未返回唯一的目标楼层")
+    if (post.id != expectedPostId) {
+        invalidResponse("百合会返回的点评楼层与目标不一致")
+    }
+    return post.comments
+}
+
+internal fun parseReplyResult(
+    response: DiscuzResponse,
+    expectedThreadId: Int,
+): YamiboReplyResult {
+    val serverCode = response.message?.code?.takeIf(String::isNotBlank)
+        ?: response.error?.takeIf(String::isNotBlank)
+    val successCodes = setOf("post_reply_succeed", "post_reply_mod_succeed")
+    if (serverCode != null && serverCode !in successCodes) {
+        val serverMessage = response.message?.message?.takeIf(String::isNotBlank)
+        val message = when {
+            serverCode == "post_sm_isnull" -> "请输入回帖内容"
+            serverCode == "post_thread_closed" ||
+                serverCode.startsWith("post_autoclose") -> "主题已关闭，无法回帖"
+            serverCode == "post_flood_ctrl" ||
+                serverCode == "post_flood_ctrl_posts_per_hour" -> "回帖过于频繁，请稍后再试"
+            serverCode.startsWith("replyperm_login_nopermission") -> "请先登录百合会"
+            serverCode == "replyperm_none_nopermission" ||
+                serverCode == "post_forum_newreply_nopermission" ||
+                serverCode == "group_nopermission" -> "当前账号无权在这个主题回帖"
+            "seccode" in serverCode || "secqaa" in serverCode ->
+                "网站要求进行额外安全验证，请稍后重试"
+            else -> serverMessage ?: "回帖失败"
+        }
+        throw YamiboApiException(YamiboApiErrorCode.SERVER_ERROR, message, serverCode)
+    }
+
+    val variables = response.variables ?: invalidResponse("百合会未返回回帖结果")
+    val threadId = variables.stringOrNull("tid")?.toIntOrNull()?.takeIf { it > 0 }
+        ?: invalidResponse("百合会返回了无效的回帖主题 ID")
+    val postId = variables.stringOrNull("pid")?.toIntOrNull()?.takeIf { it > 0 }
+        ?: invalidResponse("百合会返回了无效的回帖楼层 ID")
+    if (threadId != expectedThreadId) invalidResponse("百合会回帖结果与主题 ID 不一致")
+    return YamiboReplyResult(
+        pendingModeration = serverCode == "post_reply_mod_succeed",
+        postId = postId,
+        threadId = threadId,
+    )
+}
+
 internal fun parsePostPageUrl(url: String, expectedThreadId: Int): Int? {
     val parsed = url.toHttpUrlOrNull() ?: return null
     val queryThreadId = parsed.queryParameter("tid")?.toIntOrNull()
@@ -310,6 +515,7 @@ fun parseThreadPosts(
     val totalPosts = thread.replyCount + 1
     val totalPages = ceil(totalPosts.toDouble() / pageSize).toInt()
     return YamiboThreadPostsPage(
+        canComment = parsePostCommentPermission(variables.opt("allowpostcomment")),
         pagination = YamiboThreadPostsPagination(
             if (authorId == null) requestedPage < totalPages else posts.size >= pageSize,
             requestedPage,
@@ -323,6 +529,15 @@ fun parseThreadPosts(
     )
 }
 
+private fun parsePostCommentPermission(raw: Any?): Boolean {
+    if (raw == null || raw == JSONObject.NULL) return false
+    val values = raw as? JSONArray
+        ?: invalidResponse("百合会返回了无效的点评权限数据")
+    return (0 until values.length()).any { index ->
+        postScalarInt(values.opt(index), "allowpostcomment") == 1
+    }
+}
+
 private fun parsePostThread(raw: Any?): YamiboThreadDetails {
     val value = raw as? JSONObject ?: invalidResponse("百合会未返回有效的主题详情")
     val id = value.postPositive("tid")
@@ -333,7 +548,6 @@ private fun parsePostThread(raw: Any?): YamiboThreadDetails {
         digestLevel = value.postNonNegative("digest"),
         forumId = value.postPositive("fid"),
         heat = value.postNonNegative("heats"),
-        hasRatings = value.postNonNegative("rate") > 0,
         hasAttachment = value.postFlag("attachment"),
         id = id,
         isClosed = value.postFlag("closed"),
@@ -369,7 +583,6 @@ private fun parsePost(value: JSONObject, comments: Map<Int, List<YamiboPostComme
         number = postDisplayNumber(value.opt("number"), position),
         position = position,
         ratingCount = value.postNonNegative("ratetimes"),
-        ratings = emptyList(),
         replyCredit = value.postNonNegative("replycredit"),
         status = value.postNonNegative("status"),
         threadId = value.postPositive("tid"),
@@ -407,12 +620,6 @@ internal fun parsePostRatings(html: String): List<YamiboPostRating> =
             )
         }
         .toList()
-
-internal fun parseRatedPostIds(html: String): Set<Int> =
-    Regex("""\bid=["']ratelog_(\d+)["']""", RegexOption.IGNORE_CASE)
-        .findAll(html)
-        .mapNotNull { it.groupValues[1].toIntOrNull()?.takeIf { id -> id > 0 } }
-        .toSet()
 
 private fun ratingHtmlText(value: String): String =
     Regex("""&(?:#(\d+)|#x([\da-f]+)|([a-z]+));""", RegexOption.IGNORE_CASE)

@@ -9,8 +9,17 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.clickable
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
+import androidx.compose.material.icons.rounded.BugReport
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -35,6 +44,7 @@ import com.yamibo.pocket300.ui.ScreenScaffold
 internal fun SettingsScreen(
     colorTheme: AppColorTheme,
     onColorThemeChange: (AppColorTheme) -> Unit,
+    onLogs: () -> Unit,
     onBack: () -> Unit,
 ) {
     val context = LocalContext.current
@@ -50,7 +60,10 @@ internal fun SettingsScreen(
             contentAlignment = Alignment.TopCenter,
         ) {
             Column(
-                Modifier.fillMaxWidth().widthIn(max = 720.dp),
+                Modifier
+                    .fillMaxWidth()
+                    .widthIn(max = 720.dp)
+                    .verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(24.dp),
             ) {
                 Column(
@@ -84,6 +97,23 @@ internal fun SettingsScreen(
                         preferencesStore.save(updated)
                     }
                 }
+                HorizontalDivider()
+                ListItem(
+                    headlineContent = { Text(stringResource(R.string.logs_title)) },
+                    supportingContent = {
+                        Text(stringResource(R.string.settings_logs_description))
+                    },
+                    leadingContent = {
+                        Icon(Icons.Rounded.BugReport, contentDescription = null)
+                    },
+                    trailingContent = {
+                        Icon(
+                            Icons.AutoMirrored.Rounded.KeyboardArrowRight,
+                            contentDescription = null,
+                        )
+                    },
+                    modifier = Modifier.clickable(onClick = onLogs),
+                )
             }
         }
     }

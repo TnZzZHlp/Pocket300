@@ -36,7 +36,9 @@ import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
+import com.yamibo.pocket300.api.POCKET300_USER_AGENT
 import com.yamibo.pocket300.api.YAMIBO_ORIGIN
+import com.yamibo.pocket300.logging.AppLogger
 
 private sealed interface PostHtmlPart {
     data class Text(val value: String, val url: String? = null) : PostHtmlPart
@@ -184,7 +186,8 @@ private fun PostInlineHtml(
 @Composable
 internal fun rememberPostImageRequest(url: String, threadId: Int): ImageRequest {
     val context = LocalContext.current
-    return remember(url, threadId) {
+    val userAgent = POCKET300_USER_AGENT
+    return remember(url, threadId, userAgent) {
         ImageRequest.Builder(context)
             .data(url)
             .crossfade(false)
@@ -192,9 +195,14 @@ internal fun rememberPostImageRequest(url: String, threadId: Int): ImageRequest 
                 val cookie = CookieManager.getInstance().getCookie(url)
                 if (!cookie.isNullOrBlank()) addHeader("Cookie", cookie)
                 addHeader("Referer", "$YAMIBO_ORIGIN/forum.php?mod=viewthread&tid=$threadId")
-                addHeader("User-Agent", "Mozilla/5.0 (Linux; Android) Pocket300/1.0")
+                addHeader("User-Agent", userAgent)
             }
             .build()
+            .also {
+                AppLogger.verbose("PostImage") {
+                    "Prepared image request with User-Agent: $userAgent"
+                }
+            }
     }
 }
 

@@ -1,6 +1,7 @@
 package com.yamibo.pocket300.data
 
 import com.yamibo.pocket300.api.YamiboThreadSearchType
+import com.yamibo.pocket300.logging.AppLogger
 
 const val DEFAULT_CUSTOM_LIST_AUTO_REFRESH_INTERVAL_HOURS = 24
 
@@ -33,7 +34,12 @@ data class CustomListThread(
 
 internal fun parseCustomListSearchType(value: String): YamiboThreadSearchType =
     runCatching { YamiboThreadSearchType.valueOf(value.uppercase()) }
-        .getOrDefault(YamiboThreadSearchType.TITLE)
+        .getOrElse { error ->
+            AppLogger.warn("CustomListDatabase", error) {
+                "Invalid saved custom list search type; using title search"
+            }
+            YamiboThreadSearchType.TITLE
+        }
 
 internal fun normalizeCustomListKeywords(value: String): List<String> = value
     .lineSequence()

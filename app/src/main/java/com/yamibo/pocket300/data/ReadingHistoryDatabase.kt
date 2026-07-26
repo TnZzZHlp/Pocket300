@@ -5,6 +5,7 @@ import android.content.Context
 import android.database.sqlite.SQLiteDatabase
 import android.database.sqlite.SQLiteOpenHelper
 import com.yamibo.pocket300.api.YamiboThreadDetails
+import com.yamibo.pocket300.logging.AppLogger
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -30,6 +31,7 @@ class ReadingHistoryDatabase private constructor(context: Context) :
     }
 
     override fun onCreate(database: SQLiteDatabase) {
+        AppLogger.info(TAG) { "Creating reading history database schema version $DATABASE_VERSION" }
         database.execSQL(
             """
             CREATE TABLE reading_history (
@@ -47,6 +49,7 @@ class ReadingHistoryDatabase private constructor(context: Context) :
     }
 
     override fun onUpgrade(database: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
+        AppLogger.info(TAG) { "Upgrading reading history database from version $oldVersion to $newVersion" }
         if (oldVersion < 2) {
             database.execSQL(
                 "ALTER TABLE reading_history ADD COLUMN last_read_floor INTEGER NOT NULL DEFAULT 1",
@@ -71,6 +74,9 @@ class ReadingHistoryDatabase private constructor(context: Context) :
             trimToMaxEntries()
         }
         refreshEntries()
+        AppLogger.verbose(TAG) {
+            "Recorded reading position for thread ${thread.id}; floor=${lastReadFloor.coerceAtLeast(1)}"
+        }
     }
 
     fun markRead(
@@ -98,6 +104,7 @@ class ReadingHistoryDatabase private constructor(context: Context) :
             trimToMaxEntries()
         }
         refreshEntries()
+        AppLogger.info(TAG) { "Marked ${threads.distinctBy(CustomListThread::threadId).size} threads as read" }
     }
 
     fun remove(threadId: Int) {
@@ -107,6 +114,7 @@ class ReadingHistoryDatabase private constructor(context: Context) :
             arrayOf(threadId.toString()),
         )
         refreshEntries()
+        AppLogger.info(TAG) { "Removed thread $threadId from reading history" }
     }
 
     fun getAll(): List<ReadingHistoryEntry> = readableDatabase.query(
@@ -160,6 +168,7 @@ class ReadingHistoryDatabase private constructor(context: Context) :
     }
 
     companion object {
+        private const val TAG = "ReadingHistoryDatabase"
         private const val DATABASE_NAME = "pocket300.db"
         private const val DATABASE_VERSION = 2
         private const val MAX_ENTRIES = 500

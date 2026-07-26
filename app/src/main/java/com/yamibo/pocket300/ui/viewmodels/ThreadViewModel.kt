@@ -7,6 +7,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.yamibo.pocket300.api.GetThreadPostsInput
 import com.yamibo.pocket300.api.YamiboPost
+import com.yamibo.pocket300.api.YamiboPostComment
 import com.yamibo.pocket300.api.YamiboThreadPostsPage
 import com.yamibo.pocket300.ui.LoadState
 import com.yamibo.pocket300.ui.api
@@ -58,13 +59,19 @@ internal class ThreadViewModel : ViewModel() {
         loadJob = viewModelScope.launch {
             try {
                 state = when (val result = load { api.posts.getThreadPosts(input) }) {
-                    is LoadState.Ready -> LoadState.Ready(
-                        ThreadContent(
-                            page = result.value,
-                            posts = if (input.page == 1) result.value.posts
-                            else (previous?.posts.orEmpty() + result.value.posts).distinctBy { it.id },
-                        ),
-                    )
+                    is LoadState.Ready -> {
+                        val latest = (state as? LoadState.Ready)?.value
+                        LoadState.Ready(
+                            ThreadContent(
+                                page = result.value,
+                                posts = mergeThreadPosts(
+                                    existing = latest?.posts ?: previous?.posts.orEmpty(),
+                                    loaded = result.value.posts,
+                                    page = input.page,
+                                ),
+                            ),
+                        )
+                    }
                     is LoadState.Failed -> result
                     LoadState.Loading -> LoadState.Loading
                 }
@@ -80,8 +87,38 @@ internal class ThreadViewModel : ViewModel() {
         invalidate()
     }
 
+    fun updatePostComments(postId: Int, comments: List<YamiboPostComment>): Boolean {
+        val content = (state as? LoadState.Ready)?.value ?: return false
+        val updatedPosts = replacePostComments(content.posts, postId, comments)
+        if (updatedPosts === content.posts) return false
+        state = LoadState.Ready(content.copy(posts = updatedPosts))
+        return true
+    }
+
     fun invalidate() {
         loadJob?.cancel()
         requestTracker.invalidate()
+    }
+}
+
+internal fun mergeThreadPosts(
+    existing: List<YamiboPost>,
+    loaded: List<YamiboPost>,
+    page: Int,
+): List<YamiboPost> {
+    require(page > 0) { "page must be a positive integer" }
+    return if (page == 1) loaded else (existing + loaded).distinctBy { it.id }
+}
+
+internal fun replacePostComments(
+    posts: List<YamiboPost>,
+    postId: Int,
+    comments: List<YamiboPostComment>,
+): List<YamiboPost> {
+    require(postId > 0) { "postId must be a positive integer" }
+    val targetIndex = posts.indexOfFirst { it.id == postId }
+    if (targetIndex < 0) return posts
+    return posts.toMutableList().apply {
+        this[targetIndex] = posts[targetIndex].copy(comments = comments)
     }
 }
