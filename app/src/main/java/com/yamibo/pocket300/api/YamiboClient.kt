@@ -47,9 +47,11 @@ data class YamiboPageResponse(val html: String, val url: String)
 class YamiboClient(
     cookieJar: CookieJar = AndroidCookieJar(),
     timeoutMillis: Long = 15_000,
+    userAgent: String = POCKET300_USER_AGENT,
 ) {
     private val http = OkHttpClient.Builder()
         .cookieJar(cookieJar)
+        .addInterceptor(Pocket300UserAgentInterceptor(userAgent))
         .connectTimeout(timeoutMillis, TimeUnit.MILLISECONDS)
         .readTimeout(timeoutMillis, TimeUnit.MILLISECONDS)
         .writeTimeout(timeoutMillis, TimeUnit.MILLISECONDS)
