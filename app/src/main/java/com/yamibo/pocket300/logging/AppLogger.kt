@@ -1,6 +1,9 @@
 package com.yamibo.pocket300.logging
 
 import android.util.Log
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 
 internal enum class LogLevel {
     VERBOSE,
@@ -9,6 +12,15 @@ internal enum class LogLevel {
     WARN,
     ERROR,
 }
+
+internal data class AppLogEntry(
+    val id: Long,
+    val timestampMillis: Long,
+    val level: LogLevel,
+    val component: String,
+    val message: String,
+    val stackTrace: String?,
+)
 
 internal fun interface LogSink {
     fun write(
@@ -54,6 +66,64 @@ internal class Logger(
     }
 }
 
+internal class InMemoryLogSink(
+    private val capacity: Int,
+    private val clock: () -> Long = System::currentTimeMillis,
+) : LogSink {
+    private val lock = Any()
+    private var nextId = 0L
+    private val mutableEntries = MutableStateFlow<List<AppLogEntry>>(emptyList())
+
+    init {
+        require(capacity > 0) { "Log capacity must be greater than zero" }
+    }
+
+    val entries: StateFlow<List<AppLogEntry>> = mutableEntries.asStateFlow()
+
+    override fun write(
+        level: LogLevel,
+        component: String,
+        message: String,
+        throwable: Throwable?,
+    ) {
+        synchronized(lock) {
+            val entry = AppLogEntry(
+                id = nextId++,
+                timestampMillis = clock(),
+                level = level,
+                component = component,
+                message = message,
+                stackTrace = throwable?.stackTraceToString(),
+            )
+            val current = mutableEntries.value
+            mutableEntries.value = if (current.size < capacity) {
+                current + entry
+            } else {
+                current.drop(1) + entry
+            }
+        }
+    }
+
+    fun clear() {
+        synchronized(lock) {
+            mutableEntries.value = emptyList()
+        }
+    }
+}
+
+private class CompositeLogSink(
+    private vararg val sinks: LogSink,
+) : LogSink {
+    override fun write(
+        level: LogLevel,
+        component: String,
+        message: String,
+        throwable: Throwable?,
+    ) {
+        sinks.forEach { it.write(level, component, message, throwable) }
+    }
+}
+
 /**
  * Process-wide logging entry point.
  *
@@ -61,14 +131,23 @@ internal class Logger(
  * stubs. [initialize] installs the Logcat sink during Application startup.
  */
 internal object AppLogger {
+    private val inMemorySink = InMemoryLogSink(APP_LOG_CAPACITY)
+
     @Volatile
     private var logger = Logger(LogLevel.ERROR, LogSink { _, _, _, _ -> })
+
+    val entries: StateFlow<List<AppLogEntry>>
+        get() = inMemorySink.entries
 
     fun initialize(isDebugBuild: Boolean) {
         logger = Logger(
             minimumLevel = if (isDebugBuild) LogLevel.VERBOSE else LogLevel.INFO,
-            sink = AndroidLogSink,
+            sink = CompositeLogSink(inMemorySink, AndroidLogSink),
         )
+    }
+
+    fun clear() {
+        inMemorySink.clear()
     }
 
     fun verbose(tag: String, throwable: Throwable? = null, message: () -> String) {
@@ -115,3 +194,4 @@ private object AndroidLogSink : LogSink {
  * restrictive defaults enable logs via `adb shell setprop log.tag.Pocket300 V`.
  */
 internal const val LOGCAT_TAG = "Pocket300"
+internal const val APP_LOG_CAPACITY = 500

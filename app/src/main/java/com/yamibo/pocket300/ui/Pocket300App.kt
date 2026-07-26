@@ -50,6 +50,7 @@ import com.yamibo.pocket300.ui.screens.FavoritesScreen
 import com.yamibo.pocket300.ui.screens.ForumIndexScreen
 import com.yamibo.pocket300.ui.screens.ForumScreen
 import com.yamibo.pocket300.ui.screens.ListScreen
+import com.yamibo.pocket300.ui.screens.LogScreen
 import com.yamibo.pocket300.ui.screens.ProfileScreen
 import com.yamibo.pocket300.ui.screens.ReaderContent
 import com.yamibo.pocket300.ui.screens.ReaderScreen
@@ -235,8 +236,12 @@ fun Pocket300App() {
                         colorTheme = updated
                         themePreferencesStore.save(updated)
                     },
+                    onLogs = { navController.navigate("logs") },
                     onBack = navController::navigateUp,
                 )
+            }
+            composable("logs") {
+                LogScreen(onBack = navController::navigateUp)
             }
             composable(
                 route = "search?forumId={forumId}",

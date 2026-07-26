@@ -56,6 +56,59 @@ class AppLoggerTest {
         assertSame(failure, entries.single().throwable)
     }
 
+    @Test
+    fun inMemorySinkRetainsOnlyNewestEntries() {
+        var timestamp = 100L
+        val sink = InMemoryLogSink(capacity = 2) { timestamp++ }
+
+        sink.write(LogLevel.INFO, "First", "one", null)
+        sink.write(LogLevel.WARN, "Second", "two", null)
+        sink.write(LogLevel.ERROR, "Third", "three", null)
+
+        assertEquals(
+            listOf(
+                AppLogEntry(1, 101, LogLevel.WARN, "Second", "two", null),
+                AppLogEntry(2, 102, LogLevel.ERROR, "Third", "three", null),
+            ),
+            sink.entries.value,
+        )
+    }
+
+    @Test
+    fun inMemorySinkIncludesThrowableStackTraceAndCanBeCleared() {
+        val sink = InMemoryLogSink(capacity = 2) { 123L }
+        val failure = IllegalStateException("broken")
+
+        sink.write(LogLevel.ERROR, "Database", "write failed", failure)
+
+        val entry = sink.entries.value.single()
+        assertTrue(entry.stackTrace.orEmpty().contains("IllegalStateException: broken"))
+
+        sink.clear()
+
+        assertEquals(emptyList<AppLogEntry>(), sink.entries.value)
+    }
+
+    @Test
+    fun inMemorySinkIsSafeForConcurrentWriters() {
+        val sink = InMemoryLogSink(capacity = 50) { 123L }
+        val writers = List(4) { writer ->
+            Thread {
+                repeat(100) { message ->
+                    sink.write(LogLevel.INFO, "Writer$writer", "$message", null)
+                }
+            }
+        }
+
+        writers.forEach(Thread::start)
+        writers.forEach(Thread::join)
+
+        val entries = sink.entries.value
+        assertEquals(50, entries.size)
+        assertEquals(50, entries.map(AppLogEntry::id).distinct().size)
+        assertEquals(entries.map(AppLogEntry::id).sorted(), entries.map(AppLogEntry::id))
+    }
+
     private fun testLogger(minimumLevel: LogLevel, entries: MutableList<LogEntry>) = Logger(
         minimumLevel,
         LogSink { level, tag, message, throwable ->
