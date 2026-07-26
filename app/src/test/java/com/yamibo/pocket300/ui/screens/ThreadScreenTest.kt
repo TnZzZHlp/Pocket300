@@ -17,6 +17,13 @@ class ThreadScreenTest {
     }
 
     @Test
+    fun offersRatingsActionForRatedPost() {
+        assertFalse(shouldShowRatingsAction(ratingCount = 0))
+        assertTrue(shouldShowRatingsAction(ratingCount = 1))
+        assertTrue(shouldShowRatingsAction(ratingCount = 4))
+    }
+
+    @Test
     fun offersMarkUnreadForReadThread() {
         assertEquals(ThreadReadAction.MARK_UNREAD, threadReadAction(isRead = true))
     }

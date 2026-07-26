@@ -89,7 +89,6 @@ class ThreadViewModelTest {
         number = id - 8,
         position = id - 8,
         ratingCount = 0,
-        ratings = emptyList(),
         replyCredit = 0,
         status = 0,
         threadId = 1000,

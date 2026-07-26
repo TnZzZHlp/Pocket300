@@ -568,6 +568,9 @@ internal fun ThreadScreen(
 internal fun shouldShowThreadTitle(firstVisibleItemIndex: Int): Boolean =
     firstVisibleItemIndex > 0
 
+internal fun shouldShowRatingsAction(ratingCount: Int): Boolean =
+    ratingCount > 0
+
 internal fun pageForNewReply(totalPosts: Int, pageSize: Int): Int {
     require(totalPosts >= 0) { "totalPosts must not be negative" }
     require(pageSize > 0) { "pageSize must be a positive integer" }
@@ -940,39 +943,26 @@ private fun PostCard(
                 onLink = openLink,
                 textStyle = typography.body,
             )
-            if (post.ratings.isNotEmpty()) {
+            if (shouldShowRatingsAction(post.ratingCount)) {
                 Surface(
                     color = MaterialTheme.colorScheme.secondaryContainer,
                     shape = MaterialTheme.shapes.medium
                 ) {
-                    Column(
-                        Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
-                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 10.dp, vertical = 8.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
+                        Text(
+                            stringResource(R.string.rating_count, post.ratingCount),
+                            style = typography.heading,
+                        )
+                        TextButton(onClick = onRatings) {
                             Text(
-                                stringResource(R.string.rating_count, post.ratingCount),
-                                style = typography.heading,
-                            )
-                            if (post.ratingCount > 2) {
-                                TextButton(onClick = onRatings) {
-                                    Text(
-                                        stringResource(R.string.rating_view_all, post.ratingCount),
-                                        style = typography.action,
-                                    )
-                                }
-                            }
-                        }
-                        post.ratings.take(2).forEach { rating ->
-                            RatingRow(
-                                rating = rating,
-                                contentStyle = typography.body,
-                                supportingStyle = typography.supporting,
-                                metadataStyle = typography.metadata,
+                                stringResource(R.string.rating_view_all, post.ratingCount),
+                                style = typography.action,
                             )
                         }
                     }

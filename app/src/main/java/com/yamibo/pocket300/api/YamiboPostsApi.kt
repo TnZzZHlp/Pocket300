@@ -80,7 +80,6 @@ data class YamiboPost(
     val number: Int,
     val position: Int,
     val ratingCount: Int,
-    val ratings: List<YamiboPostRating>,
     val replyCredit: Int,
     val status: Int,
     val threadId: Int,
@@ -110,7 +109,6 @@ data class YamiboThreadDetails(
     val digestLevel: Int,
     val forumId: Int,
     val heat: Int,
-    val hasRatings: Boolean,
     val hasAttachment: Boolean,
     val id: Int,
     val isClosed: Boolean,
@@ -164,34 +162,11 @@ class YamiboPostsApi(private val client: YamiboClient) {
                 serverCode,
             )
         }
-        val page = parseThreadPosts(
+        return parseThreadPosts(
             response.variables ?: invalidResponse("百合会未返回主题楼层数据"),
             input.page,
             input.authorId,
         )
-        val ratedPostIds = if (page.thread.hasRatings) {
-            val threadPage = client.requestPage(
-                path = "/forum.php",
-                parameters = mapOf(
-                    "mobile" to "2",
-                    "mod" to "viewthread",
-                    "page" to input.page.toString(),
-                    "tid" to input.threadId.toString(),
-                ) + input.authorId?.let { mapOf("authorid" to it.toString()) }.orEmpty(),
-            )
-            parseRatedPostIds(threadPage.html)
-        } else {
-            emptySet()
-        }
-        val posts = page.posts.map { post ->
-            if (post.id in ratedPostIds) {
-                val ratings = getPostRatings(input.threadId, post.id)
-                post.copy(ratingCount = ratings.size, ratings = ratings)
-            } else {
-                post
-            }
-        }
-        return page.copy(posts = posts)
     }
 
     suspend fun replyToThread(input: ReplyToThreadInput): YamiboReplyResult {
@@ -504,7 +479,6 @@ private fun parsePostThread(raw: Any?): YamiboThreadDetails {
         digestLevel = value.postNonNegative("digest"),
         forumId = value.postPositive("fid"),
         heat = value.postNonNegative("heats"),
-        hasRatings = value.postNonNegative("rate") > 0,
         hasAttachment = value.postFlag("attachment"),
         id = id,
         isClosed = value.postFlag("closed"),
@@ -540,7 +514,6 @@ private fun parsePost(value: JSONObject, comments: Map<Int, List<YamiboPostComme
         number = postDisplayNumber(value.opt("number"), position),
         position = position,
         ratingCount = value.postNonNegative("ratetimes"),
-        ratings = emptyList(),
         replyCredit = value.postNonNegative("replycredit"),
         status = value.postNonNegative("status"),
         threadId = value.postPositive("tid"),
@@ -578,12 +551,6 @@ internal fun parsePostRatings(html: String): List<YamiboPostRating> =
             )
         }
         .toList()
-
-internal fun parseRatedPostIds(html: String): Set<Int> =
-    Regex("""\bid=["']ratelog_(\d+)["']""", RegexOption.IGNORE_CASE)
-        .findAll(html)
-        .mapNotNull { it.groupValues[1].toIntOrNull()?.takeIf { id -> id > 0 } }
-        .toSet()
 
 private fun ratingHtmlText(value: String): String =
     Regex("""&(?:#(\d+)|#x([\da-f]+)|([a-z]+));""", RegexOption.IGNORE_CASE)

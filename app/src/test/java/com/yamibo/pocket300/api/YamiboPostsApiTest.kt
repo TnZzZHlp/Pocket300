@@ -26,7 +26,6 @@ class YamiboPostsApiTest {
             "https://example.com/a.png",
             post.comments.single().author.avatarUrl,
         )
-        assertTrue(page.thread.hasRatings)
         assertEquals(4, post.ratingCount)
         assertEquals("<p>不可信正文</p>", post.html)
         assertEquals("https://bbs.yamibo.com/data/attachment/forum/202607/example.jpg", post.attachments.single().url)
@@ -34,6 +33,14 @@ class YamiboPostsApiTest {
         assertEquals("点评", post.comments.single().message)
         assertEquals("#ff00aa", page.poll?.options?.single()?.color)
         assertEquals(25.5, page.poll?.options?.single()?.percentage ?: -1.0, 0.0)
+    }
+
+    @Test
+    fun defaultsMissingPostRatingCountToZero() {
+        val fixture = JSONObject(FIXTURE)
+        fixture.getJSONArray("postlist").getJSONObject(0).remove("ratetimes")
+
+        assertEquals(0, parseThreadPosts(fixture, 1).posts.single().ratingCount)
     }
 
     @Test
@@ -391,18 +398,6 @@ class YamiboPostsApiTest {
         assertEquals("生日快乐 & 好图", ratings[0].reason)
         assertEquals(-1, ratings[1].score)
         assertEquals("", ratings[1].reason)
-    }
-
-    @Test
-    fun findsEveryRatedPostFromThreadPage() {
-        val html = """
-            <dl id="ratelog_41291769" class="rate"></dl>
-            <div id="post_rate_div_41291771"></div>
-            <DL class='rate' ID='ratelog_41291772'></DL>
-            <dl id="ratelog_invalid"></dl>
-        """.trimIndent()
-
-        assertEquals(setOf(41291769, 41291772), parseRatedPostIds(html))
     }
 
     private companion object {
