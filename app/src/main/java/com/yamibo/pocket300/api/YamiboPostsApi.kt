@@ -72,6 +72,25 @@ data class YamiboPostRating(
     val username: String,
 )
 
+data class YamiboPostRatingOption(
+    val creditId: Int,
+    val creditName: String,
+    val minScore: Int,
+    val maxScore: Int,
+    val remainingToday: Int,
+)
+
+data class YamiboPostRatingForm(
+    val threadId: Int,
+    val postId: Int,
+    val formHash: String,
+    val referer: String,
+    val options: List<YamiboPostRatingOption>,
+    val reasonSuggestions: List<String>,
+    val sendReasonPmByDefault: Boolean,
+    val sendReasonPmLocked: Boolean,
+)
+
 data class YamiboPost(
     val attachments: List<YamiboPostAttachment>,
     val author: YamiboPostAuthor,
@@ -227,21 +246,25 @@ class YamiboPostsApi(private val client: YamiboClient) {
     }
 
     suspend fun getPostComments(threadId: Int, postId: Int): List<YamiboPostComment> {
+        return getPost(threadId, postId).comments
+    }
+
+    suspend fun getPost(threadId: Int, postId: Int): YamiboPost {
         require(threadId > 0) { "threadId must be a positive integer" }
         require(postId > 0) { "postId must be a positive integer" }
         val response = client.requestMobileApi(
-            postCommentsParameters(threadId, postId),
+            targetPostParameters(threadId, postId),
         )
         val serverCode = response.message?.code?.takeIf(String::isNotBlank) ?: response.error
         if (serverCode != null) {
             throw YamiboApiException(
                 YamiboApiErrorCode.SERVER_ERROR,
                 response.message?.message?.takeIf(String::isNotBlank)
-                    ?: "百合会未能刷新点评",
+                    ?: "百合会未能刷新楼层",
                 serverCode,
             )
         }
-        return parsePostCommentsForTarget(
+        return parsePostForTarget(
             response.variables ?: invalidResponse("百合会未返回目标楼层数据"),
             threadId,
             postId,
@@ -286,6 +309,38 @@ class YamiboPostsApi(private val client: YamiboClient) {
             ),
         )
         return parsePostRatings(response.html)
+    }
+
+    suspend fun getPostRatingForm(threadId: Int, postId: Int): YamiboPostRatingForm {
+        require(threadId > 0) { "threadId must be a positive integer" }
+        require(postId > 0) { "postId must be a positive integer" }
+        val response = client.requestPage(
+            path = "/forum.php",
+            parameters = postRatingFormParameters(threadId, postId),
+        )
+        return parsePostRatingForm(response.html, threadId, postId)
+    }
+
+    suspend fun ratePost(
+        form: YamiboPostRatingForm,
+        scores: Map<Int, Int>,
+        reason: String,
+        sendReasonPm: Boolean,
+    ) {
+        validatePostRating(form, scores, reason, sendReasonPm)
+        val response = client.requestPage(
+            path = "/forum.php",
+            parameters = postRatingSubmitParameters(),
+            form = postRatingSubmitForm(form, scores, reason, sendReasonPm),
+        )
+        parsePostRatingSubmitResult(
+            responseHtml = response.html,
+            expectedThreadId = form.threadId,
+            expectedPostId = form.postId,
+        )
+        AppLogger.info(TAG) {
+            "Rating submitted for thread ${form.threadId}, post ${form.postId}"
+        }
     }
 
     suspend fun findPostPage(threadId: Int, postId: Int): Int? {
@@ -381,10 +436,458 @@ internal fun commentOnPostForm(formHash: String, message: String): Map<String, S
     "message" to message,
 )
 
-internal fun postCommentsParameters(threadId: Int, postId: Int): Map<String, String> = mapOf(
+internal fun targetPostParameters(threadId: Int, postId: Int): Map<String, String> = mapOf(
     "module" to "viewthread",
     "tid" to threadId.toString(),
     "viewpid" to postId.toString(),
+)
+
+internal fun postCommentsParameters(threadId: Int, postId: Int): Map<String, String> =
+    targetPostParameters(threadId, postId)
+
+const val POST_RATING_REASON_MAX_LENGTH = 40
+
+internal fun postRatingReasonLength(value: String): Int {
+    var length = 0
+    var index = 0
+    while (index < value.length) {
+        val codePoint = value.codePointAt(index)
+        length += when {
+            codePoint == '\t'.code || codePoint == '\n'.code -> 1
+            codePoint in 32..126 -> 1
+            codePoint >= 128 -> 2
+            else -> 0
+        }
+        index += Character.charCount(codePoint)
+    }
+    return length
+}
+
+internal fun postRatingFormParameters(threadId: Int, postId: Int): Map<String, String> = mapOf(
+    "mod" to "misc",
+    "action" to "rate",
+    "tid" to threadId.toString(),
+    "pid" to postId.toString(),
+    "inajax" to "1",
+    "infloat" to "yes",
+    "handlekey" to "rate",
+    "ajaxtarget" to "fwin_content_rate",
+    "mobile" to "no",
+)
+
+internal fun postRatingSubmitParameters(): Map<String, String> = mapOf(
+    "mod" to "misc",
+    "action" to "rate",
+    "ratesubmit" to "yes",
+    "inajax" to "1",
+    "infloat" to "yes",
+    "ajaxtarget" to "return_rate",
+    "mobile" to "no",
+)
+
+internal fun postRatingSubmitForm(
+    form: YamiboPostRatingForm,
+    scores: Map<Int, Int>,
+    reason: String,
+    sendReasonPm: Boolean,
+): Map<String, String> = buildMap {
+    put("formhash", form.formHash)
+    put("tid", form.threadId.toString())
+    put("pid", form.postId.toString())
+    put("referer", form.referer)
+    put("handlekey", "rate")
+    put("ratesubmit", "true")
+    form.options.forEach { option ->
+        put("score${option.creditId}", scores[option.creditId].orEmptyScore())
+    }
+    put("reason", reason.trim())
+    if (sendReasonPm) put("sendreasonpm", "on")
+}
+
+private fun Int?.orEmptyScore(): String = (this ?: 0).toString()
+
+internal fun validatePostRating(
+    form: YamiboPostRatingForm,
+    scores: Map<Int, Int>,
+    reason: String,
+    sendReasonPm: Boolean,
+) {
+    require(form.threadId > 0) { "threadId must be a positive integer" }
+    require(form.postId > 0) { "postId must be a positive integer" }
+    require(form.formHash.isNotBlank()) { "formHash must not be blank" }
+    require(form.referer.isNotBlank()) { "referer must not be blank" }
+    require(form.options.isNotEmpty()) { "rating options must not be empty" }
+    require(form.options.map { it.creditId }.distinct().size == form.options.size) {
+        "rating option creditIds must be unique"
+    }
+    form.options.forEach { option ->
+        require(option.creditId > 0) { "creditId must be a positive integer" }
+        require(option.creditName.isNotBlank()) { "creditName must not be blank" }
+        require(option.minScore <= option.maxScore) { "rating score range must be valid" }
+        require(option.remainingToday >= 0) { "remainingToday must not be negative" }
+    }
+    val knownCreditIds = form.options.mapTo(mutableSetOf()) { it.creditId }
+    require(scores.keys.all { it in knownCreditIds }) { "scores contain an unknown creditId" }
+    val normalizedReason = reason.trim()
+    require(postRatingReasonLength(normalizedReason) <= POST_RATING_REASON_MAX_LENGTH) {
+        "reason must not exceed $POST_RATING_REASON_MAX_LENGTH Discuz length units"
+    }
+    require(!form.sendReasonPmLocked || sendReasonPm == form.sendReasonPmByDefault) {
+        "sendReasonPm is locked by the server"
+    }
+
+    var hasNonZeroScore = false
+    form.options.forEach { option ->
+        val score = scores[option.creditId] ?: 0
+        if (score == 0) return@forEach
+        hasNonZeroScore = true
+        require(score in option.minScore..option.maxScore) {
+            "score${option.creditId} must be within the allowed range"
+        }
+        require(kotlin.math.abs(score.toLong()) <= option.remainingToday.toLong()) {
+            "score${option.creditId} exceeds the remaining daily allowance"
+        }
+    }
+    require(hasNonZeroScore) { "at least one rating score must be non-zero" }
+}
+
+internal fun parsePostRatingForm(
+    responseHtml: String,
+    expectedThreadId: Int,
+    expectedPostId: Int,
+): YamiboPostRatingForm {
+    val html = unwrapPostRatingAjaxResponse(responseHtml)
+    throwPostRatingLoginIfPresent(html)
+    val formElement = HTML_FORM.findAll(html).firstOrNull { match ->
+        htmlAttribute(match.groupValues[1], "id").equals("rateform", ignoreCase = true)
+    } ?: run {
+        throwPostRatingServerErrorIfPresent(html)
+        invalidResponse("百合会未返回评分表单")
+    }
+    val formHtml = formElement.groupValues[2]
+    val inputs = HTML_INPUT.findAll(formHtml).map { it.value }.toList()
+    fun inputValue(name: String): String? = inputs.firstNotNullOfOrNull { input ->
+        if (htmlAttribute(input, "name").equals(name, ignoreCase = true)) {
+            htmlAttribute(input, "value")?.let(::decodeHtmlAttribute)
+        } else {
+            null
+        }
+    }
+
+    val formHash = inputValue("formhash")?.takeIf(String::isNotBlank)
+        ?: invalidResponse("百合会评分表单缺少校验值")
+    val threadId = inputValue("tid")?.toIntOrNull()?.takeIf { it > 0 }
+        ?: invalidResponse("百合会评分表单包含无效的主题 ID")
+    val postId = inputValue("pid")?.toIntOrNull()?.takeIf { it > 0 }
+        ?: invalidResponse("百合会评分表单包含无效的楼层 ID")
+    if (threadId != expectedThreadId || postId != expectedPostId) {
+        invalidResponse("百合会评分表单与目标楼层不一致")
+    }
+    val referer = inputValue("referer")?.takeIf(String::isNotBlank)
+        ?: invalidResponse("百合会评分表单缺少来源地址")
+    if (!inputValue("handlekey").equals("rate", ignoreCase = true)) {
+        invalidResponse("百合会评分表单包含无效的操作标识")
+    }
+
+    val options = HTML_TABLE_ROW.findAll(formHtml).mapNotNull { row ->
+        parsePostRatingOption(row.groupValues[1])
+    }.toList()
+    if (options.isEmpty()) invalidResponse("百合会评分表单未返回可用积分")
+    if (options.map { it.creditId }.distinct().size != options.size) {
+        invalidResponse("百合会评分表单包含重复的积分类型")
+    }
+
+    val reasonSuggestions = parsePostRatingReasons(formHtml)
+    val sendReasonPmInput = inputs.firstOrNull { input ->
+        htmlAttribute(input, "name").equals("sendreasonpm", ignoreCase = true)
+    }
+    return YamiboPostRatingForm(
+        threadId = threadId,
+        postId = postId,
+        formHash = formHash,
+        referer = referer,
+        options = options,
+        reasonSuggestions = reasonSuggestions,
+        sendReasonPmByDefault = sendReasonPmInput?.let { hasHtmlAttribute(it, "checked") } == true,
+        sendReasonPmLocked = sendReasonPmInput?.let { hasHtmlAttribute(it, "disabled") } == true,
+    )
+}
+
+internal fun parsePostRatingSubmitResult(
+    responseHtml: String,
+    expectedThreadId: Int,
+    expectedPostId: Int,
+) {
+    require(expectedThreadId > 0) { "expectedThreadId must be a positive integer" }
+    require(expectedPostId > 0) { "expectedPostId must be a positive integer" }
+    val html = unwrapPostRatingAjaxResponse(responseHtml)
+    throwPostRatingLoginIfPresent(html)
+    throwPostRatingServerErrorIfPresent(html)
+    val withoutComments = HTML_COMMENT.replace(html, "")
+    val callbackUrl = HTML_SCRIPT_CONTENT.findAll(withoutComments).firstNotNullOfOrNull { script ->
+        POST_RATING_SUCCESS_CALLBACK.matchEntire(script.groupValues[1].trim())
+            ?.groupValues
+            ?.get(1)
+    } ?: invalidResponse("百合会未返回可识别的评分结果")
+    if (!isExpectedPostRatingCallbackUrl(callbackUrl, expectedThreadId, expectedPostId)) {
+        invalidResponse("百合会评分结果与目标楼层不一致")
+    }
+}
+
+private fun isExpectedPostRatingCallbackUrl(
+    rawUrl: String,
+    expectedThreadId: Int,
+    expectedPostId: Int,
+): Boolean {
+    val decodedUrl = ratingHtmlText(decodeJavascriptString(rawUrl))
+    val parsed = normalizePostUrl(decodedUrl)?.toHttpUrlOrNull() ?: return false
+    val yamibo = YAMIBO_ORIGIN.toHttpUrlOrNull() ?: return false
+    if (parsed.host != yamibo.host) return false
+    val threadId = parsed.queryParameter("tid")?.toIntOrNull()
+        ?: Regex("""(?:^|/)thread-(\d+)-""", RegexOption.IGNORE_CASE)
+            .find(parsed.encodedPath)
+            ?.groupValues
+            ?.get(1)
+            ?.toIntOrNull()
+    val postId = parsed.queryParameter("pid")?.toIntOrNull()
+        ?: parsed.queryParameter("viewpid")?.toIntOrNull()
+        ?: Regex("""^pid(\d+)$""", RegexOption.IGNORE_CASE)
+            .matchEntire(parsed.fragment.orEmpty())
+            ?.groupValues
+            ?.get(1)
+            ?.toIntOrNull()
+    return threadId == expectedThreadId && postId == expectedPostId
+}
+
+internal fun unwrapPostRatingAjaxResponse(response: String): String {
+    val value = response.trim().trimStart('\uFEFF')
+    if (!value.startsWith("<?xml", ignoreCase = true) &&
+        !value.startsWith("<root", ignoreCase = true)
+    ) {
+        return response
+    }
+    val root = Regex(
+        """^(?:<\?xml\b[^?]*\?>\s*)?<root\b[^>]*>([\s\S]*?)</root\s*>$""",
+        RegexOption.IGNORE_CASE,
+    ).matchEntire(value) ?: invalidResponse("百合会返回了无效的 AJAX 评分数据")
+    val rootContent = root.groupValues[1]
+    val cdata = Regex("""<!\[CDATA\[([\s\S]*?)]]>""").findAll(rootContent).toList()
+    if (cdata.isEmpty()) invalidResponse("百合会返回了无效的 AJAX 评分数据")
+    val remainder = Regex("""<!\[CDATA\[[\s\S]*?]]>""").replace(rootContent, "")
+    if (remainder.isNotBlank()) invalidResponse("百合会返回了无效的 AJAX 评分数据")
+    return cdata.joinToString(separator = "") { it.groupValues[1] }
+}
+
+private fun parsePostRatingOption(rowHtml: String): YamiboPostRatingOption? {
+    val scoreFields = HTML_SCORE_FIELD.findAll(rowHtml).mapNotNull { field ->
+        val name = htmlAttribute(field.value, "name") ?: return@mapNotNull null
+        val creditId = Regex("""^score(\d+)$""", RegexOption.IGNORE_CASE)
+            .matchEntire(name)?.groupValues?.get(1)?.toIntOrNull()
+            ?: return@mapNotNull null
+        creditId to field.value
+    }.toList()
+    if (scoreFields.isEmpty()) return null
+    if (scoreFields.size != 1) invalidResponse("百合会评分表单包含无效的积分行")
+    val creditId = scoreFields.single().first.takeIf { it > 0 }
+        ?: invalidResponse("百合会评分表单包含无效的积分 ID")
+    val cells = HTML_TABLE_CELL.findAll(rowHtml).map { it.groupValues[1] }.toList()
+    if (cells.size < 4) invalidResponse("百合会评分表单包含无效的积分行")
+    val creditName = ratingHtmlText(cells[0]).takeIf(String::isNotBlank)
+        ?: invalidResponse("百合会评分表单包含无效的积分名称")
+    val rangeText = ratingHtmlText(cells[2]).replace('−', '-')
+    val range = Regex("""([+-]?\d+)\s*(?:~|～|至)\s*([+-]?\d+)""").find(rangeText)
+        ?: invalidResponse("百合会评分表单包含无效的评分范围")
+    val minScore = range.groupValues[1].toIntOrNull()
+        ?: invalidResponse("百合会评分表单包含无效的评分范围")
+    val maxScore = range.groupValues[2].toIntOrNull()
+        ?: invalidResponse("百合会评分表单包含无效的评分范围")
+    if (minScore > maxScore) invalidResponse("百合会评分表单包含无效的评分范围")
+    val remainingText = ratingHtmlText(cells[3])
+    val remainingToday = Regex("""[+-]?\d+""").findAll(remainingText).lastOrNull()
+        ?.value?.toIntOrNull()?.takeIf { it >= 0 }
+        ?: invalidResponse("百合会评分表单包含无效的今日余额")
+    return YamiboPostRatingOption(
+        creditId = creditId,
+        creditName = creditName,
+        minScore = minScore,
+        maxScore = maxScore,
+        remainingToday = remainingToday,
+    )
+}
+
+private fun parsePostRatingReasons(formHtml: String): List<String> {
+    val container = HTML_REASON_CONTAINER.findAll(formHtml).firstOrNull { element ->
+        htmlAttribute(element.groupValues[2], "id").equals("reasonselect", ignoreCase = true)
+    } ?: return emptyList()
+    val tagName = container.groupValues[1]
+    val itemPattern = if (tagName.equals("select", ignoreCase = true)) HTML_OPTION else HTML_LIST_ITEM
+    return itemPattern.findAll(container.groupValues[3]).mapNotNull { item ->
+        if (tagName.equals("select", ignoreCase = true)) {
+            val value = htmlAttribute(item.groupValues[1], "value")?.let(::decodeHtmlAttribute)
+            value?.takeIf(String::isNotBlank) ?: return@mapNotNull null
+        } else {
+            ratingHtmlText(item.groupValues[2]).takeIf(String::isNotBlank)
+        }
+    }.filterNot { reason ->
+        Regex("""^[-‐‑‒–—―─\s]+$""").matches(reason)
+    }.distinct().toList()
+}
+
+private fun throwPostRatingLoginIfPresent(html: String) {
+    val containsLoginForm = HTML_FORM.findAll(html).any { form ->
+        val id = htmlAttribute(form.groupValues[1], "id").orEmpty()
+        id.equals("loginform", ignoreCase = true) ||
+            id.startsWith("loginform_", ignoreCase = true)
+    }
+    if (containsLoginForm) {
+        throw YamiboApiException(
+            YamiboApiErrorCode.SERVER_ERROR,
+            "请先登录百合会",
+            "not_authenticated",
+        )
+    }
+}
+
+private fun throwPostRatingServerErrorIfPresent(html: String) {
+    val javascriptMessage = Regex(
+        """\berrorhandle_rate\s*\(\s*(?:'((?:\\.|[^'\\])*)'|"((?:\\.|[^"\\])*)")""",
+        RegexOption.IGNORE_CASE,
+    ).find(html)?.groupValues?.drop(1)?.firstOrNull(String::isNotEmpty)
+        ?.let(::decodeJavascriptString)
+        ?.let(::ratingHtmlText)?.takeIf(String::isNotBlank)
+    val htmlMessage = parsePostRatingHtmlError(html)
+    val message = javascriptMessage ?: htmlMessage ?: return
+    if (
+        isPostRatingAuthenticationMessage(message) ||
+        POST_RATING_GUEST_GROUP_VALUE.containsMatchIn(html)
+    ) {
+        throw YamiboApiException(
+            YamiboApiErrorCode.SERVER_ERROR,
+            "请先登录百合会",
+            "not_authenticated",
+        )
+    }
+    throw YamiboApiException(
+        YamiboApiErrorCode.SERVER_ERROR,
+        message,
+        "rate_failed",
+    )
+}
+
+private fun isPostRatingAuthenticationMessage(message: String): Boolean {
+    val normalized = message.lowercase()
+    return normalized.contains("游客") ||
+        normalized.contains("遊客") ||
+        normalized.contains("请先登录") ||
+        normalized.contains("請先登錄") ||
+        normalized.contains("請先登入") ||
+        normalized.contains("not logged in") ||
+        normalized.contains("please log in")
+}
+
+private fun parsePostRatingHtmlError(html: String): String? {
+    val sanitized = HTML_SCRIPT.replace(HTML_STYLE.replace(html, ""), "")
+    return HTML_MESSAGE_OPEN.findAll(sanitized).firstNotNullOfOrNull { element ->
+        val tagName = element.groupValues[1]
+        val attributes = element.groupValues[2]
+        val id = htmlAttribute(attributes, "id").orEmpty()
+        val classes = htmlAttribute(attributes, "class").orEmpty()
+            .split(Regex("""\s+"""))
+        val isMessage = id.equals("messagetext", ignoreCase = true) ||
+            classes.any { it.equals("alert_error", true) || it.equals("alert_info", true) }
+        if (!isMessage) return@firstNotNullOfOrNull null
+        val closingTag = Regex("""</${Regex.escape(tagName)}\s*>""", RegexOption.IGNORE_CASE)
+            .find(sanitized, element.range.last + 1)
+            ?: return@firstNotNullOfOrNull null
+        ratingHtmlText(
+            sanitized.substring(element.range.last + 1, closingTag.range.first),
+        ).takeIf(String::isNotBlank)
+    }
+}
+
+private fun decodeJavascriptString(value: String): String {
+    val unicodeDecoded = Regex("""\\u([\da-f]{4})""", RegexOption.IGNORE_CASE)
+        .replace(value) { match ->
+            match.groupValues[1].toIntOrNull(16)?.toChar()?.toString() ?: match.value
+        }
+    val hexDecoded = Regex("""\\x([\da-f]{2})""", RegexOption.IGNORE_CASE)
+        .replace(unicodeDecoded) { match ->
+            match.groupValues[1].toIntOrNull(16)?.toChar()?.toString() ?: match.value
+        }
+    return hexDecoded
+        .replace("\\n", "\n")
+        .replace("\\r", "\r")
+        .replace("\\t", "\t")
+        .replace("\\/", "/")
+        .replace("\\\"", "\"")
+        .replace("\\'", "'")
+        .replace("\\\\", "\\")
+}
+
+private fun decodeHtmlAttribute(value: String): String = ratingHtmlText(value)
+
+private fun htmlAttribute(tag: String, name: String): String? {
+    val escapedName = Regex.escape(name)
+    val match = Regex(
+        """(?:^|\s)$escapedName\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+))""",
+        RegexOption.IGNORE_CASE,
+    ).find(tag) ?: return null
+    return match.groupValues.drop(1).firstOrNull(String::isNotEmpty).orEmpty()
+}
+
+private fun hasHtmlAttribute(tag: String, name: String): Boolean =
+    Regex(
+        """(?:^|\s)${Regex.escape(name)}(?:\s*=\s*(?:"[^"]*"|'[^']*'|[^\s"'=<>`]+)|(?=\s|/?>))""",
+        RegexOption.IGNORE_CASE,
+    ).containsMatchIn(tag)
+
+private val HTML_FORM = Regex(
+    """<form\b([^>]*)>([\s\S]*?)</form\s*>""",
+    RegexOption.IGNORE_CASE,
+)
+private val HTML_INPUT = Regex("""<input\b[^>]*>""", RegexOption.IGNORE_CASE)
+private val HTML_SCORE_FIELD = Regex("""<(?:input|select)\b[^>]*>""", RegexOption.IGNORE_CASE)
+private val HTML_TABLE_ROW = Regex(
+    """<tr\b[^>]*>([\s\S]*?)</tr\s*>""",
+    RegexOption.IGNORE_CASE,
+)
+private val HTML_TABLE_CELL = Regex(
+    """<td\b[^>]*>([\s\S]*?)</td\s*>""",
+    RegexOption.IGNORE_CASE,
+)
+private val HTML_REASON_CONTAINER = Regex(
+    """<(ul|ol|select)\b([^>]*)>([\s\S]*?)</\1\s*>""",
+    RegexOption.IGNORE_CASE,
+)
+private val HTML_LIST_ITEM = Regex(
+    """<li\b([^>]*)>([\s\S]*?)</li\s*>""",
+    RegexOption.IGNORE_CASE,
+)
+private val HTML_OPTION = Regex(
+    """<option\b([^>]*)>([\s\S]*?)</option\s*>""",
+    RegexOption.IGNORE_CASE,
+)
+private val HTML_MESSAGE_OPEN = Regex("""<(div|p)\b([^>]*)>""", RegexOption.IGNORE_CASE)
+private val HTML_SCRIPT = Regex(
+    """<script\b[^>]*>[\s\S]*?</script\s*>""",
+    RegexOption.IGNORE_CASE,
+)
+private val HTML_SCRIPT_CONTENT = Regex(
+    """<script\b[^>]*>([\s\S]*?)</script\s*>""",
+    RegexOption.IGNORE_CASE,
+)
+private val HTML_COMMENT = Regex("""<!--[\s\S]*?-->""")
+private val POST_RATING_SUCCESS_CALLBACK = Regex(
+    """if\s*\(\s*typeof\s+succeedhandle_rate\s*==\s*'function'\s*\)\s*\{\s*succeedhandle_rate\s*\(\s*'((?:\\.|[^'\\])*)'\s*,\s*'(?:\\.|[^'\\])*'\s*,\s*\{\s*\}\s*\)\s*;\s*\}\s*;?""",
+    RegexOption.IGNORE_CASE,
+)
+private val POST_RATING_GUEST_GROUP_VALUE = Regex(
+    """['"]grouptitle['"]\s*:\s*['"](?:游客|遊客)['"]""",
+    RegexOption.IGNORE_CASE,
+)
+private val HTML_STYLE = Regex(
+    """<style\b[^>]*>[\s\S]*?</style\s*>""",
+    RegexOption.IGNORE_CASE,
 )
 
 internal fun parseCommentResult(
@@ -433,17 +936,24 @@ internal fun parsePostCommentsForTarget(
     variables: JSONObject,
     expectedThreadId: Int,
     expectedPostId: Int,
-): List<YamiboPostComment> {
+): List<YamiboPostComment> =
+    parsePostForTarget(variables, expectedThreadId, expectedPostId).comments
+
+internal fun parsePostForTarget(
+    variables: JSONObject,
+    expectedThreadId: Int,
+    expectedPostId: Int,
+): YamiboPost {
     val page = parseThreadPosts(variables)
     if (page.thread.id != expectedThreadId) {
-        invalidResponse("百合会返回的点评主题与目标不一致")
+        invalidResponse("百合会返回的楼层主题与目标不一致")
     }
     val post = page.posts.singleOrNull()
         ?: invalidResponse("百合会未返回唯一的目标楼层")
     if (post.id != expectedPostId) {
-        invalidResponse("百合会返回的点评楼层与目标不一致")
+        invalidResponse("百合会返回的楼层与目标不一致")
     }
-    return post.comments
+    return post
 }
 
 internal fun parseReplyResult(

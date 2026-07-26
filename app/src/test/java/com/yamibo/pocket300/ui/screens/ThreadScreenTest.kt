@@ -1,5 +1,7 @@
 package com.yamibo.pocket300.ui.screens
 
+import com.yamibo.pocket300.api.YamiboPostRatingForm
+import com.yamibo.pocket300.api.YamiboPostRatingOption
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -17,10 +19,75 @@ class ThreadScreenTest {
     }
 
     @Test
-    fun offersRatingsActionForRatedPost() {
-        assertFalse(shouldShowRatingsAction(ratingCount = 0))
-        assertTrue(shouldShowRatingsAction(ratingCount = 1))
-        assertTrue(shouldShowRatingsAction(ratingCount = 4))
+    fun showsRatingsSummaryOnlyForRatedPost() {
+        assertFalse(shouldShowRatingsSummary(ratingCount = 0))
+        assertTrue(shouldShowRatingsSummary(ratingCount = 1))
+        assertTrue(shouldShowRatingsSummary(ratingCount = 4))
+    }
+
+    @Test
+    fun limitsPostRatingScoresByRangeAndRemainingBalance() {
+        assertEquals(
+            listOf(-2, -1, 1, 2),
+            postRatingScoreChoices(ratingOption(minScore = -5, maxScore = 4, remainingToday = 2)),
+        )
+        assertEquals(
+            listOf(1, 2, 3),
+            postRatingScoreChoices(ratingOption(minScore = 1, maxScore = 5, remainingToday = 3)),
+        )
+        assertTrue(
+            postRatingScoreChoices(
+                ratingOption(minScore = -3, maxScore = 3, remainingToday = 0),
+            ).isEmpty(),
+        )
+    }
+
+    @Test
+    fun ratingScoreControlsPassThroughZeroBetweenNegativeAndPositiveValues() {
+        val option = ratingOption(minScore = -2, maxScore = 2, remainingToday = 2)
+
+        assertEquals(-1, adjacentPostRatingScore(option, current = 0, direction = -1))
+        assertEquals(0, adjacentPostRatingScore(option, current = -1, direction = 1))
+        assertEquals(1, adjacentPostRatingScore(option, current = 0, direction = 1))
+        assertEquals(0, adjacentPostRatingScore(option, current = 1, direction = -1))
+    }
+
+    @Test
+    fun enablesRatingSubmissionOnlyForAllowedNonZeroScore() {
+        val option = ratingOption(minScore = -3, maxScore = 3, remainingToday = 2)
+        val form = YamiboPostRatingForm(
+            threadId = 1000,
+            postId = 9,
+            formHash = "hash",
+            referer = "https://bbs.yamibo.com/thread-1000-1-1.html",
+            options = listOf(option),
+            reasonSuggestions = emptyList(),
+            sendReasonPmByDefault = false,
+            sendReasonPmLocked = false,
+        )
+
+        assertFalse(canSubmitPostRating(form, mapOf(option.creditId to 0)))
+        assertTrue(canSubmitPostRating(form, mapOf(option.creditId to -2)))
+        assertFalse(canSubmitPostRating(form, mapOf(option.creditId to 3)))
+    }
+
+    @Test
+    fun rejectsUnknownOrInvalidAdditionalRatingScores() {
+        val option = ratingOption(minScore = -2, maxScore = 2, remainingToday = 2)
+        val secondOption = option.copy(creditId = 2, creditName = "贡献")
+        val form = YamiboPostRatingForm(
+            threadId = 1000,
+            postId = 9,
+            formHash = "hash",
+            referer = "https://bbs.yamibo.com/thread-1000-1-1.html",
+            options = listOf(option, secondOption),
+            reasonSuggestions = emptyList(),
+            sendReasonPmByDefault = false,
+            sendReasonPmLocked = false,
+        )
+
+        assertFalse(canSubmitPostRating(form, mapOf(option.creditId to 1, 2 to 3)))
+        assertFalse(canSubmitPostRating(form, mapOf(option.creditId to 1, 99 to 1)))
     }
 
     @Test
@@ -73,4 +140,16 @@ class ThreadScreenTest {
         assertEquals(1, pageForNewReply(totalPosts = 19, pageSize = 20))
         assertEquals(2, pageForNewReply(totalPosts = 20, pageSize = 20))
     }
+
+    private fun ratingOption(
+        minScore: Int,
+        maxScore: Int,
+        remainingToday: Int,
+    ) = YamiboPostRatingOption(
+        creditId = 1,
+        creditName = "百合币",
+        minScore = minScore,
+        maxScore = maxScore,
+        remainingToday = remainingToday,
+    )
 }

@@ -18,8 +18,11 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.Comment
 import androidx.compose.material.icons.automirrored.rounded.MenuBook
@@ -30,6 +33,7 @@ import androidx.compose.material.icons.rounded.DoneAll
 import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.Remove
 import androidx.compose.material.icons.rounded.RemoveDone
+import androidx.compose.material.icons.rounded.Star
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Badge
 import androidx.compose.material3.Button
@@ -71,6 +75,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -79,8 +85,12 @@ import com.yamibo.pocket300.api.CommentOnPostInput
 import com.yamibo.pocket300.api.GetThreadPostsInput
 import com.yamibo.pocket300.api.VoteInPollInput
 import com.yamibo.pocket300.api.POST_COMMENT_MAX_LENGTH
+import com.yamibo.pocket300.api.POST_RATING_REASON_MAX_LENGTH
 import com.yamibo.pocket300.api.ReplyToThreadInput
 import com.yamibo.pocket300.api.YamiboPost
+import com.yamibo.pocket300.api.YamiboPostRatingForm
+import com.yamibo.pocket300.api.YamiboPostRatingOption
+import com.yamibo.pocket300.api.postRatingReasonLength
 import com.yamibo.pocket300.api.YamiboThreadPoll
 import com.yamibo.pocket300.api.YamiboThreadPostsPage
 import com.yamibo.pocket300.data.ReadingHistoryDatabase
@@ -101,6 +111,7 @@ import com.yamibo.pocket300.ui.plainText
 import com.yamibo.pocket300.ui.resolvePostLink
 import com.yamibo.pocket300.ui.theme.ThreadTypography
 import com.yamibo.pocket300.ui.theme.rememberThreadTypography
+import com.yamibo.pocket300.ui.viewmodels.PostRatingResult
 import com.yamibo.pocket300.ui.viewmodels.ThreadViewModel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
@@ -192,6 +203,28 @@ internal fun ThreadScreen(
     val commentSubmittedMessage = stringResource(R.string.thread_comment_submitted)
     val commentSubmittedRefreshFailedMessage =
         stringResource(R.string.thread_comment_submitted_refresh_failed)
+    val ratingSubmittedMessage = stringResource(R.string.thread_rating_submitted)
+    val ratingSubmittedRefreshFailedMessage =
+        stringResource(R.string.thread_rating_submitted_refresh_failed)
+    val postRatingResult = viewModel.postRatingResult
+    LaunchedEffect(postRatingResult) {
+        when (val result = postRatingResult ?: return@LaunchedEffect) {
+            is PostRatingResult.Submitted ->
+                Toast.makeText(
+                    context,
+                    if (result.refreshSucceeded) {
+                        ratingSubmittedMessage
+                    } else {
+                        ratingSubmittedRefreshFailedMessage
+                    },
+                    if (result.refreshSucceeded) Toast.LENGTH_SHORT else Toast.LENGTH_LONG,
+                ).show()
+
+            is PostRatingResult.Failed ->
+                Toast.makeText(context, result.message, Toast.LENGTH_LONG).show()
+        }
+        viewModel.consumePostRatingResult()
+    }
     LaunchedEffect(loadedContent, targetFloor, targetPostId, restoredFloor) {
         val content = loadedContent ?: return@LaunchedEffect
         if (restoredFloor) return@LaunchedEffect
@@ -507,6 +540,7 @@ internal fun ThreadScreen(
                             commentTargetIsOriginalPost = post.isOriginalPost
                             commentDraft = ""
                         },
+                        onRate = { viewModel.openPostRating(post) },
                         onReader = {
                             val postPage = ((post.position - 1) / page.pagination.pageSize) + 1
                             onReader(
@@ -618,13 +652,67 @@ internal fun ThreadScreen(
             },
         )
     }
+    viewModel.postRatingDialogState?.let { ratingState ->
+        PostRatingDialog(
+            authorName = ratingState.target.authorName,
+            formState = ratingState.formState,
+            isOriginalPost = ratingState.target.isOriginalPost,
+            postNumber = ratingState.target.postNumber,
+            reason = ratingState.reason,
+            scores = ratingState.scores,
+            sendReasonPm = ratingState.sendReasonPm,
+            submitting = ratingState.submitting,
+            onScoreChange = viewModel::updatePostRatingScore,
+            onReasonChange = viewModel::updatePostRatingReason,
+            onSendReasonPmChange = viewModel::updatePostRatingSendReasonPm,
+            onRetry = viewModel::retryPostRatingForm,
+            onDismiss = viewModel::dismissPostRating,
+            onSubmit = viewModel::submitPostRating,
+        )
+    }
 }
 
 internal fun shouldShowThreadTitle(firstVisibleItemIndex: Int): Boolean =
     firstVisibleItemIndex > 0
 
-internal fun shouldShowRatingsAction(ratingCount: Int): Boolean =
+internal fun shouldShowRatingsSummary(ratingCount: Int): Boolean =
     ratingCount > 0
+
+internal fun postRatingScoreChoices(option: YamiboPostRatingOption): List<Int> {
+    if (option.remainingToday <= 0) return emptyList()
+    val minimum = maxOf(option.minScore, -option.remainingToday)
+    val maximum = minOf(option.maxScore, option.remainingToday)
+    if (minimum > maximum) return emptyList()
+    return (minimum..maximum).filter { it != 0 }
+}
+
+internal fun adjacentPostRatingScore(
+    option: YamiboPostRatingOption,
+    current: Int,
+    direction: Int,
+): Int {
+    require(direction == -1 || direction == 1) { "direction must be -1 or 1" }
+    val choices = (postRatingScoreChoices(option) + 0).distinct().sorted()
+    val currentIndex = choices.indexOf(current).takeIf { it >= 0 }
+        ?: choices.indexOf(0)
+    val nextIndex = (currentIndex + direction).coerceIn(0, choices.lastIndex)
+    return choices[nextIndex]
+}
+
+internal fun canSubmitPostRating(
+    form: YamiboPostRatingForm,
+    scores: Map<Int, Int>,
+): Boolean {
+    val knownCreditIds = form.options.mapTo(mutableSetOf()) { it.creditId }
+    if (scores.keys.any { it !in knownCreditIds }) return false
+    val selectedScores = form.options.map { option ->
+        option to (scores[option.creditId] ?: 0)
+    }
+    return selectedScores.any { (_, score) -> score != 0 } &&
+        selectedScores.all { (option, score) ->
+            score == 0 || score in postRatingScoreChoices(option)
+        }
+}
 
 internal fun pageForNewReply(totalPosts: Int, pageSize: Int): Int {
     require(totalPosts >= 0) { "totalPosts must not be negative" }
@@ -712,6 +800,260 @@ private fun PostCommentDialog(
             }
         },
     )
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun PostRatingDialog(
+    authorName: String,
+    formState: LoadState<YamiboPostRatingForm>,
+    isOriginalPost: Boolean,
+    postNumber: Int,
+    reason: String,
+    scores: Map<Int, Int>,
+    sendReasonPm: Boolean,
+    submitting: Boolean,
+    onScoreChange: (Int, Int) -> Unit,
+    onReasonChange: (String) -> Unit,
+    onSendReasonPmChange: (Boolean) -> Unit,
+    onRetry: () -> Unit,
+    onDismiss: () -> Unit,
+    onSubmit: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = { if (!submitting) onDismiss() },
+        title = { Text(stringResource(R.string.thread_rating_title)) },
+        text = {
+            Column(
+                modifier = Modifier.verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Text(
+                    text = if (isOriginalPost) {
+                        stringResource(R.string.thread_rating_target_original, authorName)
+                    } else {
+                        stringResource(
+                            R.string.thread_rating_target_floor,
+                            authorName,
+                            postNumber,
+                        )
+                    },
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                when (formState) {
+                    LoadState.Loading -> Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(22.dp),
+                            strokeWidth = 2.dp,
+                        )
+                        Text(stringResource(R.string.thread_rating_loading))
+                    }
+
+                    is LoadState.Failed -> Text(
+                        formState.message,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+
+                    is LoadState.Ready -> {
+                        formState.value.options.forEach { option ->
+                            PostRatingOptionRow(
+                                option = option,
+                                score = scores[option.creditId] ?: 0,
+                                enabled = !submitting,
+                                onScoreChange = { onScoreChange(option.creditId, it) },
+                            )
+                        }
+                        if (formState.value.reasonSuggestions.isNotEmpty()) {
+                            FlowRow(
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalArrangement = Arrangement.spacedBy(6.dp),
+                            ) {
+                                formState.value.reasonSuggestions.forEach { suggestion ->
+                                    FilterChip(
+                                        selected = reason == suggestion,
+                                        onClick = { onReasonChange(suggestion) },
+                                        enabled = !submitting,
+                                        label = { Text(suggestion) },
+                                    )
+                                }
+                            }
+                        }
+                        OutlinedTextField(
+                            value = reason,
+                            onValueChange = onReasonChange,
+                            modifier = Modifier.fillMaxWidth(),
+                            enabled = !submitting,
+                            minLines = 2,
+                            maxLines = 4,
+                            placeholder = {
+                                Text(stringResource(R.string.thread_rating_reason_hint))
+                            },
+                            supportingText = {
+                                Text(
+                                    stringResource(
+                                        R.string.thread_rating_reason_character_count,
+                                        postRatingReasonLength(reason),
+                                        POST_RATING_REASON_MAX_LENGTH,
+                                    ),
+                                )
+                            },
+                        )
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .semantics(mergeDescendants = true) {}
+                                .toggleable(
+                                    value = sendReasonPm,
+                                    enabled = !submitting &&
+                                        !formState.value.sendReasonPmLocked,
+                                    role = Role.Checkbox,
+                                    onValueChange = onSendReasonPmChange,
+                                ),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            Checkbox(
+                                checked = sendReasonPm,
+                                onCheckedChange = null,
+                                enabled = !submitting && !formState.value.sendReasonPmLocked,
+                            )
+                            Text(
+                                stringResource(
+                                    if (formState.value.sendReasonPmLocked) {
+                                        R.string.thread_rating_notify_author_locked
+                                    } else {
+                                        R.string.thread_rating_notify_author
+                                    },
+                                ),
+                                style = MaterialTheme.typography.bodyMedium,
+                            )
+                        }
+                        if (!canSubmitPostRating(formState.value, scores)) {
+                            Text(
+                                stringResource(
+                                    if (
+                                        formState.value.options.all {
+                                            postRatingScoreChoices(it).isEmpty()
+                                        }
+                                    ) {
+                                        R.string.thread_rating_no_remaining
+                                    } else {
+                                        R.string.thread_rating_select_score
+                                    },
+                                ),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            when (formState) {
+                LoadState.Loading -> TextButton(onClick = {}, enabled = false) {
+                    Text(stringResource(R.string.thread_rating_loading_short))
+                }
+
+                is LoadState.Failed -> TextButton(
+                    onClick = onRetry,
+                    enabled = !submitting,
+                ) {
+                    Text(stringResource(R.string.thread_rating_retry))
+                }
+
+                is LoadState.Ready -> TextButton(
+                    onClick = onSubmit,
+                    enabled = canSubmitPostRating(formState.value, scores) && !submitting,
+                ) {
+                    if (submitting) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(18.dp),
+                            strokeWidth = 2.dp,
+                        )
+                        Spacer(Modifier.width(8.dp))
+                    }
+                    Text(
+                        stringResource(
+                            if (submitting) R.string.thread_rating_submitting
+                            else R.string.thread_rating_submit,
+                        ),
+                    )
+                }
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss, enabled = !submitting) {
+                Text(stringResource(R.string.thread_rating_cancel))
+            }
+        },
+    )
+}
+
+@Composable
+private fun PostRatingOptionRow(
+    option: YamiboPostRatingOption,
+    score: Int,
+    enabled: Boolean,
+    onScoreChange: (Int) -> Unit,
+) {
+    val lowerScore = adjacentPostRatingScore(option, score, -1)
+    val higherScore = adjacentPostRatingScore(option, score, 1)
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Text(option.creditName, style = MaterialTheme.typography.titleSmall)
+        Text(
+            stringResource(
+                R.string.thread_rating_credit_limits,
+                option.minScore,
+                option.maxScore,
+                option.remainingToday,
+            ),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.End,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            OutlinedIconButton(
+                onClick = { onScoreChange(lowerScore) },
+                enabled = enabled && lowerScore != score,
+            ) {
+                Icon(
+                    Icons.Rounded.Remove,
+                    contentDescription = stringResource(
+                        R.string.thread_rating_decrease,
+                        option.creditName,
+                    ),
+                )
+            }
+            Text(
+                text = if (score > 0) "+$score" else score.toString(),
+                style = MaterialTheme.typography.titleMedium,
+                modifier = Modifier.padding(horizontal = 12.dp),
+            )
+            OutlinedIconButton(
+                onClick = { onScoreChange(higherScore) },
+                enabled = enabled && higherScore != score,
+            ) {
+                Icon(
+                    Icons.Rounded.Add,
+                    contentDescription = stringResource(
+                        R.string.thread_rating_increase,
+                        option.creditName,
+                    ),
+                )
+            }
+        }
+    }
 }
 
 @Composable
@@ -918,6 +1260,7 @@ private fun PostCard(
     onRatings: () -> Unit,
     commentEnabled: Boolean,
     onComment: () -> Unit,
+    onRate: () -> Unit,
     onReader: () -> Unit,
     onThread: (PostLinkTarget.Thread) -> Unit,
 ) {
@@ -931,13 +1274,9 @@ private fun PostCard(
     }
     Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Row(
-                Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Row(
-                    modifier = Modifier.weight(1f),
+                    modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
@@ -960,8 +1299,6 @@ private fun PostCard(
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
-                }
-                Row(verticalAlignment = Alignment.CenterVertically) {
                     Surface(
                         color = MaterialTheme.colorScheme.primaryContainer,
                         shape = CircleShape,
@@ -973,6 +1310,12 @@ private fun PostCard(
                             color = MaterialTheme.colorScheme.onPrimaryContainer,
                         )
                     }
+                }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
                     IconButton(onClick = onComment, enabled = commentEnabled) {
                         Icon(
                             Icons.AutoMirrored.Rounded.Comment,
@@ -980,6 +1323,16 @@ private fun PostCard(
                                 stringResource(R.string.thread_comment_original_post_action)
                             } else {
                                 stringResource(R.string.thread_comment_post_action, post.number)
+                            },
+                        )
+                    }
+                    IconButton(onClick = onRate) {
+                        Icon(
+                            Icons.Rounded.Star,
+                            contentDescription = if (post.isOriginalPost) {
+                                stringResource(R.string.thread_rating_original_post_action)
+                            } else {
+                                stringResource(R.string.thread_rating_post_action, post.number)
                             },
                         )
                     }
@@ -998,7 +1351,7 @@ private fun PostCard(
                 onLink = openLink,
                 textStyle = typography.body,
             )
-            if (shouldShowRatingsAction(post.ratingCount)) {
+            if (shouldShowRatingsSummary(post.ratingCount)) {
                 Surface(
                     color = MaterialTheme.colorScheme.secondaryContainer,
                     shape = MaterialTheme.shapes.medium
