@@ -36,6 +36,7 @@ import androidx.compose.material.icons.rounded.RemoveDone
 import androidx.compose.material.icons.rounded.Star
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Badge
+import androidx.compose.material3.Button
 import androidx.compose.material3.BottomAppBar
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -50,6 +51,7 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedIconButton
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -81,6 +83,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.yamibo.pocket300.R
 import com.yamibo.pocket300.api.CommentOnPostInput
 import com.yamibo.pocket300.api.GetThreadPostsInput
+import com.yamibo.pocket300.api.VoteInPollInput
 import com.yamibo.pocket300.api.POST_COMMENT_MAX_LENGTH
 import com.yamibo.pocket300.api.POST_RATING_REASON_MAX_LENGTH
 import com.yamibo.pocket300.api.ReplyToThreadInput
@@ -158,6 +161,7 @@ internal fun ThreadScreen(
         initialFavoriteId
     ) { mutableStateOf(initialFavoriteId > 0) }
     var favoriteBusy by remember(threadId) { mutableStateOf(false) }
+    var pollSubmitting by remember(threadId) { mutableStateOf(false) }
     var replyDraft by rememberSaveable(threadId) { mutableStateOf("") }
     var replySubmitting by remember(threadId) { mutableStateOf(false) }
     var commentTargetPostId by rememberSaveable(threadId) { mutableIntStateOf(0) }
@@ -192,6 +196,7 @@ internal fun ThreadScreen(
     val isRead = threadId in readingHistory
     val markedReadMessage = stringResource(R.string.thread_marked_read)
     val markedUnreadMessage = stringResource(R.string.thread_marked_unread)
+    val pollSubmittedMessage = stringResource(R.string.thread_poll_submitted)
     val replySubmittedMessage = stringResource(R.string.thread_reply_submitted)
     val replyPendingModerationMessage =
         stringResource(R.string.thread_reply_pending_moderation)
@@ -469,7 +474,56 @@ internal fun ThreadScreen(
                         },
                     )
                 }
-                page.poll?.let { poll -> item { PollCard(poll, threadTypography) } }
+                page.poll?.let { poll ->
+                    item(key = "poll", contentType = "poll") {
+                        PollCard(
+                            poll = poll,
+                            submitting = pollSubmitting,
+                            typography = threadTypography,
+                            onVote = { optionIds ->
+                                if (!pollSubmitting) {
+                                    pollSubmitting = true
+                                    coroutineScope.launch {
+                                        when (
+                                            val result = load {
+                                                api.posts.voteInPoll(
+                                                    VoteInPollInput(
+                                                        forumId = page.thread.forumId,
+                                                        optionIds = optionIds.sorted(),
+                                                        threadId = threadId,
+                                                    ),
+                                                )
+                                            }
+                                        ) {
+                                            is LoadState.Ready -> {
+                                                Toast.makeText(
+                                                    context,
+                                                    pollSubmittedMessage,
+                                                    Toast.LENGTH_SHORT,
+                                                ).show()
+                                                pollSubmitting = false
+                                                viewModel.refresh()
+                                                pageNumber = 1
+                                                reload++
+                                            }
+
+                                            is LoadState.Failed -> {
+                                                Toast.makeText(
+                                                    context,
+                                                    result.message,
+                                                    Toast.LENGTH_SHORT,
+                                                ).show()
+                                                pollSubmitting = false
+                                            }
+
+                                            LoadState.Loading -> pollSubmitting = false
+                                        }
+                                    }
+                                }
+                            },
+                        )
+                    }
+                }
                 items(content.posts, key = { it.id }, contentType = { "post" }) { post ->
                     PostCard(
                         post = post,
@@ -1439,37 +1493,141 @@ private fun ThreadHero(
 }
 
 @Composable
-private fun PollCard(poll: YamiboThreadPoll, typography: ThreadTypography) {
+private fun PollCard(
+    poll: YamiboThreadPoll,
+    submitting: Boolean,
+    typography: ThreadTypography,
+    onVote: (Set<Int>) -> Unit,
+) {
+    val optionIds = poll.options.map { it.id }
+    var selectedOptionIds by remember(poll.canVote, optionIds) { mutableStateOf(emptySet<Int>()) }
+    val showResults = shouldShowPollResults(poll.resultsHiddenUntilVote)
     Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-            Text("投票", style = typography.heading)
+            Text(stringResource(R.string.thread_poll_title), style = typography.heading)
             Text(
-                "${if (poll.multiple) "最多选 ${poll.maxChoices} 项" else "单选"} · ${poll.voterCount} 人参与",
+                stringResource(
+                    R.string.thread_poll_summary,
+                    if (poll.multiple) {
+                        stringResource(R.string.thread_poll_multiple_choice, poll.maxChoices)
+                    } else {
+                        stringResource(R.string.thread_poll_single_choice)
+                    },
+                    poll.voterCount,
+                ),
                 style = typography.supporting,
                 color = MaterialTheme.colorScheme.onSecondaryContainer,
             )
             poll.options.forEach { option ->
-                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                val selected = option.id in selectedOptionIds
+                val optionEnabled = poll.canVote && !submitting &&
+                    (selected || !poll.multiple || selectedOptionIds.size < poll.maxChoices)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.Top,
+                ) {
+                    if (poll.canVote) {
+                        if (poll.multiple) {
+                            Checkbox(
+                                checked = selected,
+                                enabled = optionEnabled,
+                                onCheckedChange = {
+                                    selectedOptionIds = togglePollOption(
+                                        selectedOptionIds,
+                                        option.id,
+                                        multiple = true,
+                                        maxChoices = poll.maxChoices,
+                                    )
+                                },
+                            )
+                        } else {
+                            RadioButton(
+                                selected = selected,
+                                enabled = optionEnabled,
+                                onClick = {
+                                    selectedOptionIds = togglePollOption(
+                                        selectedOptionIds,
+                                        option.id,
+                                        multiple = false,
+                                        maxChoices = 1,
+                                    )
+                                },
+                            )
+                        }
+                    }
+                    Column(
+                        modifier = Modifier.weight(1f),
+                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
                         Text(
                             text = plainText(option.text),
-                            modifier = Modifier.weight(1f),
                             style = typography.body,
                         )
-                        Spacer(Modifier.width(12.dp))
-                        Text("${"%.1f".format(option.percentage)}%", style = typography.label)
+                        if (showResults) {
+                            Row(
+                                Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                            ) {
+                                Text(
+                                    stringResource(R.string.thread_poll_vote_count, option.voteCount),
+                                    style = typography.metadata,
+                                )
+                                Text(
+                                    stringResource(R.string.thread_poll_percentage, option.percentage),
+                                    style = typography.label,
+                                )
+                            }
+                            LinearProgressIndicator(
+                                progress = { (option.percentage / 100.0).toFloat().coerceIn(0f, 1f) },
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                        }
                     }
-                    LinearProgressIndicator(
-                        progress = { (option.percentage / 100.0).toFloat().coerceIn(0f, 1f) },
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                    Text("${option.voteCount} 票", style = typography.metadata)
                 }
             }
-            if (!poll.resultsVisible) Text(
-                "投票后才可查看完整结果",
-                style = typography.label
-            )
+            if (!showResults) {
+                Text(
+                    stringResource(
+                        if (poll.canVote) R.string.thread_poll_results_after_vote
+                        else R.string.thread_poll_results_unavailable,
+                    ),
+                    style = typography.label,
+                )
+            }
+            if (poll.canVote) {
+                Button(
+                    onClick = { onVote(selectedOptionIds) },
+                    enabled = selectedOptionIds.isNotEmpty() && !submitting,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text(
+                        stringResource(
+                            if (submitting) R.string.thread_poll_submitting
+                            else R.string.thread_poll_submit,
+                        ),
+                    )
+                }
+            } else {
+                Text(
+                    stringResource(R.string.thread_poll_unavailable),
+                    style = typography.label,
+                )
+            }
         }
     }
+}
+
+internal fun shouldShowPollResults(resultsHiddenUntilVote: Boolean): Boolean =
+    !resultsHiddenUntilVote
+
+internal fun togglePollOption(
+    selectedOptionIds: Set<Int>,
+    optionId: Int,
+    multiple: Boolean,
+    maxChoices: Int,
+): Set<Int> = when {
+    !multiple -> setOf(optionId)
+    optionId in selectedOptionIds -> selectedOptionIds - optionId
+    selectedOptionIds.size < maxChoices -> selectedOptionIds + optionId
+    else -> selectedOptionIds
 }

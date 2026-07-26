@@ -101,6 +101,41 @@ class ThreadScreenTest {
     }
 
     @Test
+    fun followsServerVisibilityForPollResults() {
+        assertFalse(shouldShowPollResults(resultsHiddenUntilVote = true))
+        assertTrue(shouldShowPollResults(resultsHiddenUntilVote = false))
+    }
+
+    @Test
+    fun replacesSelectionForSingleChoicePoll() {
+        assertEquals(
+            setOf(9),
+            togglePollOption(
+                selectedOptionIds = setOf(7),
+                optionId = 9,
+                multiple = false,
+                maxChoices = 1,
+            ),
+        )
+    }
+
+    @Test
+    fun togglesMultipleChoicePollWithinLimit() {
+        assertEquals(
+            setOf(7, 9),
+            togglePollOption(setOf(7), optionId = 9, multiple = true, maxChoices = 2),
+        )
+        assertEquals(
+            setOf(7),
+            togglePollOption(setOf(7, 9), optionId = 9, multiple = true, maxChoices = 2),
+        )
+        assertEquals(
+            setOf(7, 9),
+            togglePollOption(setOf(7, 9), optionId = 11, multiple = true, maxChoices = 2),
+        )
+    }
+
+    @Test
     fun keepsNewReplyOnCurrentPageUntilPageBoundary() {
         assertEquals(1, pageForNewReply(totalPosts = 19, pageSize = 20))
         assertEquals(2, pageForNewReply(totalPosts = 20, pageSize = 20))
