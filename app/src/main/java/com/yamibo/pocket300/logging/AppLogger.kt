@@ -13,7 +13,7 @@ internal enum class LogLevel {
 internal fun interface LogSink {
     fun write(
         level: LogLevel,
-        tag: String,
+        component: String,
         message: String,
         throwable: Throwable?,
     )
@@ -95,17 +95,23 @@ internal object AppLogger {
 private object AndroidLogSink : LogSink {
     override fun write(
         level: LogLevel,
-        tag: String,
+        component: String,
         message: String,
         throwable: Throwable?,
     ) {
-        val logcatTag = "Pocket300/$tag"
+        val logcatMessage = "[$component] $message"
         when (level) {
-            LogLevel.VERBOSE -> Log.v(logcatTag, message, throwable)
-            LogLevel.DEBUG -> Log.d(logcatTag, message, throwable)
-            LogLevel.INFO -> Log.i(logcatTag, message, throwable)
-            LogLevel.WARN -> Log.w(logcatTag, message, throwable)
-            LogLevel.ERROR -> Log.e(logcatTag, message, throwable)
+            LogLevel.VERBOSE -> Log.v(LOGCAT_TAG, logcatMessage, throwable)
+            LogLevel.DEBUG -> Log.d(LOGCAT_TAG, logcatMessage, throwable)
+            LogLevel.INFO -> Log.i(LOGCAT_TAG, logcatMessage, throwable)
+            LogLevel.WARN -> Log.w(LOGCAT_TAG, logcatMessage, throwable)
+            LogLevel.ERROR -> Log.e(LOGCAT_TAG, logcatMessage, throwable)
         }
     }
 }
+
+/**
+ * A single property-safe tag keeps filtering predictable and lets devices with
+ * restrictive defaults enable logs via `adb shell setprop log.tag.Pocket300 V`.
+ */
+internal const val LOGCAT_TAG = "Pocket300"

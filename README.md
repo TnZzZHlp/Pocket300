@@ -63,6 +63,24 @@ macOS 或 Linux 请使用：
 .\gradlew.bat installDebug
 ```
 
+### 查看调试日志
+
+应用日志统一使用 `Pocket300` 标签。在 Android Studio Logcat 中可使用
+`tag:Pocket300` 过滤；命令行可运行：
+
+```powershell
+adb logcat -s "Pocket300:*"
+```
+
+部分厂商系统会默认静默第三方应用日志，可先临时启用该标签并重新启动应用：
+
+```powershell
+adb shell setprop log.tag.Pocket300 V
+```
+
+此设置不会持久化，设备重启后需要重新执行。Debug 构建输出所有等级，Release
+构建只输出 `INFO` 及以上等级。
+
 ## 测试与检查
 
 提交代码前建议运行完整验证：
