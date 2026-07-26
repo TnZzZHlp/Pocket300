@@ -3,9 +3,16 @@ package com.yamibo.pocket300.logging
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertSame
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AppLoggerTest {
+    @Test
+    fun usesStablePropertySafeLogcatTag() {
+        assertEquals("Pocket300", LOGCAT_TAG)
+        assertTrue(LOGCAT_TAG.matches(Regex("""[A-Za-z0-9_.-]+""")))
+    }
+
     @Test
     fun suppressesMessagesBelowMinimumLevelWithoutEvaluatingThem() {
         val entries = mutableListOf<LogEntry>()
