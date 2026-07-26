@@ -119,6 +119,18 @@ class YamiboPostsApiTest {
     }
 
     @Test
+    fun buildsTargetPostRefreshRequestForCommentsAndRatingCount() {
+        assertEquals(
+            mapOf(
+                "module" to "viewthread",
+                "tid" to "1000",
+                "viewpid" to "9",
+            ),
+            targetPostParameters(threadId = 1000, postId = 9),
+        )
+    }
+
+    @Test
     fun parsesCommentsForRequestedPost() {
         val comments = parsePostCommentsForTarget(
             JSONObject(FIXTURE),
@@ -127,6 +139,19 @@ class YamiboPostsApiTest {
         )
 
         assertEquals(listOf("点评"), comments.map { it.message })
+    }
+
+    @Test
+    fun parsesRequestedPostForTargetedRefresh() {
+        val post = parsePostForTarget(
+            JSONObject(FIXTURE),
+            expectedThreadId = 1000,
+            expectedPostId = 9,
+        )
+
+        assertEquals(9, post.id)
+        assertEquals(4, post.ratingCount)
+        assertEquals(listOf("点评"), post.comments.map { it.message })
     }
 
     @Test(expected = YamiboApiException::class)
@@ -368,6 +393,418 @@ class YamiboPostsApiTest {
     }
 
     @Test
+    fun buildsPostRatingFormRequestWithDesktopAjaxParameters() {
+        assertEquals(
+            mapOf(
+                "mod" to "misc",
+                "action" to "rate",
+                "tid" to "1000",
+                "pid" to "9",
+                "inajax" to "1",
+                "infloat" to "yes",
+                "handlekey" to "rate",
+                "ajaxtarget" to "fwin_content_rate",
+                "mobile" to "no",
+            ),
+            postRatingFormParameters(threadId = 1000, postId = 9),
+        )
+    }
+
+    @Test
+    fun parsesAjaxWrappedDynamicPostRatingForm() {
+        val form = parsePostRatingForm(RATING_FORM_RESPONSE, 1000, 9)
+
+        assertEquals(1000, form.threadId)
+        assertEquals(9, form.postId)
+        assertEquals("abc12345", form.formHash)
+        assertEquals(
+            "https://bbs.yamibo.com/forum.php?mod=viewthread&tid=1000#pid9",
+            form.referer,
+        )
+        assertEquals(
+            listOf(
+                YamiboPostRatingOption(
+                    creditId = 1,
+                    creditName = "百合币",
+                    minScore = -3,
+                    maxScore = 5,
+                    remainingToday = 7,
+                ),
+                YamiboPostRatingOption(
+                    creditId = 4,
+                    creditName = "贡献 & 鲜花",
+                    minScore = 0,
+                    maxScore = 2,
+                    remainingToday = 1,
+                ),
+            ),
+            form.options,
+        )
+        assertEquals(listOf("感谢分享", "优秀回复 & 支持"), form.reasonSuggestions)
+        assertTrue(form.sendReasonPmByDefault)
+        assertTrue(form.sendReasonPmLocked)
+        assertEquals(40, POST_RATING_REASON_MAX_LENGTH)
+    }
+
+    @Test
+    fun rejectsPostRatingFormAssignedToDifferentPost() {
+        val error = runCatching {
+            parsePostRatingForm(RATING_FORM_RESPONSE, 1000, 10)
+        }.exceptionOrNull()
+
+        assertTrue(error is YamiboApiException)
+        assertEquals(YamiboApiErrorCode.INVALID_RESPONSE, (error as YamiboApiException).code)
+    }
+
+    @Test
+    fun rejectsNegativePostRatingDailyAllowance() {
+        val response = RATING_FORM_RESPONSE.replace(
+            "<td>今日剩余 1</td>",
+            "<td>今日剩余 -1</td>",
+        )
+        val error = runCatching {
+            parsePostRatingForm(response, 1000, 9)
+        }.exceptionOrNull()
+
+        assertTrue(error is YamiboApiException)
+        assertEquals(YamiboApiErrorCode.INVALID_RESPONSE, (error as YamiboApiException).code)
+    }
+
+    @Test
+    fun buildsPostRatingSubmissionWithEveryCreditAndTrimmedReason() {
+        val form = parsePostRatingForm(RATING_FORM_RESPONSE, 1000, 9)
+
+        assertEquals(
+            mapOf(
+                "mod" to "misc",
+                "action" to "rate",
+                "ratesubmit" to "yes",
+                "inajax" to "1",
+                "infloat" to "yes",
+                "ajaxtarget" to "return_rate",
+                "mobile" to "no",
+            ),
+            postRatingSubmitParameters(),
+        )
+        assertEquals(
+            mapOf(
+                "formhash" to "abc12345",
+                "tid" to "1000",
+                "pid" to "9",
+                "referer" to "https://bbs.yamibo.com/forum.php?mod=viewthread&tid=1000#pid9",
+                "handlekey" to "rate",
+                "ratesubmit" to "true",
+                "score1" to "3",
+                "score4" to "0",
+                "reason" to "感谢分享",
+                "sendreasonpm" to "on",
+            ),
+            postRatingSubmitForm(
+                form = form,
+                scores = mapOf(1 to 3),
+                reason = "  感谢分享  ",
+                sendReasonPm = true,
+            ),
+        )
+        assertFalse(
+            postRatingSubmitForm(form, mapOf(1 to 1), "", sendReasonPm = false)
+                .containsKey("sendreasonpm"),
+        )
+    }
+
+    @Test
+    fun acceptsValidPostRatingAtRangeAndDailyAllowanceBoundaries() {
+        val form = ratingForm()
+
+        validatePostRating(
+            form = form,
+            scores = mapOf(1 to -3, 4 to 1),
+            reason = "a".repeat(POST_RATING_REASON_MAX_LENGTH),
+            sendReasonPm = false,
+        )
+    }
+
+    @Test
+    fun appliesDiscuzWeightedLengthToPostRatingReason() {
+        assertEquals(40, postRatingReasonLength("中".repeat(20)))
+        assertEquals(40, postRatingReasonLength("${"中".repeat(18)}abcd"))
+
+        validatePostRating(
+            form = ratingForm(),
+            scores = mapOf(1 to 1),
+            reason = "中".repeat(20),
+            sendReasonPm = false,
+        )
+        assertIllegalArgument {
+            validatePostRating(
+                form = ratingForm(),
+                scores = mapOf(1 to 1),
+                reason = "中".repeat(21),
+                sendReasonPm = false,
+            )
+        }
+        assertIllegalArgument {
+            validatePostRating(
+                form = ratingForm(),
+                scores = mapOf(1 to 1),
+                reason = "${"中".repeat(18)}abcde",
+                sendReasonPm = false,
+            )
+        }
+    }
+
+    @Test
+    fun rejectsPostRatingWithoutNonZeroScore() {
+        assertIllegalArgument {
+            validatePostRating(ratingForm(), mapOf(1 to 0), "", sendReasonPm = false)
+        }
+    }
+
+    @Test
+    fun rejectsUnknownPostRatingCredit() {
+        assertIllegalArgument {
+            validatePostRating(ratingForm(), mapOf(99 to 1), "", sendReasonPm = false)
+        }
+    }
+
+    @Test
+    fun rejectsPostRatingOutsideCreditRange() {
+        assertIllegalArgument {
+            validatePostRating(ratingForm(), mapOf(1 to 6), "", sendReasonPm = false)
+        }
+    }
+
+    @Test
+    fun rejectsPostRatingBeyondRemainingDailyAllowance() {
+        assertIllegalArgument {
+            validatePostRating(ratingForm(), mapOf(4 to 2), "", sendReasonPm = false)
+        }
+    }
+
+    @Test
+    fun rejectsPostRatingReasonLongerThanServerLimitAfterTrimming() {
+        assertIllegalArgument {
+            validatePostRating(
+                ratingForm(),
+                mapOf(1 to 1),
+                " ${"a".repeat(POST_RATING_REASON_MAX_LENGTH + 1)} ",
+                sendReasonPm = false,
+            )
+        }
+    }
+
+    @Test
+    fun rejectsChangingServerLockedReasonPmChoice() {
+        assertIllegalArgument {
+            validatePostRating(
+                ratingForm(sendReasonPmByDefault = true, sendReasonPmLocked = true),
+                mapOf(1 to 1),
+                "",
+                sendReasonPm = false,
+            )
+        }
+    }
+
+    @Test
+    fun recognizesOnlySucceedHandleAsPostRatingSuccess() {
+        parsePostRatingSubmitResult(
+            ajaxResponse(
+                """
+                <script type="text/javascript">
+                  if (typeof succeedhandle_rate == 'function') {
+                    succeedhandle_rate('forum.php?mod=viewthread&amp;tid=1000#pid9', '评分成功', {});
+                  }
+                </script>
+                """.trimIndent(),
+            ),
+            expectedThreadId = 1000,
+            expectedPostId = 9,
+        )
+
+        val unknown = runCatching {
+            parsePostRatingSubmitResult(
+                "<div>评分完成</div>",
+                expectedThreadId = 1000,
+                expectedPostId = 9,
+            )
+        }.exceptionOrNull()
+        val functionDefinitionOnly = runCatching {
+            parsePostRatingSubmitResult(
+                "<script>function succeedhandle_rate(locationhref) { return locationhref; }</script>",
+                expectedThreadId = 1000,
+                expectedPostId = 9,
+            )
+        }.exceptionOrNull()
+        assertTrue(unknown is YamiboApiException)
+        assertEquals(YamiboApiErrorCode.INVALID_RESPONSE, (unknown as YamiboApiException).code)
+        assertTrue(functionDefinitionOnly is YamiboApiException)
+        assertEquals(
+            YamiboApiErrorCode.INVALID_RESPONSE,
+            (functionDefinitionOnly as YamiboApiException).code,
+        )
+    }
+
+    @Test
+    fun rejectsPostRatingSuccessCallbackForDifferentTargetOrNonExecutableText() {
+        val wrongTarget = runCatching {
+            parsePostRatingSubmitResult(
+                ajaxResponse(
+                    """
+                    <script>
+                      if(typeof succeedhandle_rate=='function') {
+                        succeedhandle_rate('forum.php?mod=viewthread&amp;tid=1001#pid10', '评分成功', {});
+                      }
+                    </script>
+                    """.trimIndent(),
+                ),
+                expectedThreadId = 1000,
+                expectedPostId = 9,
+            )
+        }.exceptionOrNull()
+        val commentOnly = runCatching {
+            parsePostRatingSubmitResult(
+                ajaxResponse(
+                    """
+                    <script>
+                      // if(typeof succeedhandle_rate=='function') {
+                      //   succeedhandle_rate('forum.php?mod=viewthread&amp;tid=1000#pid9', '评分成功', {});
+                      // }
+                    </script>
+                    """.trimIndent(),
+                ),
+                expectedThreadId = 1000,
+                expectedPostId = 9,
+            )
+        }.exceptionOrNull()
+        val stringOnly = runCatching {
+            parsePostRatingSubmitResult(
+                ajaxResponse(
+                    """
+                    <script>
+                      const callback = "succeedhandle_rate('forum.php?mod=viewthread&amp;tid=1000#pid9')";
+                    </script>
+                    """.trimIndent(),
+                ),
+                expectedThreadId = 1000,
+                expectedPostId = 9,
+            )
+        }.exceptionOrNull()
+
+        listOf(wrongTarget, commentOnly, stringOnly).forEach { error ->
+            assertTrue(error is YamiboApiException)
+            assertEquals(
+                YamiboApiErrorCode.INVALID_RESPONSE,
+                (error as YamiboApiException).code,
+            )
+        }
+    }
+
+    @Test
+    fun exposesErrorHandlePostRatingMessage() {
+        val error = runCatching {
+            parsePostRatingSubmitResult(
+                ajaxResponse(
+                    """<script>errorhandle_rate('不能给 Bob\'s 帖子评分 &amp; 请重试');</script>""",
+                ),
+                expectedThreadId = 1000,
+                expectedPostId = 9,
+            )
+        }.exceptionOrNull()
+
+        assertTrue(error is YamiboApiException)
+        assertEquals(YamiboApiErrorCode.SERVER_ERROR, (error as YamiboApiException).code)
+        assertEquals("rate_failed", error.serverCode)
+        assertEquals("不能给 Bob's 帖子评分 & 请重试", error.message)
+    }
+
+    @Test
+    fun exposesNestedPostRatingPromptHtmlMessage() {
+        val error = runCatching {
+            parsePostRatingSubmitResult(
+                ajaxResponse(
+                    """
+                    <div class="f_c altw">
+                      <div class="alert_error"><p>今日评分数超过限制</p></div>
+                    </div>
+                    """.trimIndent(),
+                ),
+                expectedThreadId = 1000,
+                expectedPostId = 9,
+            )
+        }.exceptionOrNull()
+
+        assertTrue(error is YamiboApiException)
+        assertEquals("今日评分数超过限制", error?.message)
+    }
+
+    @Test
+    fun mapsPostRatingLoginFormToAuthenticationMessage() {
+        val error = runCatching {
+            parsePostRatingForm(
+                ajaxResponse("""<form id="loginform_123"><input name="username"></form>"""),
+                expectedThreadId = 1000,
+                expectedPostId = 9,
+            )
+        }.exceptionOrNull()
+
+        assertTrue(error is YamiboApiException)
+        assertEquals(YamiboApiErrorCode.SERVER_ERROR, (error as YamiboApiException).code)
+        assertEquals("not_authenticated", error.serverCode)
+        assertEquals("请先登录百合会", error.message)
+    }
+
+    @Test
+    fun mapsMobilePostRatingLoginFormToAuthenticationMessage() {
+        val error = runCatching {
+            parsePostRatingSubmitResult(
+                ajaxResponse("""<form action="member.php" id="loginform"></form>"""),
+                expectedThreadId = 1000,
+                expectedPostId = 9,
+            )
+        }.exceptionOrNull()
+
+        assertTrue(error is YamiboApiException)
+        assertEquals("not_authenticated", (error as YamiboApiException).serverCode)
+        assertEquals("请先登录百合会", error.message)
+    }
+
+    @Test
+    fun mapsGuestErrorHandleToAuthenticationMessage() {
+        val error = runCatching {
+            parsePostRatingSubmitResult(
+                ajaxResponse(
+                    """
+                    <script>
+                      if(typeof errorhandle_rate=='function') {
+                        errorhandle_rate(
+                          '抱歉，您所在的用户组(遊客)无法进行此操作',
+                          {'grouptitle':'遊客'}
+                        );
+                      }
+                    </script>
+                    """.trimIndent(),
+                ),
+                expectedThreadId = 1000,
+                expectedPostId = 9,
+            )
+        }.exceptionOrNull()
+
+        assertTrue(error is YamiboApiException)
+        assertEquals("not_authenticated", (error as YamiboApiException).serverCode)
+        assertEquals("请先登录百合会", error.message)
+    }
+
+    @Test
+    fun rejectsMalformedPostRatingAjaxXml() {
+        val error = runCatching {
+            unwrapPostRatingAjaxResponse("<root><div>missing CDATA</div></root>")
+        }.exceptionOrNull()
+
+        assertTrue(error is YamiboApiException)
+        assertEquals(YamiboApiErrorCode.INVALID_RESPONSE, (error as YamiboApiException).code)
+    }
+
+    @Test
     fun parsesCompletePostRatingRows() {
         val html = """
             <table class="list">
@@ -400,7 +837,68 @@ class YamiboPostsApiTest {
         assertEquals("", ratings[1].reason)
     }
 
+    private fun ratingForm(
+        sendReasonPmByDefault: Boolean = false,
+        sendReasonPmLocked: Boolean = false,
+    ) = YamiboPostRatingForm(
+        threadId = 1000,
+        postId = 9,
+        formHash = "abc12345",
+        referer = "https://bbs.yamibo.com/forum.php?mod=viewthread&tid=1000#pid9",
+        options = listOf(
+            YamiboPostRatingOption(1, "百合币", -3, 5, 7),
+            YamiboPostRatingOption(4, "贡献", 0, 2, 1),
+        ),
+        reasonSuggestions = emptyList(),
+        sendReasonPmByDefault = sendReasonPmByDefault,
+        sendReasonPmLocked = sendReasonPmLocked,
+    )
+
+    private fun assertIllegalArgument(block: () -> Unit) {
+        assertTrue(runCatching(block).exceptionOrNull() is IllegalArgumentException)
+    }
+
     private companion object {
+        fun ajaxResponse(content: String): String =
+            """<?xml version="1.0" encoding="UTF-8"?><root><![CDATA[$content]]></root>"""
+
+        val RATING_FORM_RESPONSE = ajaxResponse(
+            """
+            <div id="floatlayout_topicadmin">
+              <form autocomplete="off" id="rateform" method="post">
+                <input value="abc12345" name="formhash" type="hidden">
+                <input type="hidden" name="tid" value="1000">
+                <input type="hidden" name="pid" value="9">
+                <input type="hidden" name="referer" value="https://bbs.yamibo.com/forum.php?mod=viewthread&amp;tid=1000#pid9">
+                <input type="hidden" name="handlekey" value="rate">
+                <table>
+                  <tr><th></th><th></th><th>评分范围</th><th>今日剩余</th></tr>
+                  <tr>
+                    <td><img src="coin.png"> 百合币</td>
+                    <td><input class="px" id="score1" name="score1" value="0"></td>
+                    <td>-3 ~ +5</td>
+                    <td>7</td>
+                  </tr>
+                  <tr>
+                    <td>贡献 &amp; 鲜花</td>
+                    <td><select name="score4"><option value="0">0</option></select></td>
+                    <td>0 ～ 2</td>
+                    <td>今日剩余 1</td>
+                  </tr>
+                </table>
+                <ul class="reasonselect" id="reasonselect">
+                  <li>感谢分享</li>
+                  <li>--------</li>
+                  <li>优秀回复 &amp; 支持</li>
+                  <li>感谢分享</li>
+                </ul>
+                <input type="text" id="reason" name="reason">
+                <input disabled checked="checked" type="checkbox" name="sendreasonpm" id="sendreasonpm">
+              </form>
+            </div>
+            """.trimIndent(),
+        )
+
         val FIXTURE = """
           {
             "ppp":"20",
