@@ -196,4 +196,23 @@
     <string name="settings_theme_violet">紫罗兰</string>
     <string name="settings_theme_blue">海洋蓝</string>
     <string name="settings_theme_green">青翠绿</string>
+    <string name="settings_logs_description">查看本次运行产生的诊断日志</string>
+    <string name="logs_title">运行日志</string>
+    <string name="logs_retention_description">仅保留本次运行最近 %1$d 条 · 当前显示 %2$d 条</string>
+    <string name="logs_level_all">全部</string>
+    <string name="logs_level_verbose">详细</string>
+    <string name="logs_level_debug">调试</string>
+    <string name="logs_level_info">信息</string>
+    <string name="logs_level_warn">警告</string>
+    <string name="logs_level_error">错误</string>
+    <string name="logs_empty_title">暂无日志</string>
+    <string name="logs_empty_message">使用应用后，日志会实时显示在这里。</string>
+    <string name="logs_filter_empty_title">没有符合条件的日志</string>
+    <string name="logs_filter_empty_message">请选择其他日志级别。</string>
+    <string name="logs_share">分享日志</string>
+    <string name="logs_share_subject">Pocket300 运行日志</string>
+    <string name="logs_clear">清空日志</string>
+    <string name="logs_clear_confirmation_title">清空本次运行日志？</string>
+    <string name="logs_clear_confirmation_message">清空后无法恢复，之后产生的新日志仍会继续显示。</string>
+    <string name="logs_cancel">取消</string>
 </resources>
