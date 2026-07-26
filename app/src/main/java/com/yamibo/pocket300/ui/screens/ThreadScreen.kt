@@ -29,6 +29,8 @@ import androidx.compose.material.icons.automirrored.rounded.MenuBook
 import androidx.compose.material.icons.automirrored.rounded.Send
 import androidx.compose.material.icons.outlined.FavoriteBorder
 import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.Download
+import androidx.compose.material.icons.rounded.DownloadDone
 import androidx.compose.material.icons.rounded.DoneAll
 import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.Remove
@@ -60,6 +62,7 @@ import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -76,6 +79,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -94,6 +98,11 @@ import com.yamibo.pocket300.api.postRatingReasonLength
 import com.yamibo.pocket300.api.YamiboThreadPoll
 import com.yamibo.pocket300.api.YamiboThreadPostsPage
 import com.yamibo.pocket300.data.ReadingHistoryDatabase
+import com.yamibo.pocket300.data.download.PostDownloadKey
+import com.yamibo.pocket300.data.download.PostDownloadPhase
+import com.yamibo.pocket300.data.download.PostDownloadProgress
+import com.yamibo.pocket300.data.download.PostDownloadRepository
+import com.yamibo.pocket300.data.download.PostDownloadRequest
 import com.yamibo.pocket300.ui.LoadContent
 import com.yamibo.pocket300.ui.LoadState
 import com.yamibo.pocket300.ui.LocalReadingHistory
@@ -108,12 +117,14 @@ import com.yamibo.pocket300.ui.components.ListFooter
 import com.yamibo.pocket300.ui.components.PostAuthorAvatar
 import com.yamibo.pocket300.ui.load
 import com.yamibo.pocket300.ui.plainText
+import com.yamibo.pocket300.ui.postImageUrls
 import com.yamibo.pocket300.ui.resolvePostLink
 import com.yamibo.pocket300.ui.theme.ThreadTypography
 import com.yamibo.pocket300.ui.theme.rememberThreadTypography
 import com.yamibo.pocket300.ui.viewmodels.PostRatingResult
 import com.yamibo.pocket300.ui.viewmodels.ThreadViewModel
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
@@ -137,6 +148,8 @@ internal fun ThreadScreen(
 ) {
     val viewModel: ThreadViewModel = viewModel()
     val context = LocalContext.current
+    val downloadRepository = remember(context) { PostDownloadRepository.getInstance(context) }
+    val downloadStatuses by downloadRepository.statuses.collectAsState()
     val historyDatabase = remember(context) { ReadingHistoryDatabase.getInstance(context) }
     val readingHistory = LocalReadingHistory.current
     var reload by remember { mutableIntStateOf(0) }
@@ -206,6 +219,8 @@ internal fun ThreadScreen(
     val ratingSubmittedMessage = stringResource(R.string.thread_rating_submitted)
     val ratingSubmittedRefreshFailedMessage =
         stringResource(R.string.thread_rating_submitted_refresh_failed)
+    val downloadStartedMessage = stringResource(R.string.reader_download_started)
+    val downloadFailedMessage = stringResource(R.string.reader_download_failed)
     val postRatingResult = viewModel.postRatingResult
     LaunchedEffect(postRatingResult) {
         when (val result = postRatingResult ?: return@LaunchedEffect) {
@@ -525,6 +540,9 @@ internal fun ThreadScreen(
                     }
                 }
                 items(content.posts, key = { it.id }, contentType = { "post" }) { post ->
+                    val downloadStatus = downloadStatuses[
+                        PostDownloadKey(post.threadId, post.id)
+                    ]
                     PostCard(
                         post = post,
                         typography = threadTypography,
@@ -541,6 +559,40 @@ internal fun ThreadScreen(
                             commentDraft = ""
                         },
                         onRate = { viewModel.openPostRating(post) },
+                        downloadPhase = downloadStatus?.phase,
+                        downloadProgress = downloadStatus?.progress,
+                        onDownload = {
+                            val attachmentUrls = post.attachments
+                                .filter { it.isImage }
+                                .map { it.url }
+                            coroutineScope.launch {
+                                try {
+                                    downloadRepository.enqueue(
+                                        PostDownloadRequest.create(
+                                            thread = page.thread,
+                                            post = post,
+                                            remoteImageUrls = postImageUrls(
+                                                post.html,
+                                                attachmentUrls,
+                                            ),
+                                        ),
+                                    )
+                                    Toast.makeText(
+                                        context,
+                                        downloadStartedMessage,
+                                        Toast.LENGTH_SHORT,
+                                    ).show()
+                                } catch (error: CancellationException) {
+                                    throw error
+                                } catch (_: Exception) {
+                                    Toast.makeText(
+                                        context,
+                                        downloadFailedMessage,
+                                        Toast.LENGTH_SHORT,
+                                    ).show()
+                                }
+                            }
+                        },
                         onReader = {
                             val postPage = ((post.position - 1) / page.pagination.pageSize) + 1
                             onReader(
@@ -1261,6 +1313,9 @@ private fun PostCard(
     commentEnabled: Boolean,
     onComment: () -> Unit,
     onRate: () -> Unit,
+    downloadPhase: PostDownloadPhase?,
+    downloadProgress: PostDownloadProgress?,
+    onDownload: () -> Unit,
     onReader: () -> Unit,
     onThread: (PostLinkTarget.Thread) -> Unit,
 ) {
@@ -1336,6 +1391,70 @@ private fun PostCard(
                             },
                         )
                     }
+                    when (postDownloadCardAction(downloadPhase)) {
+                        PostDownloadCardAction.DOWNLOAD,
+                        PostDownloadCardAction.RETRY,
+                        -> IconButton(onClick = onDownload) {
+                            Icon(
+                                Icons.Rounded.Download,
+                                contentDescription = when {
+                                    downloadPhase == PostDownloadPhase.FAILED ->
+                                        stringResource(R.string.thread_download_retry)
+                                    post.isOriginalPost ->
+                                        stringResource(R.string.thread_download_post_original)
+                                    else -> stringResource(
+                                        R.string.thread_download_post_floor,
+                                        post.number,
+                                    )
+                                },
+                            )
+                        }
+
+                        PostDownloadCardAction.DOWNLOADING -> {
+                            val description = when {
+                                downloadProgress != null &&
+                                    downloadProgress.totalImages > 0 &&
+                                    post.isOriginalPost -> stringResource(
+                                        R.string.thread_download_progress_original,
+                                        downloadProgress.completedImages,
+                                        downloadProgress.totalImages,
+                                    )
+                                downloadProgress != null &&
+                                    downloadProgress.totalImages > 0 -> stringResource(
+                                        R.string.thread_download_progress_floor,
+                                        post.number,
+                                        downloadProgress.completedImages,
+                                        downloadProgress.totalImages,
+                                    )
+                                post.isOriginalPost -> stringResource(
+                                    R.string.thread_download_saving_original,
+                                )
+                                else -> stringResource(
+                                    R.string.thread_download_saving_floor,
+                                    post.number,
+                                )
+                            }
+                            IconButton(
+                                onClick = {},
+                                enabled = false,
+                                modifier = Modifier.semantics {
+                                    contentDescription = description
+                                },
+                            ) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(20.dp),
+                                    strokeWidth = 2.dp,
+                                )
+                            }
+                        }
+
+                        PostDownloadCardAction.DOWNLOADED -> IconButton(onClick = onReader) {
+                            Icon(
+                                Icons.Rounded.DownloadDone,
+                                contentDescription = stringResource(R.string.thread_downloaded),
+                            )
+                        }
+                    }
                     IconButton(onClick = onReader) {
                         Icon(
                             Icons.AutoMirrored.Rounded.MenuBook,
@@ -1397,6 +1516,24 @@ private fun PostCard(
         }
     }
 }
+
+internal enum class PostDownloadCardAction {
+    DOWNLOAD,
+    DOWNLOADING,
+    RETRY,
+    DOWNLOADED,
+}
+
+internal fun postDownloadCardAction(phase: PostDownloadPhase?): PostDownloadCardAction =
+    when (phase) {
+        null -> PostDownloadCardAction.DOWNLOAD
+        PostDownloadPhase.QUEUED,
+        PostDownloadPhase.DOWNLOADING,
+        -> PostDownloadCardAction.DOWNLOADING
+
+        PostDownloadPhase.FAILED -> PostDownloadCardAction.RETRY
+        PostDownloadPhase.COMPLETED -> PostDownloadCardAction.DOWNLOADED
+    }
 
 
 @OptIn(ExperimentalLayoutApi::class)

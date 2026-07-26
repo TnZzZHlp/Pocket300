@@ -2,6 +2,7 @@ package com.yamibo.pocket300.ui.screens
 
 import com.yamibo.pocket300.api.YamiboPostRatingForm
 import com.yamibo.pocket300.api.YamiboPostRatingOption
+import com.yamibo.pocket300.data.download.PostDownloadPhase
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -98,6 +99,27 @@ class ThreadScreenTest {
     @Test
     fun offersMarkReadForUnreadThread() {
         assertEquals(ThreadReadAction.MARK_READ, threadReadAction(isRead = false))
+    }
+
+    @Test
+    fun mapsPostDownloadPhasesToCardActions() {
+        assertEquals(PostDownloadCardAction.DOWNLOAD, postDownloadCardAction(null))
+        assertEquals(
+            PostDownloadCardAction.DOWNLOADING,
+            postDownloadCardAction(PostDownloadPhase.QUEUED),
+        )
+        assertEquals(
+            PostDownloadCardAction.DOWNLOADING,
+            postDownloadCardAction(PostDownloadPhase.DOWNLOADING),
+        )
+        assertEquals(
+            PostDownloadCardAction.RETRY,
+            postDownloadCardAction(PostDownloadPhase.FAILED),
+        )
+        assertEquals(
+            PostDownloadCardAction.DOWNLOADED,
+            postDownloadCardAction(PostDownloadPhase.COMPLETED),
+        )
     }
 
     @Test

@@ -46,6 +46,7 @@ import com.yamibo.pocket300.data.ReadingHistoryDatabase
 import com.yamibo.pocket300.data.ReadingHistoryEntry
 import com.yamibo.pocket300.ui.screens.CustomListDetailScreen
 import com.yamibo.pocket300.ui.screens.CustomListEditorScreen
+import com.yamibo.pocket300.ui.screens.DownloadsScreen
 import com.yamibo.pocket300.ui.screens.FavoritesScreen
 import com.yamibo.pocket300.ui.screens.ForumIndexScreen
 import com.yamibo.pocket300.ui.screens.ForumScreen
@@ -59,6 +60,7 @@ import com.yamibo.pocket300.ui.screens.ReadingHistoryScreen
 import com.yamibo.pocket300.ui.screens.SearchScreen
 import com.yamibo.pocket300.ui.screens.SettingsScreen
 import com.yamibo.pocket300.ui.screens.ThreadScreen
+import com.yamibo.pocket300.ui.screens.toReaderContent
 import com.yamibo.pocket300.ui.theme.PocketTheme
 
 internal val api = YamiboApi()
@@ -222,9 +224,22 @@ fun Pocket300App() {
                     },
                 )
             }
+            composable("downloads") {
+                DownloadsScreen(
+                    onBack = navController::navigateUp,
+                    onOpen = { download ->
+                        val content = download.toReaderContent()
+                        readerContent = content
+                        navController.navigate(
+                            "reader/${content.thread.id}/${content.post.id}/1?offline=true",
+                        )
+                    },
+                )
+            }
             composable("profile") {
                 ProfileScreen(
                     onAuthStateChanged = { authStateVersion++ },
+                    onDownloads = { navController.navigate("downloads") },
                     onHistory = { navController.navigate("history") },
                     onSettings = { navController.navigate("settings") },
                 )
@@ -306,11 +321,15 @@ fun Pocket300App() {
                 )
             }
             composable(
-                route = "reader/{threadId}/{postId}/{page}",
+                route = "reader/{threadId}/{postId}/{page}?offline={offline}",
                 arguments = listOf(
                     navArgument("threadId") { type = NavType.IntType },
                     navArgument("postId") { type = NavType.IntType },
                     navArgument("page") { type = NavType.IntType },
+                    navArgument("offline") {
+                        type = NavType.BoolType
+                        defaultValue = false
+                    },
                 ),
             ) { backStack ->
                 ReaderScreen(
@@ -318,6 +337,7 @@ fun Pocket300App() {
                     postId = backStack.arguments?.getInt("postId") ?: return@composable,
                     initialPage = backStack.arguments?.getInt("page") ?: 1,
                     initialContent = readerContent,
+                    offlineOnly = backStack.arguments?.getBoolean("offline") ?: false,
                     onBack = navController::navigateUp,
                     onForum = { navController.navigate("forum/$it") },
                     onThread = {
