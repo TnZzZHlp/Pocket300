@@ -1,71 +1,75 @@
 package com.yamibo.pocket300.data.download
 
+import com.yamibo.pocket300.api.YamiboPollOption
 import com.yamibo.pocket300.api.YamiboPost
 import com.yamibo.pocket300.api.YamiboPostAttachment
 import com.yamibo.pocket300.api.YamiboPostAuthor
 import com.yamibo.pocket300.api.YamiboPostComment
 import com.yamibo.pocket300.api.YamiboThreadDetails
+import com.yamibo.pocket300.api.YamiboThreadPoll
 import com.yamibo.pocket300.api.YamiboThreadSpecialType
 import org.json.JSONArray
 import org.json.JSONObject
 
-enum class PostDownloadRequestState {
+enum class ThreadDownloadRequestState {
     PENDING,
     FAILED,
 }
 
-data class StoredPostDownloadRequest(
-    val request: PostDownloadRequest,
-    val state: PostDownloadRequestState,
+data class StoredThreadDownloadRequest(
+    val request: ThreadDownloadRequest,
+    val state: ThreadDownloadRequestState,
 )
 
-class PostDownloadManifestCodec {
+class ThreadDownloadManifestCodec {
     fun encodeRequest(
-        request: PostDownloadRequest,
-        state: PostDownloadRequestState = PostDownloadRequestState.PENDING,
+        request: ThreadDownloadRequest,
+        state: ThreadDownloadRequestState = ThreadDownloadRequestState.PENDING,
     ): String = JSONObject()
-        .put("version", CURRENT_POST_DOWNLOAD_MANIFEST_VERSION)
+        .put("version", CURRENT_THREAD_DOWNLOAD_MANIFEST_VERSION)
         .put("queueState", state.name)
         .put("requestedAt", request.requestedAt)
-        .put("referer", request.referer)
-        .put("hasText", request.hasText)
-        .put("thread", encodeThread(request.snapshot.thread))
-        .put("post", encodePost(request.snapshot.post))
-        .put("remoteImageUrls", JSONArray(request.remoteImageUrls))
+        .put("thread", encodeThread(request.thread))
         .toString()
 
-    fun decodeRequest(json: String): PostDownloadRequest =
+    fun decodeRequest(json: String): ThreadDownloadRequest =
         decodeStoredRequest(json).request
 
-    fun decodeStoredRequest(json: String): StoredPostDownloadRequest {
+    fun decodeStoredRequest(json: String): StoredThreadDownloadRequest {
         val root = JSONObject(json)
         requireVersion(root)
         val state = root.optString(
             "queueState",
-            PostDownloadRequestState.PENDING.name,
-        ).let(PostDownloadRequestState::valueOf)
-        return StoredPostDownloadRequest(
-            request = PostDownloadRequest(
-                snapshot = PostDownloadSnapshot(
-                    thread = decodeThread(root.getJSONObject("thread")),
-                    post = decodePost(root.getJSONObject("post")),
-                ),
-                remoteImageUrls = root.getJSONArray("remoteImageUrls").strings(),
-                hasText = root.getBoolean("hasText"),
-                referer = root.getString("referer"),
+            ThreadDownloadRequestState.PENDING.name,
+        ).let(ThreadDownloadRequestState::valueOf)
+        return StoredThreadDownloadRequest(
+            request = ThreadDownloadRequest(
+                thread = decodeThread(root.getJSONObject("thread")),
                 requestedAt = root.getLong("requestedAt"),
             ),
             state = state,
         )
     }
 
-    fun encodeManifest(manifest: PostDownloadManifest): String = JSONObject()
+    fun encodeManifest(manifest: ThreadDownloadManifest): String = JSONObject()
         .put("version", manifest.version)
         .put("requestedAt", manifest.requestedAt)
         .put("completedAt", manifest.completedAt)
-        .put("hasText", manifest.hasText)
-        .put("thread", encodeThread(manifest.snapshot.thread))
-        .put("post", encodePost(manifest.snapshot.post))
+        .put(
+            "snapshot",
+            JSONObject()
+                .put("thread", encodeThread(manifest.snapshot.thread))
+                .putNullable("poll", manifest.snapshot.poll?.let(::encodePoll))
+                .put(
+                    "posts",
+                    JSONArray().apply {
+                        manifest.snapshot.posts.forEach { put(encodePost(it)) }
+                    },
+                )
+                .put("capturedPageCount", manifest.snapshot.capturedPageCount)
+                .put("sourcePageSize", manifest.snapshot.sourcePageSize)
+                .put("sourceTotalPosts", manifest.snapshot.sourceTotalPosts),
+        )
         .put(
             "images",
             JSONArray().apply {
@@ -83,25 +87,28 @@ class PostDownloadManifestCodec {
         )
         .toString()
 
-    fun decodeManifest(json: String): PostDownloadManifest {
+    fun decodeManifest(json: String): ThreadDownloadManifest {
         val root = JSONObject(json)
         requireVersion(root)
-        val images = root.getJSONArray("images").objects().map { image ->
-            PostDownloadImage(
-                remoteUrl = image.getString("remoteUrl"),
-                relativePath = image.getString("relativePath"),
-                byteCount = image.getLong("byteCount"),
-                sha256 = image.getString("sha256"),
-                contentType = image.optionalString("contentType"),
-            )
-        }
-        return PostDownloadManifest(
-            snapshot = PostDownloadSnapshot(
-                thread = decodeThread(root.getJSONObject("thread")),
-                post = decodePost(root.getJSONObject("post")),
+        val snapshot = root.getJSONObject("snapshot")
+        return ThreadDownloadManifest(
+            snapshot = ThreadDownloadSnapshot(
+                thread = decodeThread(snapshot.getJSONObject("thread")),
+                poll = snapshot.optionalObject("poll")?.let(::decodePoll),
+                posts = snapshot.getJSONArray("posts").objects().map(::decodePost),
+                capturedPageCount = snapshot.getInt("capturedPageCount"),
+                sourcePageSize = snapshot.getInt("sourcePageSize"),
+                sourceTotalPosts = snapshot.getInt("sourceTotalPosts"),
             ),
-            hasText = root.getBoolean("hasText"),
-            images = images,
+            images = root.getJSONArray("images").objects().map { image ->
+                ThreadDownloadImage(
+                    remoteUrl = image.getString("remoteUrl"),
+                    relativePath = image.getString("relativePath"),
+                    byteCount = image.getLong("byteCount"),
+                    sha256 = image.getString("sha256"),
+                    contentType = image.optionalString("contentType"),
+                )
+            },
             requestedAt = root.getLong("requestedAt"),
             completedAt = root.getLong("completedAt"),
             version = root.getInt("version"),
@@ -109,8 +116,8 @@ class PostDownloadManifestCodec {
     }
 
     private fun requireVersion(root: JSONObject) {
-        require(root.getInt("version") == CURRENT_POST_DOWNLOAD_MANIFEST_VERSION) {
-            "Unsupported post download manifest version: ${root.getInt("version")}"
+        require(root.getInt("version") == CURRENT_THREAD_DOWNLOAD_MANIFEST_VERSION) {
+            "Unsupported thread download manifest version: ${root.getInt("version")}"
         }
     }
 }
@@ -260,8 +267,52 @@ private fun decodeAuthor(value: JSONObject): YamiboPostAuthor = YamiboPostAuthor
     name = value.getString("name"),
 )
 
+private fun encodePoll(poll: YamiboThreadPoll): JSONObject = JSONObject()
+    .put("canVote", poll.canVote)
+    .putNullable("expiresAt", poll.expiresAt)
+    .put("maxChoices", poll.maxChoices)
+    .put("multiple", poll.multiple)
+    .put(
+        "options",
+        JSONArray().apply {
+            poll.options.forEach { option ->
+                put(
+                    JSONObject()
+                        .putNullable("color", option.color)
+                        .put("id", option.id)
+                        .put("percentage", option.percentage)
+                        .put("text", option.text)
+                        .put("voteCount", option.voteCount),
+                )
+            }
+        },
+    )
+    .put("resultsHiddenUntilVote", poll.resultsHiddenUntilVote)
+    .put("voterCount", poll.voterCount)
+
+private fun decodePoll(value: JSONObject): YamiboThreadPoll = YamiboThreadPoll(
+    canVote = value.getBoolean("canVote"),
+    expiresAt = value.optionalLong("expiresAt"),
+    maxChoices = value.getInt("maxChoices"),
+    multiple = value.getBoolean("multiple"),
+    options = value.getJSONArray("options").objects().map { option ->
+        YamiboPollOption(
+            color = option.optionalString("color"),
+            id = option.getInt("id"),
+            percentage = option.getDouble("percentage"),
+            text = option.getString("text"),
+            voteCount = option.getInt("voteCount"),
+        )
+    },
+    resultsHiddenUntilVote = value.getBoolean("resultsHiddenUntilVote"),
+    voterCount = value.getInt("voterCount"),
+)
+
 private fun JSONObject.putNullable(key: String, value: Any?): JSONObject =
     put(key, value ?: JSONObject.NULL)
+
+private fun JSONObject.optionalObject(key: String): JSONObject? =
+    if (!has(key) || isNull(key)) null else getJSONObject(key)
 
 private fun JSONObject.optionalString(key: String): String? =
     if (!has(key) || isNull(key)) null else getString(key)
@@ -269,9 +320,8 @@ private fun JSONObject.optionalString(key: String): String? =
 private fun JSONObject.optionalInt(key: String): Int? =
     if (!has(key) || isNull(key)) null else getInt(key)
 
-private fun JSONArray.strings(): List<String> = buildList(length()) {
-    repeat(length()) { index -> add(getString(index)) }
-}
+private fun JSONObject.optionalLong(key: String): Long? =
+    if (!has(key) || isNull(key)) null else getLong(key)
 
 private fun JSONArray.objects(): List<JSONObject> = buildList(length()) {
     repeat(length()) { index -> add(getJSONObject(index)) }

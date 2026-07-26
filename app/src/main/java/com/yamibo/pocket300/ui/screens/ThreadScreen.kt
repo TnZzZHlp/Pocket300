@@ -33,6 +33,7 @@ import androidx.compose.material.icons.rounded.Download
 import androidx.compose.material.icons.rounded.DownloadDone
 import androidx.compose.material.icons.rounded.DoneAll
 import androidx.compose.material.icons.rounded.Favorite
+import androidx.compose.material.icons.rounded.OfflinePin
 import androidx.compose.material.icons.rounded.Remove
 import androidx.compose.material.icons.rounded.RemoveDone
 import androidx.compose.material.icons.rounded.Star
@@ -97,12 +98,13 @@ import com.yamibo.pocket300.api.YamiboPostRatingOption
 import com.yamibo.pocket300.api.postRatingReasonLength
 import com.yamibo.pocket300.api.YamiboThreadPoll
 import com.yamibo.pocket300.api.YamiboThreadPostsPage
+import com.yamibo.pocket300.api.YamiboThreadPostsPagination
 import com.yamibo.pocket300.data.ReadingHistoryDatabase
-import com.yamibo.pocket300.data.download.PostDownloadKey
-import com.yamibo.pocket300.data.download.PostDownloadPhase
-import com.yamibo.pocket300.data.download.PostDownloadProgress
-import com.yamibo.pocket300.data.download.PostDownloadRepository
-import com.yamibo.pocket300.data.download.PostDownloadRequest
+import com.yamibo.pocket300.data.download.DownloadedThread
+import com.yamibo.pocket300.data.download.ThreadDownloadKey
+import com.yamibo.pocket300.data.download.ThreadDownloadPhase
+import com.yamibo.pocket300.data.download.ThreadDownloadRepository
+import com.yamibo.pocket300.data.download.ThreadDownloadRequest
 import com.yamibo.pocket300.ui.LoadContent
 import com.yamibo.pocket300.ui.LoadState
 import com.yamibo.pocket300.ui.LocalReadingHistory
@@ -117,11 +119,11 @@ import com.yamibo.pocket300.ui.components.ListFooter
 import com.yamibo.pocket300.ui.components.PostAuthorAvatar
 import com.yamibo.pocket300.ui.load
 import com.yamibo.pocket300.ui.plainText
-import com.yamibo.pocket300.ui.postImageUrls
 import com.yamibo.pocket300.ui.resolvePostLink
 import com.yamibo.pocket300.ui.theme.ThreadTypography
 import com.yamibo.pocket300.ui.theme.rememberThreadTypography
 import com.yamibo.pocket300.ui.viewmodels.PostRatingResult
+import com.yamibo.pocket300.ui.viewmodels.ThreadContent
 import com.yamibo.pocket300.ui.viewmodels.ThreadViewModel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.CancellationException
@@ -138,6 +140,7 @@ internal fun ThreadScreen(
     initialPostId: Int,
     initialPage: Int,
     initialFavoriteId: Int,
+    offlineOnly: Boolean,
     sharedTransitionScope: SharedTransitionScope,
     animatedVisibilityScope: AnimatedVisibilityScope,
     onBack: () -> Unit,
@@ -148,8 +151,10 @@ internal fun ThreadScreen(
 ) {
     val viewModel: ThreadViewModel = viewModel()
     val context = LocalContext.current
-    val downloadRepository = remember(context) { PostDownloadRepository.getInstance(context) }
+    val downloadRepository = remember(context) { ThreadDownloadRepository.getInstance(context) }
     val downloadStatuses by downloadRepository.statuses.collectAsState()
+    val downloadKey = remember(threadId) { ThreadDownloadKey(threadId) }
+    val downloadStatus = downloadStatuses[downloadKey]
     val historyDatabase = remember(context) { ReadingHistoryDatabase.getInstance(context) }
     val readingHistory = LocalReadingHistory.current
     var reload by remember { mutableIntStateOf(0) }
@@ -192,7 +197,25 @@ internal fun ThreadScreen(
         derivedStateOf { shouldShowThreadTitle(listState.firstVisibleItemIndex) }
     }
     val coroutineScope = rememberCoroutineScope()
-    LaunchedEffect(threadId, reload, pageNumber, originalPosterOnly) {
+    var offlineState: LoadState<ThreadContent> by remember(threadId, offlineOnly) {
+        mutableStateOf(LoadState.Loading)
+    }
+    var offlineDownload by remember(threadId, offlineOnly) {
+        mutableStateOf<DownloadedThread?>(null)
+    }
+    val offlineUnavailableMessage = stringResource(R.string.downloads_content_unavailable_message)
+    LaunchedEffect(threadId, offlineOnly) {
+        if (offlineOnly) {
+            offlineState = load {
+                val downloaded = downloadRepository.read(downloadKey)
+                    ?: error(offlineUnavailableMessage)
+                offlineDownload = downloaded
+                downloaded.toThreadContent()
+            }
+        }
+    }
+    LaunchedEffect(threadId, reload, pageNumber, originalPosterOnly, offlineOnly) {
+        if (offlineOnly) return@LaunchedEffect
         val previous = (viewModel.state as? LoadState.Ready)?.value
         val originalPosterId = previous?.page?.thread?.author?.id
         viewModel.loadPosts(
@@ -203,7 +226,7 @@ internal fun ThreadScreen(
             ),
         )
     }
-    val state = viewModel.state
+    val state = if (offlineOnly) offlineState else viewModel.state
     val loadedContent = (state as? LoadState.Ready)?.value
     val loadedThread = loadedContent?.page?.thread
     val isRead = threadId in readingHistory
@@ -252,6 +275,8 @@ internal fun ThreadScreen(
             restoredFloor = true
         } else if (targetPostId <= 0 && pageNumber == 1) {
             pageNumber = ((targetFloor - 1) / content.page.pagination.pageSize) + 1
+        } else if (offlineOnly) {
+            restoredFloor = true
         } else {
             when (val resolved = load { api.posts.findPostPage(threadId, targetPostId) }) {
                 is LoadState.Ready -> {
@@ -300,17 +325,118 @@ internal fun ThreadScreen(
     ScreenScaffold(
         modifier = with(sharedTransitionScope) {
             Modifier.sharedBounds(
-                rememberSharedContentState("thread-$threadId"),
+                rememberSharedContentState(threadSharedContentKey(threadId)),
                 animatedVisibilityScope
             )
         },
         title = loadedThread?.subject.takeIf { showThreadTitle }.orEmpty(),
         onBack = onBack,
-        onRefresh = { viewModel.refresh(); pageNumber = 1; reload++ },
-        isRefreshing = viewModel.isRefreshing,
+        onRefresh = if (offlineOnly) {
+            null
+        } else {
+            { viewModel.refresh(); pageNumber = 1; reload++ }
+        },
+        isRefreshing = !offlineOnly && viewModel.isRefreshing,
         onTopBarDoubleClick = { coroutineScope.launch { listState.animateScrollToItem(0) } },
         actions = {
             loadedThread?.let { thread ->
+                if (offlineOnly) {
+                    Icon(
+                        Icons.Rounded.OfflinePin,
+                        contentDescription = stringResource(R.string.reader_offline),
+                        modifier = Modifier.padding(horizontal = 12.dp),
+                    )
+                } else {
+                    when (threadDownloadAction(downloadStatus?.phase)) {
+                        ThreadDownloadAction.DOWNLOAD,
+                        ThreadDownloadAction.RETRY,
+                        -> IconButton(
+                            onClick = {
+                                coroutineScope.launch {
+                                    try {
+                                        val queued = if (
+                                            downloadStatus?.phase == ThreadDownloadPhase.FAILED
+                                        ) {
+                                            downloadRepository.retry(downloadKey)
+                                        } else {
+                                            false
+                                        }
+                                        if (!queued) {
+                                            downloadRepository.enqueue(
+                                                ThreadDownloadRequest.create(thread),
+                                            )
+                                        }
+                                        Toast.makeText(
+                                            context,
+                                            downloadStartedMessage,
+                                            Toast.LENGTH_SHORT,
+                                        ).show()
+                                    } catch (error: CancellationException) {
+                                        throw error
+                                    } catch (_: Exception) {
+                                        Toast.makeText(
+                                            context,
+                                            downloadFailedMessage,
+                                            Toast.LENGTH_SHORT,
+                                        ).show()
+                                    }
+                                }
+                            },
+                        ) {
+                            Icon(
+                                Icons.Rounded.Download,
+                                contentDescription = stringResource(
+                                    if (downloadStatus?.phase == ThreadDownloadPhase.FAILED) {
+                                        R.string.thread_download_retry
+                                    } else {
+                                        R.string.thread_download_thread
+                                    },
+                                ),
+                            )
+                        }
+
+                        ThreadDownloadAction.DOWNLOADING -> {
+                            val progress = downloadStatus?.progress
+                            val description = if (
+                                downloadStatus?.phase == ThreadDownloadPhase.FETCHING_PAGES
+                            ) {
+                                stringResource(
+                                    R.string.thread_download_pages_progress,
+                                    progress?.completedPages ?: 0,
+                                    progress?.totalPages ?: 0,
+                                )
+                            } else {
+                                stringResource(
+                                    R.string.thread_download_images_progress,
+                                    progress?.completedImages ?: 0,
+                                    progress?.totalImages ?: 0,
+                                )
+                            }
+                            IconButton(
+                                onClick = {},
+                                enabled = false,
+                                modifier = Modifier.semantics {
+                                    contentDescription = description
+                                },
+                            ) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(20.dp),
+                                    strokeWidth = 2.dp,
+                                )
+                            }
+                        }
+
+                        ThreadDownloadAction.DOWNLOADED -> IconButton(
+                            onClick = {},
+                            enabled = false,
+                        ) {
+                            Icon(
+                                Icons.Rounded.DownloadDone,
+                                contentDescription = stringResource(R.string.thread_downloaded),
+                            )
+                        }
+                    }
+                }
                 val action = threadReadAction(isRead)
                 IconButton(
                     onClick = {
@@ -353,7 +479,7 @@ internal fun ThreadScreen(
             }
         },
         bottomBar = {
-            loadedContent?.let { content ->
+            loadedContent?.takeUnless { offlineOnly }?.let { content ->
                 ThreadReplyBar(
                     draft = replyDraft,
                     submitting = replySubmitting,
@@ -422,11 +548,13 @@ internal fun ThreadScreen(
     ) { padding ->
         LoadContent(state, padding) { content ->
             val page = content.page
-            AutoLoadNextPage(
-                listState = listState,
-                hasNextPage = page.pagination.hasNextPage && !content.isLoadingMore,
-                onLoadMore = { pageNumber = page.pagination.page + 1 },
-            )
+            if (!offlineOnly) {
+                AutoLoadNextPage(
+                    listState = listState,
+                    hasNextPage = page.pagination.hasNextPage && !content.isLoadingMore,
+                    onLoadMore = { pageNumber = page.pagination.page + 1 },
+                )
+            }
             LazyColumn(
                 state = listState,
                 contentPadding = PaddingValues(12.dp),
@@ -438,6 +566,7 @@ internal fun ThreadScreen(
                         isFavorited = isFavorited,
                         favoriteBusy = favoriteBusy,
                         originalPosterOnly = originalPosterOnly,
+                        offlineOnly = offlineOnly,
                         typography = threadTypography,
                         onFavorite = {
                             if (!favoriteBusy) {
@@ -492,7 +621,7 @@ internal fun ThreadScreen(
                 page.poll?.let { poll ->
                     item(key = "poll", contentType = "poll") {
                         PollCard(
-                            poll = poll,
+                            poll = if (offlineOnly) poll.copy(canVote = false) else poll,
                             submitting = pollSubmitting,
                             typography = threadTypography,
                             onVote = { optionIds ->
@@ -540,15 +669,14 @@ internal fun ThreadScreen(
                     }
                 }
                 items(content.posts, key = { it.id }, contentType = { "post" }) { post ->
-                    val downloadStatus = downloadStatuses[
-                        PostDownloadKey(post.threadId, post.id)
-                    ]
                     PostCard(
                         post = post,
                         typography = threadTypography,
                         onForum = onForum,
                         onRatings = { onRatings(post.threadId, post.id) },
-                        commentEnabled = page.canComment &&
+                        networkActionsEnabled = !offlineOnly,
+                        commentEnabled = !offlineOnly &&
+                            page.canComment &&
                             !page.thread.isClosed &&
                             !commentSubmitting,
                         onComment = {
@@ -559,72 +687,68 @@ internal fun ThreadScreen(
                             commentDraft = ""
                         },
                         onRate = { viewModel.openPostRating(post) },
-                        downloadPhase = downloadStatus?.phase,
-                        downloadProgress = downloadStatus?.progress,
-                        onDownload = {
-                            val attachmentUrls = post.attachments
-                                .filter { it.isImage }
-                                .map { it.url }
-                            coroutineScope.launch {
-                                try {
-                                    downloadRepository.enqueue(
-                                        PostDownloadRequest.create(
-                                            thread = page.thread,
-                                            post = post,
-                                            remoteImageUrls = postImageUrls(
-                                                post.html,
-                                                attachmentUrls,
-                                            ),
-                                        ),
-                                    )
-                                    Toast.makeText(
-                                        context,
-                                        downloadStartedMessage,
-                                        Toast.LENGTH_SHORT,
-                                    ).show()
-                                } catch (error: CancellationException) {
-                                    throw error
-                                } catch (_: Exception) {
-                                    Toast.makeText(
-                                        context,
-                                        downloadFailedMessage,
-                                        Toast.LENGTH_SHORT,
-                                    ).show()
-                                }
-                            }
-                        },
                         onReader = {
                             val postPage = ((post.position - 1) / page.pagination.pageSize) + 1
                             onReader(
-                                ReaderContent(thread = page.thread, post = post),
+                                ReaderContent(
+                                    thread = page.thread,
+                                    post = post,
+                                    localImageUrls = offlineDownload
+                                        ?.localImageUris
+                                        ?: downloadStatus
+                                        ?.completed
+                                        ?.localImageUris
+                                        .orEmpty(),
+                                    source = if (offlineOnly) {
+                                        ReaderContentSource.DOWNLOAD
+                                    } else {
+                                        ReaderContentSource.NETWORK
+                                    },
+                                ),
                                 postPage.coerceAtLeast(1),
                             )
                         },
                         onThread = { target ->
-                            if (target.id == threadId && target.postId != null) {
+                            if (target.id == threadId) {
                                 originalPosterOnly = false
-                                targetFloor = 0
-                                targetPostId = target.postId
-                                restoredFloor = false
-                                pageNumber = target.page?.coerceAtLeast(1) ?: 1
+                                if (target.postId != null) {
+                                    targetFloor = 0
+                                    targetPostId = target.postId
+                                    restoredFloor = false
+                                    pageNumber = target.page?.coerceAtLeast(1) ?: 1
+                                } else {
+                                    targetFloor = 0
+                                    targetPostId = 0
+                                    restoredFloor = true
+                                    coroutineScope.launch { listState.animateScrollToItem(0) }
+                                }
                             } else {
                                 onThread(target)
                             }
                         },
+                        localImageUrls = offlineDownload
+                            ?.localImageUris
+                            ?: downloadStatus
+                            ?.completed
+                            ?.localImageUris
+                            .orEmpty(),
+                        allowRemoteImages = !offlineOnly,
                     )
                 }
                 item {
                     ListFooter(
                         count = content.posts.size,
-                        hasNextPage = page.pagination.hasNextPage,
+                        hasNextPage = !offlineOnly && page.pagination.hasNextPage,
                         isLoadingMore = content.isLoadingMore,
-                        onLoadMore = { pageNumber = page.pagination.page + 1 },
+                        onLoadMore = {
+                            if (!offlineOnly) pageNumber = page.pagination.page + 1
+                        },
                     )
                 }
             }
         }
     }
-    if (commentTargetPostId > 0) {
+    if (!offlineOnly && commentTargetPostId > 0) {
         PostCommentDialog(
             authorName = commentTargetAuthorName,
             draft = commentDraft,
@@ -704,7 +828,7 @@ internal fun ThreadScreen(
             },
         )
     }
-    viewModel.postRatingDialogState?.let { ratingState ->
+    viewModel.postRatingDialogState?.takeUnless { offlineOnly }?.let { ratingState ->
         PostRatingDialog(
             authorName = ratingState.target.authorName,
             formState = ratingState.formState,
@@ -1310,14 +1434,14 @@ private fun PostCard(
     typography: ThreadTypography,
     onForum: (Int) -> Unit,
     onRatings: () -> Unit,
+    networkActionsEnabled: Boolean,
     commentEnabled: Boolean,
     onComment: () -> Unit,
     onRate: () -> Unit,
-    downloadPhase: PostDownloadPhase?,
-    downloadProgress: PostDownloadProgress?,
-    onDownload: () -> Unit,
     onReader: () -> Unit,
     onThread: (PostLinkTarget.Thread) -> Unit,
+    localImageUrls: Map<String, String>,
+    allowRemoteImages: Boolean,
 ) {
     val uriHandler = LocalUriHandler.current
     val openLink: (String) -> Unit = { url ->
@@ -1335,7 +1459,11 @@ private fun PostCard(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
-                    PostAuthorAvatar(post.author, size = 40.dp)
+                    PostAuthorAvatar(
+                        author = post.author,
+                        size = 40.dp,
+                        allowRemoteImage = allowRemoteImages,
+                    )
                     Column(
                         modifier = Modifier.weight(1f),
                         verticalArrangement = Arrangement.spacedBy(2.dp),
@@ -1371,87 +1499,25 @@ private fun PostCard(
                     horizontalArrangement = Arrangement.End,
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    IconButton(onClick = onComment, enabled = commentEnabled) {
-                        Icon(
-                            Icons.AutoMirrored.Rounded.Comment,
-                            contentDescription = if (post.isOriginalPost) {
-                                stringResource(R.string.thread_comment_original_post_action)
-                            } else {
-                                stringResource(R.string.thread_comment_post_action, post.number)
-                            },
-                        )
-                    }
-                    IconButton(onClick = onRate) {
-                        Icon(
-                            Icons.Rounded.Star,
-                            contentDescription = if (post.isOriginalPost) {
-                                stringResource(R.string.thread_rating_original_post_action)
-                            } else {
-                                stringResource(R.string.thread_rating_post_action, post.number)
-                            },
-                        )
-                    }
-                    when (postDownloadCardAction(downloadPhase)) {
-                        PostDownloadCardAction.DOWNLOAD,
-                        PostDownloadCardAction.RETRY,
-                        -> IconButton(onClick = onDownload) {
+                    if (networkActionsEnabled) {
+                        IconButton(onClick = onComment, enabled = commentEnabled) {
                             Icon(
-                                Icons.Rounded.Download,
-                                contentDescription = when {
-                                    downloadPhase == PostDownloadPhase.FAILED ->
-                                        stringResource(R.string.thread_download_retry)
-                                    post.isOriginalPost ->
-                                        stringResource(R.string.thread_download_post_original)
-                                    else -> stringResource(
-                                        R.string.thread_download_post_floor,
-                                        post.number,
-                                    )
+                                Icons.AutoMirrored.Rounded.Comment,
+                                contentDescription = if (post.isOriginalPost) {
+                                    stringResource(R.string.thread_comment_original_post_action)
+                                } else {
+                                    stringResource(R.string.thread_comment_post_action, post.number)
                                 },
                             )
                         }
-
-                        PostDownloadCardAction.DOWNLOADING -> {
-                            val description = when {
-                                downloadProgress != null &&
-                                    downloadProgress.totalImages > 0 &&
-                                    post.isOriginalPost -> stringResource(
-                                        R.string.thread_download_progress_original,
-                                        downloadProgress.completedImages,
-                                        downloadProgress.totalImages,
-                                    )
-                                downloadProgress != null &&
-                                    downloadProgress.totalImages > 0 -> stringResource(
-                                        R.string.thread_download_progress_floor,
-                                        post.number,
-                                        downloadProgress.completedImages,
-                                        downloadProgress.totalImages,
-                                    )
-                                post.isOriginalPost -> stringResource(
-                                    R.string.thread_download_saving_original,
-                                )
-                                else -> stringResource(
-                                    R.string.thread_download_saving_floor,
-                                    post.number,
-                                )
-                            }
-                            IconButton(
-                                onClick = {},
-                                enabled = false,
-                                modifier = Modifier.semantics {
-                                    contentDescription = description
-                                },
-                            ) {
-                                CircularProgressIndicator(
-                                    modifier = Modifier.size(20.dp),
-                                    strokeWidth = 2.dp,
-                                )
-                            }
-                        }
-
-                        PostDownloadCardAction.DOWNLOADED -> IconButton(onClick = onReader) {
+                        IconButton(onClick = onRate) {
                             Icon(
-                                Icons.Rounded.DownloadDone,
-                                contentDescription = stringResource(R.string.thread_downloaded),
+                                Icons.Rounded.Star,
+                                contentDescription = if (post.isOriginalPost) {
+                                    stringResource(R.string.thread_rating_original_post_action)
+                                } else {
+                                    stringResource(R.string.thread_rating_post_action, post.number)
+                                },
                             )
                         }
                     }
@@ -1469,6 +1535,8 @@ private fun PostCard(
                 attachmentUrls = post.attachments.filter { it.isImage }.map { it.url },
                 onLink = openLink,
                 textStyle = typography.body,
+                localImageUrls = localImageUrls,
+                allowRemoteImages = allowRemoteImages,
             )
             if (shouldShowRatingsSummary(post.ratingCount)) {
                 Surface(
@@ -1486,7 +1554,10 @@ private fun PostCard(
                             stringResource(R.string.rating_count, post.ratingCount),
                             style = typography.heading,
                         )
-                        TextButton(onClick = onRatings) {
+                        TextButton(
+                            onClick = onRatings,
+                            enabled = networkActionsEnabled,
+                        ) {
                             Text(
                                 stringResource(R.string.rating_view_all, post.ratingCount),
                                 style = typography.action,
@@ -1517,24 +1588,44 @@ private fun PostCard(
     }
 }
 
-internal enum class PostDownloadCardAction {
+internal enum class ThreadDownloadAction {
     DOWNLOAD,
     DOWNLOADING,
     RETRY,
     DOWNLOADED,
 }
 
-internal fun postDownloadCardAction(phase: PostDownloadPhase?): PostDownloadCardAction =
+internal fun threadDownloadAction(phase: ThreadDownloadPhase?): ThreadDownloadAction =
     when (phase) {
-        null -> PostDownloadCardAction.DOWNLOAD
-        PostDownloadPhase.QUEUED,
-        PostDownloadPhase.DOWNLOADING,
-        -> PostDownloadCardAction.DOWNLOADING
+        null -> ThreadDownloadAction.DOWNLOAD
+        ThreadDownloadPhase.QUEUED,
+        ThreadDownloadPhase.FETCHING_PAGES,
+        ThreadDownloadPhase.DOWNLOADING_IMAGES,
+        -> ThreadDownloadAction.DOWNLOADING
 
-        PostDownloadPhase.FAILED -> PostDownloadCardAction.RETRY
-        PostDownloadPhase.COMPLETED -> PostDownloadCardAction.DOWNLOADED
+        ThreadDownloadPhase.FAILED -> ThreadDownloadAction.RETRY
+        ThreadDownloadPhase.COMPLETED -> ThreadDownloadAction.DOWNLOADED
     }
 
+private fun DownloadedThread.toThreadContent(): ThreadContent {
+    val snapshot = snapshot
+    return ThreadContent(
+        page = YamiboThreadPostsPage(
+            canComment = false,
+            pagination = YamiboThreadPostsPagination(
+                hasNextPage = false,
+                page = 1,
+                pageSize = snapshot.sourcePageSize.coerceAtLeast(1),
+                totalPages = snapshot.capturedPageCount.coerceAtLeast(1),
+                totalPosts = snapshot.sourceTotalPosts.coerceAtLeast(snapshot.posts.size),
+            ),
+            poll = snapshot.poll,
+            posts = snapshot.posts,
+            thread = snapshot.thread,
+        ),
+        posts = snapshot.posts,
+    )
+}
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -1544,6 +1635,7 @@ private fun ThreadHero(
     isFavorited: Boolean,
     favoriteBusy: Boolean,
     originalPosterOnly: Boolean,
+    offlineOnly: Boolean,
     onFavorite: () -> Unit,
     onOriginalPosterOnlyChange: (Boolean) -> Unit,
 ) {
@@ -1563,25 +1655,38 @@ private fun ThreadHero(
                         overflow = TextOverflow.Ellipsis,
                     )
                 }
-                IconButton(onClick = onFavorite, enabled = !favoriteBusy) {
-                    if (favoriteBusy) {
-                        CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
-                    } else {
-                        Icon(
-                            imageVector = if (isFavorited) {
-                                Icons.Rounded.Favorite
-                            } else {
-                                Icons.Outlined.FavoriteBorder
-                            },
-                            contentDescription = stringResource(
-                                if (isFavorited) R.string.reader_unfavorite else R.string.reader_favorite
-                            ),
-                            tint = if (isFavorited) {
-                                MaterialTheme.colorScheme.primary
-                            } else {
-                                MaterialTheme.colorScheme.onSurfaceVariant
-                            },
+                if (offlineOnly) {
+                    Badge {
+                        Text(
+                            stringResource(R.string.reader_offline),
+                            style = typography.metadata,
                         )
+                    }
+                } else {
+                    IconButton(onClick = onFavorite, enabled = !favoriteBusy) {
+                        if (favoriteBusy) {
+                            CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
+                        } else {
+                            Icon(
+                                imageVector = if (isFavorited) {
+                                    Icons.Rounded.Favorite
+                                } else {
+                                    Icons.Outlined.FavoriteBorder
+                                },
+                                contentDescription = stringResource(
+                                    if (isFavorited) {
+                                        R.string.reader_unfavorite
+                                    } else {
+                                        R.string.reader_favorite
+                                    },
+                                ),
+                                tint = if (isFavorited) {
+                                    MaterialTheme.colorScheme.primary
+                                } else {
+                                    MaterialTheme.colorScheme.onSurfaceVariant
+                                },
+                            )
+                        }
                     }
                 }
             }
@@ -1589,7 +1694,11 @@ private fun ThreadHero(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                PostAuthorAvatar(thread.author, size = 32.dp)
+                PostAuthorAvatar(
+                    author = thread.author,
+                    size = 32.dp,
+                    allowRemoteImage = !offlineOnly,
+                )
                 Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                     SelectionContainer {
                         Text(
@@ -1608,17 +1717,19 @@ private fun ThreadHero(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalArrangement = Arrangement.spacedBy(4.dp),
             ) {
-                FilterChip(
-                    selected = originalPosterOnly,
-                    onClick = { onOriginalPosterOnlyChange(!originalPosterOnly) },
-                    label = {
-                        Text(
-                            stringResource(R.string.thread_original_poster_only),
-                            style = typography.action,
-                        )
-                    },
-                    enabled = thread.author.id != null,
-                )
+                if (!offlineOnly) {
+                    FilterChip(
+                        selected = originalPosterOnly,
+                        onClick = { onOriginalPosterOnlyChange(!originalPosterOnly) },
+                        label = {
+                            Text(
+                                stringResource(R.string.thread_original_poster_only),
+                                style = typography.action,
+                            )
+                        },
+                        enabled = thread.author.id != null,
+                    )
+                }
                 if (thread.isClosed) Badge { Text("已关闭", style = typography.metadata) }
                 if (thread.price > 0) Badge {
                     Text("${thread.price} 积分", style = typography.metadata)

@@ -77,11 +77,11 @@ import com.yamibo.pocket300.R
 import com.yamibo.pocket300.api.GetThreadPostsInput
 import com.yamibo.pocket300.api.YamiboPost
 import com.yamibo.pocket300.api.YamiboThreadDetails
-import com.yamibo.pocket300.data.download.DownloadedPost
-import com.yamibo.pocket300.data.download.PostDownloadKey
-import com.yamibo.pocket300.data.download.PostDownloadPhase
-import com.yamibo.pocket300.data.download.PostDownloadRepository
-import com.yamibo.pocket300.data.download.PostDownloadRequest
+import com.yamibo.pocket300.data.download.DownloadedThread
+import com.yamibo.pocket300.data.download.ThreadDownloadKey
+import com.yamibo.pocket300.data.download.ThreadDownloadPhase
+import com.yamibo.pocket300.data.download.ThreadDownloadRepository
+import com.yamibo.pocket300.data.download.ThreadDownloadRequest
 import com.yamibo.pocket300.ui.EmptyState
 import com.yamibo.pocket300.ui.LoadContent
 import com.yamibo.pocket300.ui.LoadState
@@ -99,7 +99,7 @@ import com.yamibo.pocket300.ui.reader.ImageReaderPreferences
 import com.yamibo.pocket300.ui.reader.ImageReaderPreferencesStore
 import com.yamibo.pocket300.ui.reader.ImageReaderSettingsSheet
 import com.yamibo.pocket300.ui.reader.ImageReaderScaleType
-import com.yamibo.pocket300.ui.resolvePostImageUrl
+import com.yamibo.pocket300.ui.resolvePostImageSource
 import com.yamibo.pocket300.ui.resolvePostLink
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
@@ -126,9 +126,9 @@ internal fun ReaderScreen(
     onThread: (PostLinkTarget.Thread) -> Unit,
 ) {
     val context = LocalContext.current
-    val downloadRepository = remember(context) { PostDownloadRepository.getInstance(context) }
+    val downloadRepository = remember(context) { ThreadDownloadRepository.getInstance(context) }
     val downloadStatuses by downloadRepository.statuses.collectAsState()
-    val downloadKey = remember(threadId, postId) { PostDownloadKey(threadId, postId) }
+    val downloadKey = remember(threadId) { ThreadDownloadKey(threadId) }
     val downloadStatus = downloadStatuses[downloadKey]
     val preferencesStore = remember(context) { ReaderPreferencesStore(context) }
     val imagePreferencesStore = remember(context) { ImageReaderPreferencesStore(context) }
@@ -195,7 +195,7 @@ internal fun ReaderScreen(
                 offlineOnly = offlineOnly,
                 offlineUnavailableMessage = offlineUnavailableMessage,
                 loadDownloaded = {
-                    downloadRepository.read(downloadKey)?.toReaderContent()
+                    downloadRepository.read(downloadKey)?.toReaderContent(postId)
                 },
                 loadNetwork = {
                     var page = api.posts.getThreadPosts(
@@ -219,7 +219,7 @@ internal fun ReaderScreen(
     LaunchedEffect(downloadStatus?.completed, state is LoadState.Ready) {
         val current = (state as? LoadState.Ready)?.value ?: return@LaunchedEffect
         if (current.source == ReaderContentSource.NETWORK) {
-            val downloaded = downloadStatus?.completed?.toReaderContent()
+            val downloaded = downloadStatus?.completed?.toReaderContent(postId)
             val updated = if (downloaded == null) {
                 current.copy(localImageUrls = emptyMap())
             } else {
@@ -357,24 +357,35 @@ internal fun ReaderScreen(
                             val content = (state as? LoadState.Ready)?.value
                             val downloadProgressDescription = downloadStatus
                                 ?.takeIf {
-                                    it.phase == PostDownloadPhase.QUEUED ||
-                                        it.phase == PostDownloadPhase.DOWNLOADING
+                                    it.phase == ThreadDownloadPhase.QUEUED ||
+                                        it.phase == ThreadDownloadPhase.FETCHING_PAGES ||
+                                        it.phase == ThreadDownloadPhase.DOWNLOADING_IMAGES
                                 }
                                 ?.let {
-                                    if (it.progress.totalImages > 0) {
-                                        stringResource(
-                                            R.string.reader_download_progress,
-                                            it.progress.completedImages,
-                                            it.progress.totalImages,
+                                    when (it.phase) {
+                                        ThreadDownloadPhase.FETCHING_PAGES -> stringResource(
+                                            R.string.thread_download_pages_progress,
+                                            it.progress.completedPages,
+                                            it.progress.totalPages,
                                         )
-                                    } else {
-                                        stringResource(R.string.reader_download_saving)
+                                        ThreadDownloadPhase.DOWNLOADING_IMAGES ->
+                                            if (it.progress.totalImages > 0) {
+                                                stringResource(
+                                                    R.string.reader_download_progress,
+                                                    it.progress.completedImages,
+                                                    it.progress.totalImages,
+                                                )
+                                            } else {
+                                                stringResource(R.string.reader_download_saving)
+                                            }
+                                        else -> stringResource(R.string.reader_download_saving)
                                     }
                                 }
                             if (content != null) {
                                 when (downloadStatus?.phase) {
-                                    PostDownloadPhase.QUEUED,
-                                    PostDownloadPhase.DOWNLOADING,
+                                    ThreadDownloadPhase.QUEUED,
+                                    ThreadDownloadPhase.FETCHING_PAGES,
+                                    ThreadDownloadPhase.DOWNLOADING_IMAGES,
                                     -> IconButton(onClick = {}, enabled = false) {
                                         CircularProgressIndicator(
                                             modifier = Modifier
@@ -387,7 +398,7 @@ internal fun ReaderScreen(
                                         )
                                     }
 
-                                    PostDownloadPhase.COMPLETED -> IconButton(
+                                    ThreadDownloadPhase.COMPLETED -> IconButton(
                                         onClick = { deleteDownloadVisible = true },
                                     ) {
                                         Icon(
@@ -396,26 +407,27 @@ internal fun ReaderScreen(
                                         )
                                     }
 
-                                    PostDownloadPhase.FAILED,
+                                    ThreadDownloadPhase.FAILED,
                                     null,
                                     -> IconButton(
                                         onClick = {
-                                            val attachmentUrls = content.post.attachments
-                                                .filter { it.isImage }
-                                                .map { it.url }
-                                            val remoteImages = postImageUrls(
-                                                content.post.html,
-                                                attachmentUrls,
-                                            )
                                             coroutineScope.launch {
                                                 try {
-                                                    downloadRepository.enqueue(
-                                                        PostDownloadRequest.create(
-                                                            thread = content.thread,
-                                                            post = content.post,
-                                                            remoteImageUrls = remoteImages,
-                                                        ),
-                                                    )
+                                                    val queued = if (
+                                                        downloadStatus?.phase ==
+                                                        ThreadDownloadPhase.FAILED
+                                                    ) {
+                                                        downloadRepository.retry(downloadKey)
+                                                    } else {
+                                                        false
+                                                    }
+                                                    if (!queued) {
+                                                        downloadRepository.enqueue(
+                                                            ThreadDownloadRequest.create(
+                                                                thread = content.thread,
+                                                            ),
+                                                        )
+                                                    }
                                                     Toast.makeText(
                                                         context,
                                                         downloadStartedMessage,
@@ -448,6 +460,7 @@ internal fun ReaderScreen(
                                 resolveReaderImageUrls(
                                     postImageUrls(it.post.html, attachmentUrls),
                                     it.localImageUrls,
+                                    allowRemoteImages = it.source != ReaderContentSource.DOWNLOAD,
                                 )
                             }.orEmpty()
                             val effectiveMode = if (images.isNotEmpty()) readerMode else ReaderMode.TEXT
@@ -509,6 +522,7 @@ internal fun ReaderScreen(
                             resolveReaderImageUrls(
                                 postImageUrls(it.post.html, attachmentUrls),
                                 it.localImageUrls,
+                                allowRemoteImages = it.source != ReaderContentSource.DOWNLOAD,
                             ).size
                         } ?: 0
                         if (readerMode == ReaderMode.IMAGES && imageCount > 0) {
@@ -565,6 +579,7 @@ internal fun ReaderScreen(
                     resolveReaderImageUrls(
                         postImageUrls(content.post.html, attachmentUrls),
                         content.localImageUrls,
+                        allowRemoteImages = content.source != ReaderContentSource.DOWNLOAD,
                     )
                 }
                 if (readerMode == ReaderMode.IMAGES && images.isNotEmpty()) {
@@ -677,11 +692,17 @@ private fun ReaderContent.withDownloadedImages(downloaded: ReaderContent?): Read
 internal fun resolveReaderImageUrls(
     remoteImageUrls: List<String>,
     localImageUrls: Map<String, String>,
-): List<String> = remoteImageUrls.map { resolvePostImageUrl(it, localImageUrls) }
+    allowRemoteImages: Boolean = true,
+): List<String> = remoteImageUrls.mapNotNull {
+    resolvePostImageSource(it, localImageUrls, allowRemoteImages)
+}
 
-internal fun DownloadedPost.toReaderContent(): ReaderContent = ReaderContent(
-    thread = snapshot.thread,
-    post = snapshot.post,
-    localImageUrls = localImageUris,
-    source = ReaderContentSource.DOWNLOAD,
-)
+internal fun DownloadedThread.toReaderContent(postId: Int): ReaderContent? =
+    findPost(postId)?.let { post ->
+        ReaderContent(
+            thread = snapshot.thread,
+            post = post,
+            localImageUrls = localImageUris,
+            source = ReaderContentSource.DOWNLOAD,
+        )
+    }

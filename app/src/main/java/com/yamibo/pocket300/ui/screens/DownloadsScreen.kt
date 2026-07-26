@@ -3,6 +3,10 @@ package com.yamibo.pocket300.ui.screens
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.AnimatedVisibilityScope
+import androidx.compose.animation.ExperimentalSharedTransitionApi
+import androidx.compose.animation.SharedTransitionScope
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -40,16 +44,18 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringArrayResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.yamibo.pocket300.R
-import com.yamibo.pocket300.data.download.DownloadedPost
-import com.yamibo.pocket300.data.download.PostDownloadKey
-import com.yamibo.pocket300.data.download.PostDownloadPhase
-import com.yamibo.pocket300.data.download.PostDownloadRepository
-import com.yamibo.pocket300.data.download.PostDownloadStatus
+import com.yamibo.pocket300.data.download.DownloadedThread
+import com.yamibo.pocket300.data.download.ThreadDownloadKey
+import com.yamibo.pocket300.data.download.ThreadDownloadPhase
+import com.yamibo.pocket300.data.download.ThreadDownloadRepository
+import com.yamibo.pocket300.data.download.ThreadDownloadStatus
 import com.yamibo.pocket300.ui.EmptyState
 import com.yamibo.pocket300.ui.Loading
 import com.yamibo.pocket300.ui.ScreenScaffold
@@ -65,28 +71,30 @@ private val downloadSearchTermSeparator = Regex("\\s+")
 private val defaultDownloadSizeUnits = arrayOf("KB", "MB", "GB", "TB")
 
 internal data class DownloadListItem(
-    val key: PostDownloadKey,
+    val key: ThreadDownloadKey,
     val subject: String,
     val author: String,
-    val floor: Int,
-    val isOriginalPost: Boolean,
-    val hasText: Boolean,
+    val postCount: Int,
     val imageCount: Int,
+    val completedPages: Int,
+    val totalPages: Int,
     val completedImages: Int,
     val sizeBytes: Long,
     val downloadedAt: Long,
-    val phase: PostDownloadPhase,
+    val phase: ThreadDownloadPhase,
 )
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalSharedTransitionApi::class)
 @Composable
 internal fun DownloadsScreen(
+    sharedTransitionScope: SharedTransitionScope,
+    animatedVisibilityScope: AnimatedVisibilityScope,
     onBack: () -> Unit,
-    onOpen: (DownloadedPost) -> Unit,
+    onOpen: (DownloadedThread) -> Unit,
 ) {
     val context = LocalContext.current
     val repository = remember(context.applicationContext) {
-        PostDownloadRepository.getInstance(context.applicationContext)
+        ThreadDownloadRepository.getInstance(context.applicationContext)
     }
     val statuses by repository.statuses.collectAsState()
     val coroutineScope = rememberCoroutineScope()
@@ -112,17 +120,14 @@ internal fun DownloadsScreen(
     }
 
     val allItems = remember(statuses) {
-        statuses.values.map(PostDownloadStatus::toDownloadListItem)
+        statuses.values.map(ThreadDownloadStatus::toDownloadListItem)
     }
     val downloadsByKey = remember(statuses) {
-        statuses.values.mapNotNull(PostDownloadStatus::completed)
-            .associateBy(DownloadedPost::key)
+        statuses.values.mapNotNull(ThreadDownloadStatus::completed)
+            .associateBy(DownloadedThread::key)
     }
     val visibleItems = remember(allItems, searchQuery) {
-        filterAndSortDownloads(
-            allItems,
-            searchQuery,
-        )
+        filterAndSortDownloads(allItems, searchQuery)
     }
 
     LaunchedEffect(searchQuery) {
@@ -174,9 +179,7 @@ internal fun DownloadsScreen(
             }
             Box(Modifier.fillMaxWidth().weight(1f)) {
                 when {
-                    !initialized -> {
-                        Loading()
-                    }
+                    !initialized -> Loading()
 
                     allItems.isEmpty() -> {
                         EmptyState(
@@ -203,10 +206,24 @@ internal fun DownloadsScreen(
                         ) {
                             items(
                                 items = visibleItems,
-                                key = { "${it.key.threadId}-${it.key.postId}" },
+                                key = { it.key.threadId },
                             ) { item ->
+                                val completed = item.phase == ThreadDownloadPhase.COMPLETED
+                                val cardModifier = if (completed) {
+                                    with(sharedTransitionScope) {
+                                        Modifier.sharedBounds(
+                                            rememberSharedContentState(
+                                                threadSharedContentKey(item.key.threadId),
+                                            ),
+                                            animatedVisibilityScope,
+                                        )
+                                    }
+                                } else {
+                                    Modifier
+                                }
                                 DownloadCard(
                                     item = item,
+                                    modifier = cardModifier,
                                     onOpen = {
                                         downloadsByKey[item.key]?.let(onOpen)
                                     },
@@ -242,7 +259,7 @@ internal fun DownloadsScreen(
     }
 
     pendingDelete?.let { item ->
-        val isCompleted = item.phase == PostDownloadPhase.COMPLETED
+        val isCompleted = item.phase == ThreadDownloadPhase.COMPLETED
         AlertDialog(
             onDismissRequest = { pendingDelete = null },
             title = {
@@ -291,7 +308,15 @@ internal fun DownloadsScreen(
                         }
                     },
                 ) {
-                    Text(stringResource(R.string.downloads_confirm_delete))
+                    Text(
+                        stringResource(
+                            if (isCompleted) {
+                                R.string.downloads_confirm_delete
+                            } else {
+                                R.string.downloads_confirm_remove
+                            },
+                        ),
+                    )
                 }
             },
         )
@@ -344,21 +369,11 @@ internal fun DownloadsScreen(
 @Composable
 private fun DownloadCard(
     item: DownloadListItem,
+    modifier: Modifier,
     onOpen: () -> Unit,
     onDelete: () -> Unit,
     onRetry: () -> Unit,
 ) {
-    val contentType = when {
-        item.imageCount > 0 && item.hasText ->
-            stringResource(R.string.downloads_mixed_post, item.imageCount)
-        item.imageCount > 0 -> stringResource(R.string.downloads_image_post, item.imageCount)
-        else -> stringResource(R.string.downloads_text_post)
-    }
-    val floor = if (item.isOriginalPost) {
-        stringResource(R.string.reader_original_post)
-    } else {
-        stringResource(R.string.reader_floor, item.floor)
-    }
     val timePattern = stringResource(R.string.downloads_time_pattern)
     val byteFormat = stringResource(R.string.downloads_size_bytes_format)
     val sizeValueFormat = stringResource(R.string.downloads_size_value_format)
@@ -366,21 +381,17 @@ private fun DownloadCard(
     val eventTime = remember(item.downloadedAt, timePattern) {
         formatDownloadTime(item.downloadedAt, pattern = timePattern)
     }
-    val openDescription = stringResource(R.string.downloads_open)
-    val completed = item.phase == PostDownloadPhase.COMPLETED
-    val cardModifier = if (completed) {
+    val completed = item.phase == ThreadDownloadPhase.COMPLETED
+    val openDescription = stringResource(R.string.downloads_open_item, item.subject)
+    val actionModifier = if (completed) {
         Modifier
-            .fillMaxWidth()
+            .clickable(onClick = onOpen)
             .semantics { contentDescription = openDescription }
     } else {
-        Modifier.fillMaxWidth()
+        Modifier
     }
 
-    Card(
-        onClick = onOpen,
-        enabled = completed,
-        modifier = cardModifier,
-    ) {
+    Card(modifier = modifier.fillMaxWidth().then(actionModifier)) {
         Column(
             Modifier.padding(start = 16.dp, top = 16.dp, bottom = 16.dp, end = 8.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -396,7 +407,7 @@ private fun DownloadCard(
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                 )
-                if (item.phase == PostDownloadPhase.FAILED) {
+                if (item.phase == ThreadDownloadPhase.FAILED) {
                     IconButton(onClick = onRetry) {
                         Icon(
                             Icons.Rounded.Refresh,
@@ -407,49 +418,48 @@ private fun DownloadCard(
                 IconButton(onClick = onDelete) {
                     Icon(
                         Icons.Rounded.Delete,
-                        contentDescription = stringResource(R.string.downloads_delete),
+                        contentDescription = stringResource(
+                            if (completed) {
+                                R.string.downloads_delete
+                            } else {
+                                R.string.downloads_cancel_download
+                            },
+                        ),
                     )
                 }
             }
             Text(
                 text = stringResource(
                     R.string.downloads_item_metadata,
-                    floor,
                     item.author,
-                    contentType,
+                    item.postCount,
+                    item.imageCount,
                 ),
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Text(
-                text = when (item.phase) {
-                    PostDownloadPhase.QUEUED -> stringResource(R.string.downloads_status_queued)
-                    PostDownloadPhase.DOWNLOADING -> {
-                        if (item.imageCount > 0) {
-                            stringResource(
-                                R.string.downloads_status_downloading,
-                                item.completedImages,
-                                item.imageCount,
-                            )
-                        } else {
-                            stringResource(R.string.downloads_status_saving)
-                        }
-                    }
-                    PostDownloadPhase.FAILED -> stringResource(R.string.downloads_status_failed)
-                    PostDownloadPhase.COMPLETED -> formatDownloadSize(
-                        sizeBytes = item.sizeBytes,
-                        byteFormat = byteFormat,
-                        valueFormat = sizeValueFormat,
-                        units = sizeUnits,
-                    )
-                },
+                text = downloadStatusText(item),
+                modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite },
                 style = MaterialTheme.typography.bodySmall,
-                color = if (item.phase == PostDownloadPhase.FAILED) {
+                color = if (item.phase == ThreadDownloadPhase.FAILED) {
                     MaterialTheme.colorScheme.error
                 } else {
                     MaterialTheme.colorScheme.onSurfaceVariant
                 },
             )
+            if (completed) {
+                Text(
+                    text = formatDownloadSize(
+                        sizeBytes = item.sizeBytes,
+                        byteFormat = byteFormat,
+                        valueFormat = sizeValueFormat,
+                        units = sizeUnits,
+                    ),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
             Text(
                 text = stringResource(
                     if (completed) {
@@ -466,25 +476,52 @@ private fun DownloadCard(
     }
 }
 
+@Composable
+private fun downloadStatusText(item: DownloadListItem): String = when (item.phase) {
+    ThreadDownloadPhase.QUEUED -> stringResource(R.string.downloads_status_queued)
+    ThreadDownloadPhase.FETCHING_PAGES -> {
+        if (item.totalPages > 0) {
+            stringResource(
+                R.string.downloads_status_fetching_pages_progress,
+                item.completedPages,
+                item.totalPages,
+            )
+        } else {
+            stringResource(R.string.downloads_status_fetching_pages)
+        }
+    }
+    ThreadDownloadPhase.DOWNLOADING_IMAGES -> {
+        if (item.imageCount > 0) {
+            stringResource(
+                R.string.downloads_status_downloading_images,
+                item.completedImages,
+                item.imageCount,
+            )
+        } else {
+            stringResource(R.string.downloads_status_saving)
+        }
+    }
+    ThreadDownloadPhase.FAILED -> stringResource(R.string.downloads_status_failed)
+    ThreadDownloadPhase.COMPLETED -> stringResource(R.string.downloads_status_completed)
+}
+
 internal fun filterAndSortDownloads(
     downloads: List<DownloadListItem>,
     query: String,
 ): List<DownloadListItem> {
-    val terms = query.trim()
+    val terms = query
+        .trim()
         .takeIf(String::isNotEmpty)
         ?.split(downloadSearchTermSeparator)
         .orEmpty()
     return downloads
         .filter { item ->
-            terms.all { term ->
-                item.subject.contains(term, ignoreCase = true) ||
-                    item.author.contains(term, ignoreCase = true)
-            }
+            val searchable = "${item.subject} ${item.author}"
+            terms.all { term -> searchable.contains(term, ignoreCase = true) }
         }
         .sortedWith(
             compareByDescending<DownloadListItem>(DownloadListItem::downloadedAt)
-                .thenByDescending { it.key.threadId }
-                .thenByDescending { it.key.postId },
+                .thenBy { it.key.threadId },
         )
 }
 
@@ -493,18 +530,18 @@ internal fun formatDownloadSize(
     byteFormat: String = "%d B",
     valueFormat: String = "%.1f %s",
     units: Array<String> = defaultDownloadSizeUnits,
+    locale: Locale = Locale.ROOT,
 ): String {
     require(units.isNotEmpty()) { "At least one download size unit is required" }
-    val safeBytes = sizeBytes.coerceAtLeast(0)
-    if (safeBytes < 1_024) return String.format(Locale.ROOT, byteFormat, safeBytes)
-
-    var value = safeBytes.toDouble()
+    val safeSize = sizeBytes.coerceAtLeast(0)
+    if (safeSize < 1_024) return byteFormat.format(locale, safeSize)
+    var value = safeSize.toDouble()
     var unitIndex = -1
-    while (value >= 1_024 && unitIndex < units.lastIndex) {
+    do {
         value /= 1_024
         unitIndex++
-    }
-    return String.format(Locale.ROOT, valueFormat, value, units[unitIndex])
+    } while (value >= 1_024 && unitIndex < units.lastIndex)
+    return valueFormat.format(locale, value, units[unitIndex])
 }
 
 internal fun formatDownloadTime(
@@ -515,14 +552,16 @@ internal fun formatDownloadTime(
     .atZone(zoneId)
     .format(DateTimeFormatter.ofPattern(pattern))
 
-private fun PostDownloadStatus.toDownloadListItem() = DownloadListItem(
+internal fun threadSharedContentKey(threadId: Int): String = "thread-$threadId"
+
+private fun ThreadDownloadStatus.toDownloadListItem() = DownloadListItem(
     key = key,
-    subject = snapshot.thread.subject,
-    author = snapshot.post.author.name,
-    floor = snapshot.post.number,
-    isOriginalPost = snapshot.post.isOriginalPost,
-    hasText = hasText,
+    subject = thread.subject,
+    author = thread.author.name,
+    postCount = completed?.snapshot?.posts?.size ?: (thread.replyCount + 1).coerceAtLeast(1),
     imageCount = progress.totalImages,
+    completedPages = progress.completedPages,
+    totalPages = progress.totalPages,
     completedImages = progress.completedImages,
     sizeBytes = completed?.sizeBytes ?: progress.downloadedBytes,
     downloadedAt = completed?.manifest?.completedAt ?: request?.requestedAt ?: 0L,

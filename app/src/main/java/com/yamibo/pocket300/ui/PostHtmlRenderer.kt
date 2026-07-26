@@ -40,6 +40,8 @@ import coil.request.ImageRequest
 import com.yamibo.pocket300.R
 import com.yamibo.pocket300.api.POCKET300_USER_AGENT
 import com.yamibo.pocket300.api.YAMIBO_ORIGIN
+import com.yamibo.pocket300.data.download.downloadablePostImageUrls
+import com.yamibo.pocket300.data.download.normalizeThreadImageUrl
 import com.yamibo.pocket300.logging.AppLogger
 
 private sealed interface PostHtmlPart {
@@ -124,11 +126,7 @@ internal fun PostHtml(
 }
 
 internal fun postImageUrls(html: String, attachmentUrls: List<String>): List<String> =
-    postHtmlParts(html, attachmentUrls)
-        .filterIsInstance<PostHtmlPart.Image>()
-        .filterNot { isSmileyImage(it.url) }
-        .map { normalizePostImageUrl(it.url) }
-        .distinct()
+    downloadablePostImageUrls(html, attachmentUrls)
 
 private fun postHtmlParts(html: String, attachmentUrls: List<String>): List<PostHtmlPart> {
     val htmlParts = postHtmlCache.get(html) ?: parsePostHtml(html).also { postHtmlCache.put(html, it) }
@@ -329,11 +327,7 @@ internal fun normalizePostImageUrl(source: String): String {
         value.startsWith("file:", ignoreCase = true) ||
             value.startsWith("content:", ignoreCase = true) ||
             value.startsWith("android.resource:", ignoreCase = true) -> value
-        value.startsWith("//") -> "https:$value"
-        value.startsWith("/") -> "$YAMIBO_ORIGIN$value"
-        value.startsWith("http://bbs.yamibo.com/") -> value.replaceFirst("http://", "https://")
-        value.startsWith("http://") || value.startsWith("https://") -> value
-        else -> "$YAMIBO_ORIGIN/${value.trimStart('/')}"
+        else -> normalizeThreadImageUrl(value)
     }
 }
 

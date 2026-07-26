@@ -1,7 +1,7 @@
 package com.yamibo.pocket300.ui.screens
 
-import com.yamibo.pocket300.data.download.PostDownloadKey
-import com.yamibo.pocket300.data.download.PostDownloadPhase
+import com.yamibo.pocket300.data.download.ThreadDownloadKey
+import com.yamibo.pocket300.data.download.ThreadDownloadPhase
 import org.junit.Assert.assertEquals
 import org.junit.Test
 import java.time.Instant
@@ -11,21 +11,18 @@ class DownloadsScreenTest {
     private val downloads = listOf(
         downloadItem(
             threadId = 101,
-            postId = 1001,
             subject = "Summer Story",
             author = "Alice",
             downloadedAt = 100,
         ),
         downloadItem(
             threadId = 102,
-            postId = 1002,
             subject = "冬日物语",
             author = "Bob",
             downloadedAt = 300,
         ),
         downloadItem(
             threadId = 103,
-            postId = 1003,
             subject = "Another Summer",
             author = "Carol",
             downloadedAt = 200,
@@ -49,7 +46,7 @@ class DownloadsScreenTest {
     }
 
     @Test
-    fun filtersDownloadsByPostAuthor() {
+    fun filtersDownloadsByOriginalPoster() {
         assertEquals(
             listOf(downloads[1]),
             filterAndSortDownloads(downloads, "bob"),
@@ -87,23 +84,48 @@ class DownloadsScreenTest {
         )
     }
 
+    @Test
+    fun usesTheSameSharedContentKeyAsEveryThreadEntryPoint() {
+        assertEquals("thread-101", threadSharedContentKey(101))
+    }
+
+    @Test
+    fun oneListItemRepresentsTheWholeThread() {
+        val item = downloadItem(
+            threadId = 123,
+            subject = "Whole thread",
+            author = "Original poster",
+            downloadedAt = 400,
+            postCount = 42,
+            imageCount = 9,
+            phase = ThreadDownloadPhase.FETCHING_PAGES,
+        )
+
+        assertEquals(ThreadDownloadKey(123), item.key)
+        assertEquals(42, item.postCount)
+        assertEquals(9, item.imageCount)
+        assertEquals(ThreadDownloadPhase.FETCHING_PAGES, item.phase)
+    }
+
     private fun downloadItem(
         threadId: Int,
-        postId: Int,
         subject: String,
         author: String,
         downloadedAt: Long,
+        postCount: Int = 1,
+        imageCount: Int = 0,
+        phase: ThreadDownloadPhase = ThreadDownloadPhase.COMPLETED,
     ) = DownloadListItem(
-        key = PostDownloadKey(threadId, postId),
+        key = ThreadDownloadKey(threadId),
         subject = subject,
         author = author,
-        floor = 1,
-        isOriginalPost = true,
-        hasText = true,
-        imageCount = 0,
+        postCount = postCount,
+        imageCount = imageCount,
+        completedPages = 0,
+        totalPages = 0,
         completedImages = 0,
         sizeBytes = 1,
         downloadedAt = downloadedAt,
-        phase = PostDownloadPhase.COMPLETED,
+        phase = phase,
     )
 }
