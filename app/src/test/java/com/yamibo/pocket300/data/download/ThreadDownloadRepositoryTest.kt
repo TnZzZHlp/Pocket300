@@ -178,6 +178,77 @@ class ThreadDownloadRepositoryTest {
     }
 
     @Test
+    fun enqueueIfMissingSkipsCompletedThreadInsteadOfRefreshingIt() = runBlocking {
+        val root = temporaryFolder.newFolder("downloads")
+        var sourceCalls = 0
+        val firstThread = testThread(subject = "First")
+        val source = ThreadPostsSource { _, _ ->
+            sourceCalls++
+            testPage(
+                firstThread,
+                page = 1,
+                totalPages = 1,
+                posts = listOf(testPost(firstThread.id, 2000, 1)),
+            )
+        }
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val repository = repository(root, source, FakeImageDownloader(), scope)
+        try {
+            val firstRequest = testRequest(firstThread, requestedAt = 10L)
+            assertTrue(repository.enqueueIfMissing(firstRequest))
+            repository.awaitCompleted(firstRequest.key, 10L)
+
+            val refresh = testRequest(firstThread.copy(subject = "Refresh"), requestedAt = 20L)
+            assertFalse(repository.enqueueIfMissing(refresh))
+
+            assertEquals(1, sourceCalls)
+            assertEquals("First", repository.read(firstRequest.key)?.snapshot?.thread?.subject)
+        } finally {
+            repository.close()
+            scope.cancel()
+        }
+    }
+
+    @Test
+    fun enqueueIfMissingSkipsAnActiveThreadWithoutReplacingItsRequest() = runBlocking {
+        val root = temporaryFolder.newFolder("downloads")
+        val started = CompletableDeferred<Unit>()
+        val release = CompletableDeferred<Unit>()
+        var sourceCalls = 0
+        val thread = testThread(subject = "First")
+        val source = ThreadPostsSource { _, _ ->
+            sourceCalls++
+            started.complete(Unit)
+            release.await()
+            testPage(
+                thread,
+                page = 1,
+                totalPages = 1,
+                posts = listOf(testPost(thread.id, 2000, 1)),
+            )
+        }
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val repository = repository(root, source, FakeImageDownloader(), scope)
+        try {
+            val firstRequest = testRequest(thread, requestedAt = 10L)
+            assertTrue(repository.enqueueIfMissing(firstRequest))
+            withTimeout(5_000) { started.await() }
+
+            val duplicate = testRequest(thread.copy(subject = "Duplicate"), requestedAt = 20L)
+            assertFalse(repository.enqueueIfMissing(duplicate))
+            release.complete(Unit)
+
+            val completed = repository.awaitCompleted(firstRequest.key, 10L)
+            assertEquals(1, sourceCalls)
+            assertEquals("First", completed.completed?.snapshot?.thread?.subject)
+        } finally {
+            release.complete(Unit)
+            repository.close()
+            scope.cancel()
+        }
+    }
+
+    @Test
     fun crossThreadSourceFailsWithoutReplacingExistingProduct() = runBlocking {
         val root = temporaryFolder.newFolder("downloads")
         val thread = testThread()
