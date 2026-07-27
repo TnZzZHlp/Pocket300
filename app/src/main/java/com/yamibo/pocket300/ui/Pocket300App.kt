@@ -44,6 +44,7 @@ import com.yamibo.pocket300.Pocket300Application
 import com.yamibo.pocket300.R
 import com.yamibo.pocket300.data.ReadingHistoryDatabase
 import com.yamibo.pocket300.data.ReadingHistoryEntry
+import com.yamibo.pocket300.data.download.ThreadDownloadRepository
 import com.yamibo.pocket300.ui.screens.CustomListDetailScreen
 import com.yamibo.pocket300.ui.screens.CustomListEditorScreen
 import com.yamibo.pocket300.ui.screens.DownloadsScreen
@@ -82,7 +83,14 @@ fun Pocket300App() {
     val context = LocalContext.current
     val themePreferencesStore = remember(context) { AppThemePreferencesStore(context) }
     val historyDatabase = remember(context) { ReadingHistoryDatabase.getInstance(context) }
+    val downloadRepository = remember(context) {
+        ThreadDownloadRepository.getInstance(context.applicationContext)
+    }
     val readingHistory by historyDatabase.entries.collectAsState()
+    val downloads by downloadRepository.downloads.collectAsState()
+    val completedDownloadThreadIds = remember(downloads) {
+        completedThreadIds(downloads)
+    }
     var colorTheme by rememberSaveable { mutableStateOf(themePreferencesStore.load()) }
 
     CustomListAutoRefreshEffect()
@@ -105,7 +113,10 @@ fun Pocket300App() {
             }
         }
 
-        CompositionLocalProvider(LocalReadingHistory provides readingHistory) {
+        CompositionLocalProvider(
+            LocalReadingHistory provides readingHistory,
+            LocalDownloadedThreadIds provides completedDownloadThreadIds,
+        ) {
         SharedTransitionLayout {
       val sharedTransitionScope = this
       Scaffold(

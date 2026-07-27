@@ -44,7 +44,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.yamibo.pocket300.R
 import com.yamibo.pocket300.data.CustomListDatabase
@@ -61,6 +60,7 @@ import com.yamibo.pocket300.ui.Loading
 import com.yamibo.pocket300.ui.LocalReadingHistory
 import com.yamibo.pocket300.ui.ScreenScaffold
 import com.yamibo.pocket300.ui.api
+import com.yamibo.pocket300.ui.components.ThreadCardTitle
 import com.yamibo.pocket300.ui.components.ThreadLastReadPosition
 import com.yamibo.pocket300.ui.dimIfRead
 import kotlinx.coroutines.Dispatchers
@@ -579,11 +579,10 @@ private fun CustomListThreadCard(
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.primary,
                 )
-                Text(
-                    thread.subject,
-                    style = MaterialTheme.typography.titleMedium,
+                ThreadCardTitle(
+                    subject = thread.subject,
+                    threadId = thread.threadId,
                     maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
                 )
                 Text(
                     stringResource(

@@ -34,7 +34,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.yamibo.pocket300.R
 import com.yamibo.pocket300.data.ReadingHistoryDatabase
@@ -45,6 +44,7 @@ import com.yamibo.pocket300.ui.LoadState
 import com.yamibo.pocket300.ui.ScreenScaffold
 import com.yamibo.pocket300.ui.components.LastReadPosition
 import com.yamibo.pocket300.ui.components.LocalSearchField
+import com.yamibo.pocket300.ui.components.ThreadCardTitle
 import com.yamibo.pocket300.ui.components.matchesLocalSearch
 import com.yamibo.pocket300.ui.load
 import kotlinx.coroutines.Dispatchers
@@ -181,11 +181,10 @@ private fun ReadingHistoryCard(
     }
     Card(onClick = { onClick(entry) }, modifier = modifier.fillMaxWidth()) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text(
-                entry.subject,
-                style = MaterialTheme.typography.titleMedium,
+            ThreadCardTitle(
+                subject = entry.subject,
+                threadId = entry.threadId,
                 maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
             )
             LastReadPosition(entry.lastReadFloor)
             Text(
