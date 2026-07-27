@@ -9,9 +9,12 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.yamibo.pocket300.data.CustomListAutoRefreshScheduler
+import com.yamibo.pocket300.data.CustomListAutoDownloadCoordinator
 import com.yamibo.pocket300.data.CustomListDatabase
 import com.yamibo.pocket300.data.CustomListRefreshMode
 import com.yamibo.pocket300.data.CustomListRepository
+import com.yamibo.pocket300.data.download.ThreadDownloadRepository
+import com.yamibo.pocket300.api.GetThreadPostsInput
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.isActive
@@ -23,7 +26,25 @@ internal fun CustomListAutoRefreshEffect() {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val database = remember(context) { CustomListDatabase.getInstance(context) }
-    val repository = remember(database) { CustomListRepository(database, api.search) }
+    val downloadRepository = remember(context) {
+        ThreadDownloadRepository.getInstance(context.applicationContext)
+    }
+    val autoDownloadCoordinator = remember(database, downloadRepository) {
+        CustomListAutoDownloadCoordinator(
+            database = database,
+            downloadRepository = downloadRepository,
+            loadThreadDetails = { threadId ->
+                api.posts.getThreadPosts(GetThreadPostsInput(threadId)).thread
+            },
+        )
+    }
+    val repository = remember(database, autoDownloadCoordinator) {
+        CustomListRepository(
+            database = database,
+            searchApi = api.search,
+            onNewThreadsForAutoDownload = autoDownloadCoordinator::enqueueNewThreads,
+        )
+    }
     val scheduler = remember(database, repository) {
         CustomListAutoRefreshScheduler(
             loadLists = { withContext(Dispatchers.IO) { database.getLists() } },

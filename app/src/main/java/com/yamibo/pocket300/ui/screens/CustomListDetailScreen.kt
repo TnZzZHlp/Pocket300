@@ -55,6 +55,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import com.yamibo.pocket300.R
 import com.yamibo.pocket300.api.GetThreadPostsInput
+import com.yamibo.pocket300.data.CustomListAutoDownloadCoordinator
 import com.yamibo.pocket300.data.CustomListDatabase
 import com.yamibo.pocket300.data.CustomListRefreshEvents
 import com.yamibo.pocket300.data.CustomListRefreshMode
@@ -96,9 +97,24 @@ internal fun CustomListDetailScreen(
     val resources = LocalResources.current
     val database = remember(context) { CustomListDatabase.getInstance(context) }
     val historyDatabase = remember(context) { ReadingHistoryDatabase.getInstance(context) }
-    val repository = remember(database) { CustomListRepository(database, api.search) }
     val downloadRepository = remember(context) {
         ThreadDownloadRepository.getInstance(context.applicationContext)
+    }
+    val autoDownloadCoordinator = remember(database, downloadRepository) {
+        CustomListAutoDownloadCoordinator(
+            database = database,
+            downloadRepository = downloadRepository,
+            loadThreadDetails = { threadId ->
+                api.posts.getThreadPosts(GetThreadPostsInput(threadId)).thread
+            },
+        )
+    }
+    val repository = remember(database, autoDownloadCoordinator) {
+        CustomListRepository(
+            database = database,
+            searchApi = api.search,
+            onNewThreadsForAutoDownload = autoDownloadCoordinator::enqueueNewThreads,
+        )
     }
     val downloadStatuses by downloadRepository.statuses.collectAsState()
     val scope = rememberCoroutineScope()

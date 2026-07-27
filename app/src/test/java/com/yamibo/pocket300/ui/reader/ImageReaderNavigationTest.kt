@@ -1,6 +1,8 @@
 package com.yamibo.pocket300.ui.reader
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ImageReaderNavigationTest {
@@ -99,6 +101,13 @@ class ImageReaderNavigationTest {
         assertEquals(0, imageReaderPageFromSlider(-10f, pageCount = 4))
         assertEquals(2, imageReaderPageFromSlider(1.6f, pageCount = 4))
         assertEquals(3, imageReaderPageFromSlider(20f, pageCount = 4))
+    }
+
+    @Test
+    fun identifiesOnlyTheLastAvailableImageAsTheReadingCompletionPoint() {
+        assertTrue(imageReaderAtFinalPage(page = 2, pageCount = 3))
+        assertFalse(imageReaderAtFinalPage(page = 1, pageCount = 3))
+        assertFalse(imageReaderAtFinalPage(page = 0, pageCount = 0))
     }
 
     private fun tap(

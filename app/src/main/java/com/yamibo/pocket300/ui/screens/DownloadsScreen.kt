@@ -54,6 +54,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.yamibo.pocket300.R
+import com.yamibo.pocket300.data.CustomListDatabase
 import com.yamibo.pocket300.data.download.DownloadedThread
 import com.yamibo.pocket300.data.download.ThreadDownloadKey
 import com.yamibo.pocket300.data.download.ThreadDownloadPhase
@@ -64,7 +65,9 @@ import com.yamibo.pocket300.ui.Loading
 import com.yamibo.pocket300.ui.ScreenScaffold
 import com.yamibo.pocket300.ui.components.LocalSearchField
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -98,6 +101,7 @@ internal fun DownloadsScreen(
     onOpen: (DownloadedThread) -> Unit,
 ) {
     val context = LocalContext.current
+    val customListDatabase = remember(context) { CustomListDatabase.getInstance(context) }
     val repository = remember(context.applicationContext) {
         ThreadDownloadRepository.getInstance(context.applicationContext)
     }
@@ -344,6 +348,9 @@ internal fun DownloadsScreen(
                         coroutineScope.launch {
                             try {
                                 repository.delete(item.key)
+                                withContext(Dispatchers.IO) {
+                                    customListDatabase.clearAutoDownloadRecord(item.key.threadId)
+                                }
                             } catch (error: CancellationException) {
                                 throw error
                             } catch (_: Exception) {
@@ -395,6 +402,9 @@ internal fun DownloadsScreen(
                         coroutineScope.launch {
                             try {
                                 repository.deleteAll()
+                                withContext(Dispatchers.IO) {
+                                    customListDatabase.clearAutoDownloadRecords()
+                                }
                             } catch (error: CancellationException) {
                                 throw error
                             } catch (_: Exception) {

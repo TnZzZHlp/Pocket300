@@ -15,6 +15,7 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -68,6 +69,8 @@ internal fun CustomListEditorScreen(
     var autoRefreshIntervalHours by rememberSaveable(listId) {
         mutableStateOf(DEFAULT_CUSTOM_LIST_AUTO_REFRESH_INTERVAL_HOURS.toString())
     }
+    var autoDownloadNewThreads by rememberSaveable(listId) { mutableStateOf(false) }
+    var autoDeleteAfterImageReading by rememberSaveable(listId) { mutableStateOf(false) }
     var excludedCount by rememberSaveable(listId) { mutableIntStateOf(0) }
     var loading by remember(listId) { mutableStateOf(listId != null) }
     var saving by remember { mutableStateOf(false) }
@@ -84,6 +87,8 @@ internal fun CustomListEditorScreen(
                 keywordText = list.keywords.joinToString("\n")
                 searchType = list.searchType
                 autoRefreshIntervalHours = list.autoRefreshIntervalHours.toString()
+                autoDownloadNewThreads = list.autoDownloadNewThreads
+                autoDeleteAfterImageReading = list.autoDeleteAfterImageReading
                 excludedCount = list.excludedCount
             }
             loading = false
@@ -145,6 +150,59 @@ internal fun CustomListEditorScreen(
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                     singleLine = true,
                 )
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(16.dp),
+                        verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+                    ) {
+                        Column(Modifier.weight(1f)) {
+                            Text(
+                                stringResource(R.string.custom_list_auto_download_new_threads),
+                                style = MaterialTheme.typography.titleSmall,
+                            )
+                            Text(
+                                stringResource(R.string.custom_list_auto_download_new_threads_hint),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        Switch(
+                            checked = autoDownloadNewThreads,
+                            onCheckedChange = { enabled ->
+                                autoDownloadNewThreads = enabled
+                                if (!enabled) autoDeleteAfterImageReading = false
+                            },
+                        )
+                    }
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(16.dp),
+                        verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+                    ) {
+                        Column(Modifier.weight(1f)) {
+                            Text(
+                                stringResource(R.string.custom_list_auto_delete_after_image_reading),
+                                style = MaterialTheme.typography.titleSmall,
+                                color = if (autoDownloadNewThreads) {
+                                    MaterialTheme.colorScheme.onSurface
+                                } else {
+                                    MaterialTheme.colorScheme.onSurfaceVariant
+                                },
+                            )
+                            Text(
+                                stringResource(R.string.custom_list_auto_delete_after_image_reading_hint),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        Switch(
+                            checked = autoDeleteAfterImageReading,
+                            enabled = autoDownloadNewThreads,
+                            onCheckedChange = { autoDeleteAfterImageReading = it },
+                        )
+                    }
+                }
                 error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
                 Button(
                     enabled = !saving,
@@ -172,6 +230,8 @@ internal fun CustomListEditorScreen(
                                                 keywords,
                                                 searchType,
                                                 autoRefreshIntervalHours = intervalHours,
+                                                autoDownloadNewThreads = autoDownloadNewThreads,
+                                                autoDeleteAfterImageReading = autoDeleteAfterImageReading,
                                             )
                                         } else {
                                             listId.also {
@@ -181,6 +241,8 @@ internal fun CustomListEditorScreen(
                                                     keywords,
                                                     searchType,
                                                     autoRefreshIntervalHours = intervalHours,
+                                                    autoDownloadNewThreads = autoDownloadNewThreads,
+                                                    autoDeleteAfterImageReading = autoDeleteAfterImageReading,
                                                 )
                                             }
                                         }

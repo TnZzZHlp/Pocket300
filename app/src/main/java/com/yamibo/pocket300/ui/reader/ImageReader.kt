@@ -76,6 +76,7 @@ internal fun ImageReader(
     controlsVisible: Boolean,
     onCurrentPageChange: (Int) -> Unit,
     onToggleControls: () -> Unit,
+    onImageReadingComplete: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     if (images.isEmpty()) return
@@ -99,6 +100,7 @@ internal fun ImageReader(
                         preferences = preferences,
                         onCurrentPageChange = onCurrentPageChange,
                         onToggleControls = onToggleControls,
+                        onImageReadingComplete = onImageReadingComplete,
                     )
 
                     ImageReaderMode.VERTICAL -> VerticalImagePager(
@@ -108,6 +110,7 @@ internal fun ImageReader(
                         preferences = preferences,
                         onCurrentPageChange = onCurrentPageChange,
                         onToggleControls = onToggleControls,
+                        onImageReadingComplete = onImageReadingComplete,
                     )
 
                     ImageReaderMode.WEBTOON -> WebtoonImageReader(
@@ -118,6 +121,7 @@ internal fun ImageReader(
                         tapNavigation = preferences.tapNavigation,
                         onCurrentPageChange = onCurrentPageChange,
                         onToggleControls = onToggleControls,
+                        onImageReadingComplete = onImageReadingComplete,
                     )
                 }
             }
@@ -157,6 +161,7 @@ private fun HorizontalImagePager(
     preferences: ImageReaderPreferences,
     onCurrentPageChange: (Int) -> Unit,
     onToggleControls: () -> Unit,
+    onImageReadingComplete: () -> Unit,
 ) {
     val pagerState = rememberPagerState(initialPage = currentPage) { images.size }
     var currentPageZoomed by remember { mutableStateOf(false) }
@@ -199,6 +204,7 @@ private fun HorizontalImagePager(
                     onToggleControls = onToggleControls,
                 )
             },
+            onImageReadingComplete = onImageReadingComplete,
         )
     }
 }
@@ -211,6 +217,7 @@ private fun VerticalImagePager(
     preferences: ImageReaderPreferences,
     onCurrentPageChange: (Int) -> Unit,
     onToggleControls: () -> Unit,
+    onImageReadingComplete: () -> Unit,
 ) {
     val pagerState = rememberPagerState(initialPage = currentPage) { images.size }
     var currentPageZoomed by remember { mutableStateOf(false) }
@@ -252,6 +259,7 @@ private fun VerticalImagePager(
                     onToggleControls = onToggleControls,
                 )
             },
+            onImageReadingComplete = onImageReadingComplete,
         )
     }
 }
@@ -268,6 +276,7 @@ private fun PagedReaderImage(
     isCurrentPage: Boolean,
     onZoomChanged: (Boolean) -> Unit,
     onTapAction: (ImageReaderTapAction) -> Unit,
+    onImageReadingComplete: () -> Unit,
 ) {
     val contentDescription = stringResource(R.string.reader_image_description, page + 1, pageCount)
     when (scaleType) {
@@ -280,6 +289,8 @@ private fun PagedReaderImage(
             isCurrentPage = isCurrentPage,
             onZoomChanged = onZoomChanged,
             onTapAction = onTapAction,
+            notifyWhenLoaded = isCurrentPage && imageReaderAtFinalPage(page, pageCount),
+            onLoaded = onImageReadingComplete,
         )
 
         ImageReaderScaleType.FIT_WIDTH -> FitWidthReaderImage(
@@ -290,6 +301,8 @@ private fun PagedReaderImage(
             tapNavigation = tapNavigation,
             onZoomChanged = onZoomChanged,
             onTapAction = onTapAction,
+            notifyWhenLoaded = isCurrentPage && imageReaderAtFinalPage(page, pageCount),
+            onLoaded = onImageReadingComplete,
         )
     }
 }
@@ -304,6 +317,8 @@ private fun ZoomableReaderImage(
     isCurrentPage: Boolean,
     onZoomChanged: (Boolean) -> Unit,
     onTapAction: (ImageReaderTapAction) -> Unit,
+    notifyWhenLoaded: Boolean,
+    onLoaded: () -> Unit,
 ) {
     var scale by remember(imageUrl) { mutableFloatStateOf(MINIMUM_ZOOM) }
     var offset by remember(imageUrl) { mutableStateOf(Offset.Zero) }
@@ -393,6 +408,8 @@ private fun ZoomableReaderImage(
                     translationY = offset.y
                     transformOrigin = TransformOrigin.Center
                 },
+            notifyWhenLoaded = notifyWhenLoaded,
+            onLoaded = onLoaded,
         )
     }
 }
@@ -406,6 +423,8 @@ private fun FitWidthReaderImage(
     tapNavigation: Boolean,
     onZoomChanged: (Boolean) -> Unit,
     onTapAction: (ImageReaderTapAction) -> Unit,
+    notifyWhenLoaded: Boolean,
+    onLoaded: () -> Unit,
 ) {
     val scrollState = rememberScrollState()
     val coroutineScope = rememberCoroutineScope()
@@ -448,6 +467,8 @@ private fun FitWidthReaderImage(
                         contentDescription = contentDescription,
                         contentScale = ContentScale.FillWidth,
                         modifier = Modifier.fillMaxWidth(),
+                        notifyWhenLoaded = notifyWhenLoaded,
+                        onLoaded = onLoaded,
                     )
                 },
                 modifier = Modifier.fillMaxWidth(),
@@ -479,6 +500,7 @@ private fun WebtoonImageReader(
     tapNavigation: Boolean,
     onCurrentPageChange: (Int) -> Unit,
     onToggleControls: () -> Unit,
+    onImageReadingComplete: () -> Unit,
 ) {
     val listState = rememberLazyListState(initialFirstVisibleItemIndex = currentPage)
 
@@ -537,6 +559,8 @@ private fun WebtoonImageReader(
                     .fillMaxWidth()
                     .wrapContentHeight()
                     .heightIn(min = 96.dp),
+                notifyWhenLoaded = page == currentPage && imageReaderAtFinalPage(page, images.size),
+                onLoaded = onImageReadingComplete,
             )
         }
     }
@@ -549,6 +573,8 @@ private fun ReaderImage(
     contentDescription: String,
     contentScale: ContentScale,
     modifier: Modifier,
+    notifyWhenLoaded: Boolean = false,
+    onLoaded: () -> Unit = {},
 ) {
     SubcomposeAsyncImage(
         model = rememberPostImageRequest(imageUrl, threadId),
@@ -579,7 +605,12 @@ private fun ReaderImage(
                 }
             }
         },
-        success = { SubcomposeAsyncImageContent() },
+        success = {
+            LaunchedEffect(imageUrl, notifyWhenLoaded) {
+                if (notifyWhenLoaded) onLoaded()
+            }
+            SubcomposeAsyncImageContent()
+        },
     )
 }
 
