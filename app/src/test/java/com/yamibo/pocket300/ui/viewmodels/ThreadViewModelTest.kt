@@ -6,6 +6,8 @@ import com.yamibo.pocket300.api.YamiboPostAuthor
 import com.yamibo.pocket300.api.YamiboPostComment
 import com.yamibo.pocket300.api.YamiboPostRatingForm
 import com.yamibo.pocket300.api.YamiboPostRatingOption
+import com.yamibo.pocket300.data.download.testPage as downloadTestPage
+import com.yamibo.pocket300.data.download.testThread as downloadTestThread
 import com.yamibo.pocket300.ui.LoadState
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -173,6 +175,51 @@ class ThreadViewModelTest {
     }
 
     @Test
+    fun keepsSuccessfulContentWhenLoadingALaterPageFails() {
+        val previous = threadContent()
+        val failure = LoadState.Failed("network unavailable")
+
+        val state = retainThreadContentAfterLoadFailure(
+            previous = previous.copy(isLoadingMore = true),
+            failure = failure,
+            page = 2,
+            refreshing = false,
+        )
+
+        val content = (state as LoadState.Ready).value
+        assertEquals(previous, content)
+        assertFalse(content.isLoadingMore)
+    }
+
+    @Test
+    fun keepsSuccessfulContentWhenManualRefreshFails() {
+        val previous = threadContent()
+
+        val state = retainThreadContentAfterLoadFailure(
+            previous = previous,
+            failure = LoadState.Failed("network unavailable"),
+            page = 1,
+            refreshing = true,
+        )
+
+        assertEquals(previous, (state as LoadState.Ready).value)
+    }
+
+    @Test
+    fun exposesInitialNetworkFailureWhenThereIsNoPreviousContent() {
+        val failure = LoadState.Failed("network unavailable")
+
+        val state = retainThreadContentAfterLoadFailure(
+            previous = null,
+            failure = failure,
+            page = 1,
+            refreshing = false,
+        )
+
+        assertSame(failure, state)
+    }
+
+    @Test
     fun initializesRatingDraftFromLoadedServerForm() {
         val state = createPostRatingDialogState(testPost(9))
         val form = ratingForm(sendReasonPmByDefault = true, sendReasonPmLocked = true)
@@ -312,6 +359,22 @@ class ThreadViewModelTest {
         status = 0,
         threadId = 1000,
     )
+
+    private fun threadContent(): ThreadContent {
+        val posts = listOf(testPost(9))
+        val thread = downloadTestThread(replyCount = 0)
+        return ThreadContent(
+            page = downloadTestPage(
+                thread = thread,
+                page = 1,
+                totalPages = 1,
+                posts = posts,
+                totalPosts = posts.size,
+                hasNextPage = false,
+            ),
+            posts = posts,
+        )
+    }
 
     private companion object {
         val testAuthor = YamiboPostAuthor(

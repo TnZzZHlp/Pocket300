@@ -87,8 +87,9 @@ internal class ThreadViewModel : ViewModel() {
         loadJob?.cancel()
         val generation = ++requestGeneration
         val previous = (state as? LoadState.Ready)?.value
+        val refreshing = isRefreshing
         if (input.page == 1) {
-            state = LoadState.Loading
+            if (!refreshing || previous == null) state = LoadState.Loading
         } else if (previous != null) {
             state = LoadState.Ready(previous.copy(isLoadingMore = true))
         }
@@ -109,7 +110,12 @@ internal class ThreadViewModel : ViewModel() {
                             ),
                         )
                     }
-                    is LoadState.Failed -> result
+                    is LoadState.Failed -> retainThreadContentAfterLoadFailure(
+                        previous = previous,
+                        failure = result,
+                        page = input.page,
+                        refreshing = refreshing,
+                    )
                     LoadState.Loading -> LoadState.Loading
                 }
             } finally {
@@ -441,6 +447,20 @@ internal fun mergeThreadPosts(
 ): List<YamiboPost> {
     require(page > 0) { "page must be a positive integer" }
     return if (page == 1) loaded else (existing + loaded).distinctBy { it.id }
+}
+
+internal fun retainThreadContentAfterLoadFailure(
+    previous: ThreadContent?,
+    failure: LoadState.Failed,
+    page: Int,
+    refreshing: Boolean,
+): LoadState<ThreadContent> {
+    require(page > 0) { "page must be a positive integer" }
+    return if (previous != null && (page > 1 || refreshing)) {
+        LoadState.Ready(previous.copy(isLoadingMore = false))
+    } else {
+        failure
+    }
 }
 
 internal fun replacePost(
