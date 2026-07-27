@@ -2,6 +2,8 @@ package com.yamibo.pocket300.data
 
 import com.yamibo.pocket300.api.YamiboThreadSearchType
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class CustomListModelsTest {
@@ -41,6 +43,30 @@ class CustomListModelsTest {
         assertEquals(
             listOf("girls love", "百合 漫画"),
             normalizeCustomListKeywords("girls love\n百合 漫画"),
+        )
+    }
+
+    @Test
+    fun autoDownloadsOnlyNewThreadsAfterTheInitialSync() {
+        val list = CustomThreadList(
+            id = 1,
+            name = "Test",
+            keywords = listOf("keyword"),
+            searchType = YamiboThreadSearchType.TITLE,
+            createdAt = 0,
+            updatedAt = 0,
+            lastSyncedAt = null,
+            threadCount = 0,
+            excludedCount = 0,
+            autoDownloadNewThreads = true,
+        )
+
+        assertFalse(list.shouldAutoDownloadAddedThreads(addedThreadCount = 1))
+        assertFalse(list.copy(lastSyncedAt = 1).shouldAutoDownloadAddedThreads(addedThreadCount = 0))
+        assertTrue(list.copy(lastSyncedAt = 1).shouldAutoDownloadAddedThreads(addedThreadCount = 1))
+        assertFalse(
+            list.copy(lastSyncedAt = 1, autoDownloadNewThreads = false)
+                .shouldAutoDownloadAddedThreads(addedThreadCount = 1),
         )
     }
 }

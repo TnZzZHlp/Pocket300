@@ -28,7 +28,9 @@ class CustomListDatabase private constructor(context: Context) :
                 created_at INTEGER NOT NULL,
                 updated_at INTEGER NOT NULL,
                 last_synced_at INTEGER,
-                auto_refresh_interval_hours INTEGER NOT NULL DEFAULT 24
+                auto_refresh_interval_hours INTEGER NOT NULL DEFAULT 24,
+                auto_download_new_threads INTEGER NOT NULL DEFAULT 0,
+                auto_delete_after_image_reading INTEGER NOT NULL DEFAULT 0
             )
             """.trimIndent(),
         )
@@ -65,6 +67,7 @@ class CustomListDatabase private constructor(context: Context) :
         database.execSQL(
             "CREATE INDEX custom_list_threads_list_id ON custom_list_threads(list_id, thread_id DESC)",
         )
+        createAutoDownloadsTable(database)
     }
 
     override fun onUpgrade(database: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
@@ -79,6 +82,15 @@ class CustomListDatabase private constructor(context: Context) :
                 "ALTER TABLE custom_lists ADD COLUMN auto_refresh_interval_hours INTEGER NOT NULL DEFAULT 24",
             )
         }
+        if (oldVersion < 4) {
+            database.execSQL(
+                "ALTER TABLE custom_lists ADD COLUMN auto_download_new_threads INTEGER NOT NULL DEFAULT 0",
+            )
+            database.execSQL(
+                "ALTER TABLE custom_lists ADD COLUMN auto_delete_after_image_reading INTEGER NOT NULL DEFAULT 0",
+            )
+            createAutoDownloadsTable(database)
+        }
     }
 
     fun createList(
@@ -87,8 +99,19 @@ class CustomListDatabase private constructor(context: Context) :
         searchType: YamiboThreadSearchType,
         now: Long = System.currentTimeMillis(),
         autoRefreshIntervalHours: Int = DEFAULT_CUSTOM_LIST_AUTO_REFRESH_INTERVAL_HOURS,
+        autoDownloadNewThreads: Boolean = DEFAULT_CUSTOM_LIST_AUTO_DOWNLOAD_NEW_THREADS,
+        autoDeleteAfterImageReading: Boolean =
+            DEFAULT_CUSTOM_LIST_AUTO_DELETE_AFTER_IMAGE_READING,
     ): Long {
-        val values = listValues(name, keywords, searchType, now, autoRefreshIntervalHours).apply {
+        val values = listValues(
+            name = name,
+            keywords = keywords,
+            searchType = searchType,
+            updatedAt = now,
+            autoRefreshIntervalHours = autoRefreshIntervalHours,
+            autoDownloadNewThreads = autoDownloadNewThreads,
+            autoDeleteAfterImageReading = autoDeleteAfterImageReading,
+        ).apply {
             put("created_at", now)
         }
         return writableDatabase.insertOrThrow("custom_lists", null, values).also { id ->
@@ -103,9 +126,20 @@ class CustomListDatabase private constructor(context: Context) :
         searchType: YamiboThreadSearchType,
         now: Long = System.currentTimeMillis(),
         autoRefreshIntervalHours: Int = DEFAULT_CUSTOM_LIST_AUTO_REFRESH_INTERVAL_HOURS,
+        autoDownloadNewThreads: Boolean = DEFAULT_CUSTOM_LIST_AUTO_DOWNLOAD_NEW_THREADS,
+        autoDeleteAfterImageReading: Boolean =
+            DEFAULT_CUSTOM_LIST_AUTO_DELETE_AFTER_IMAGE_READING,
     ) {
         val existing = getList(id)
-        val values = listValues(name, keywords, searchType, now, autoRefreshIntervalHours).apply {
+        val values = listValues(
+            name = name,
+            keywords = keywords,
+            searchType = searchType,
+            updatedAt = now,
+            autoRefreshIntervalHours = autoRefreshIntervalHours,
+            autoDownloadNewThreads = autoDownloadNewThreads,
+            autoDeleteAfterImageReading = autoDeleteAfterImageReading,
+        ).apply {
             if (existing == null || existing.keywords != keywords || existing.searchType != searchType) {
                 putNull("last_synced_at")
             }
@@ -129,7 +163,8 @@ class CustomListDatabase private constructor(context: Context) :
         SELECT l.id, l.name, l.keywords, l.search_type, l.created_at, l.updated_at, l.last_synced_at,
                l.auto_refresh_interval_hours,
                (SELECT COUNT(*) FROM custom_list_threads t WHERE t.list_id = l.id),
-               (SELECT COUNT(*) FROM custom_list_exclusions e WHERE e.list_id = l.id)
+               (SELECT COUNT(*) FROM custom_list_exclusions e WHERE e.list_id = l.id),
+               l.auto_download_new_threads, l.auto_delete_after_image_reading
         FROM custom_lists l
         ORDER BY l.updated_at DESC, l.id DESC
         """.trimIndent(),
@@ -145,7 +180,8 @@ class CustomListDatabase private constructor(context: Context) :
         SELECT l.id, l.name, l.keywords, l.search_type, l.created_at, l.updated_at, l.last_synced_at,
                l.auto_refresh_interval_hours,
                (SELECT COUNT(*) FROM custom_list_threads t WHERE t.list_id = l.id),
-               (SELECT COUNT(*) FROM custom_list_exclusions e WHERE e.list_id = l.id)
+               (SELECT COUNT(*) FROM custom_list_exclusions e WHERE e.list_id = l.id),
+               l.auto_download_new_threads, l.auto_delete_after_image_reading
         FROM custom_lists l
         WHERE l.id = ?
         """.trimIndent(),
@@ -204,14 +240,15 @@ class CustomListDatabase private constructor(context: Context) :
         listId: Long,
         threads: Collection<YamiboSearchThread>,
         now: Long = System.currentTimeMillis(),
-    ) {
-        writableDatabase.transaction {
+    ): List<CustomListThread> {
+        val addedThreads = writableDatabase.transaction {
+            val existingThreadIds = threadIdsForList(listId)
             delete("custom_list_threads", "list_id = ?", arrayOf(listId.toString()))
-            val excluded = rawQuery(
-                "SELECT thread_id FROM custom_list_exclusions WHERE list_id = ?",
-                arrayOf(listId.toString()),
-            ).use { cursor -> buildSet { while (cursor.moveToNext()) add(cursor.getInt(0)) } }
-            threads.filterNot { it.id in excluded }.forEach { thread ->
+            val excludedThreadIds = excludedThreadIds(listId)
+            val acceptedThreads = threads
+                .distinctBy(YamiboSearchThread::id)
+                .filterNot { it.id in excludedThreadIds }
+            acceptedThreads.forEach { thread ->
                 insertOrThrow("custom_list_threads", null, threadValues(listId, thread))
             }
             update(
@@ -223,21 +260,29 @@ class CustomListDatabase private constructor(context: Context) :
                 "id = ?",
                 arrayOf(listId.toString()),
             )
+            acceptedThreads
+                .filterNot { it.id in existingThreadIds }
+                .map { it.toCustomListThread(listId) }
         }
-        AppLogger.debug(TAG) { "Replaced threads for custom list $listId; inputCount=${threads.size}" }
+        AppLogger.debug(TAG) {
+            "Replaced threads for custom list $listId; inputCount=${threads.size}, " +
+                "addedCount=${addedThreads.size}"
+        }
+        return addedThreads
     }
 
     fun mergeThreads(
         listId: Long,
         threads: Collection<YamiboSearchThread>,
         now: Long = System.currentTimeMillis(),
-    ) {
-        writableDatabase.transaction {
-            val excluded = rawQuery(
-                "SELECT thread_id FROM custom_list_exclusions WHERE list_id = ?",
-                arrayOf(listId.toString()),
-            ).use { cursor -> buildSet { while (cursor.moveToNext()) add(cursor.getInt(0)) } }
-            threads.filterNot { it.id in excluded }.forEach { thread ->
+    ): List<CustomListThread> {
+        val addedThreads = writableDatabase.transaction {
+            val existingThreadIds = threadIdsForList(listId)
+            val excludedThreadIds = excludedThreadIds(listId)
+            val acceptedThreads = threads
+                .distinctBy(YamiboSearchThread::id)
+                .filterNot { it.id in excludedThreadIds }
+            acceptedThreads.forEach { thread ->
                 insertWithOnConflict(
                     "custom_list_threads",
                     null,
@@ -254,8 +299,15 @@ class CustomListDatabase private constructor(context: Context) :
                 "id = ?",
                 arrayOf(listId.toString()),
             )
+            acceptedThreads
+                .filterNot { it.id in existingThreadIds }
+                .map { it.toCustomListThread(listId) }
         }
-        AppLogger.debug(TAG) { "Merged threads for custom list $listId; inputCount=${threads.size}" }
+        AppLogger.debug(TAG) {
+            "Merged threads for custom list $listId; inputCount=${threads.size}, " +
+                "addedCount=${addedThreads.size}"
+        }
+        return addedThreads
     }
 
     fun excludeThread(listId: Long, threadId: Int, now: Long = System.currentTimeMillis()) {
@@ -306,12 +358,57 @@ class CustomListDatabase private constructor(context: Context) :
         AppLogger.info(TAG) { "Cleared exclusions for custom list $listId" }
     }
 
+    /** Records that this list, rather than a manual action, started the topic download. */
+    fun recordAutoDownload(listId: Long, threadId: Int) {
+        writableDatabase.insertWithOnConflict(
+            "custom_list_auto_downloads",
+            null,
+            ContentValues().apply {
+                put("list_id", listId)
+                put("thread_id", threadId)
+            },
+            SQLiteDatabase.CONFLICT_IGNORE,
+        )
+    }
+
+    /**
+     * Returns whether a completed automatic download should be removed after its images are read.
+     * Manual downloads are intentionally absent from [custom_list_auto_downloads].
+     */
+    fun shouldDeleteAutoDownloadedThreadAfterImageReading(threadId: Int): Boolean =
+        readableDatabase.rawQuery(
+            """
+            SELECT 1
+            FROM custom_list_auto_downloads d
+            JOIN custom_lists l ON l.id = d.list_id
+            WHERE d.thread_id = ?
+              AND l.auto_download_new_threads = 1
+              AND l.auto_delete_after_image_reading = 1
+            LIMIT 1
+            """.trimIndent(),
+            arrayOf(threadId.toString()),
+        ).use { cursor -> cursor.moveToFirst() }
+
+    fun clearAutoDownloadRecord(threadId: Int) {
+        writableDatabase.delete(
+            "custom_list_auto_downloads",
+            "thread_id = ?",
+            arrayOf(threadId.toString()),
+        )
+    }
+
+    fun clearAutoDownloadRecords() {
+        writableDatabase.delete("custom_list_auto_downloads", null, null)
+    }
+
     private fun listValues(
         name: String,
         keywords: List<String>,
         searchType: YamiboThreadSearchType,
         updatedAt: Long,
         autoRefreshIntervalHours: Int,
+        autoDownloadNewThreads: Boolean,
+        autoDeleteAfterImageReading: Boolean,
     ) = ContentValues().apply {
         require(autoRefreshIntervalHours > 0) {
             "autoRefreshIntervalHours must be a positive integer"
@@ -321,6 +418,8 @@ class CustomListDatabase private constructor(context: Context) :
         put("search_type", searchType.name.lowercase())
         put("updated_at", updatedAt)
         put("auto_refresh_interval_hours", autoRefreshIntervalHours)
+        put("auto_download_new_threads", autoDownloadNewThreads)
+        put("auto_delete_after_image_reading", autoDeleteAfterImageReading)
     }
 
     private fun threadValues(listId: Long, thread: YamiboSearchThread) = ContentValues().apply {
@@ -337,6 +436,38 @@ class CustomListDatabase private constructor(context: Context) :
         put("web_url", thread.webUrl)
     }
 
+    private fun SQLiteDatabase.threadIdsForList(listId: Long): Set<Int> = rawQuery(
+        "SELECT thread_id FROM custom_list_threads WHERE list_id = ?",
+        arrayOf(listId.toString()),
+    ).use { cursor ->
+        buildSet {
+            while (cursor.moveToNext()) add(cursor.getInt(0))
+        }
+    }
+
+    private fun SQLiteDatabase.excludedThreadIds(listId: Long): Set<Int> = rawQuery(
+        "SELECT thread_id FROM custom_list_exclusions WHERE list_id = ?",
+        arrayOf(listId.toString()),
+    ).use { cursor ->
+        buildSet {
+            while (cursor.moveToNext()) add(cursor.getInt(0))
+        }
+    }
+
+    private fun YamiboSearchThread.toCustomListThread(listId: Long) = CustomListThread(
+        listId = listId,
+        threadId = id,
+        forumId = forum.id,
+        forumName = forum.name,
+        subject = subject,
+        authorName = author.name,
+        createdAtText = createdAtText,
+        excerpt = excerpt,
+        replyCount = replyCount,
+        viewCount = viewCount,
+        webUrl = webUrl,
+    )
+
     private fun android.database.Cursor.toCustomList() = CustomThreadList(
         id = getLong(0),
         name = getString(1),
@@ -350,6 +481,8 @@ class CustomListDatabase private constructor(context: Context) :
         autoRefreshIntervalHours = getInt(7)
             .takeIf { it > 0 }
             ?: DEFAULT_CUSTOM_LIST_AUTO_REFRESH_INTERVAL_HOURS,
+        autoDownloadNewThreads = getInt(10) != 0,
+        autoDeleteAfterImageReading = getInt(11) != 0,
     )
 
     private inline fun <T> SQLiteDatabase.transaction(block: SQLiteDatabase.() -> T): T {
@@ -364,11 +497,28 @@ class CustomListDatabase private constructor(context: Context) :
     companion object {
         private const val TAG = "CustomListDatabase"
         private const val DATABASE_NAME = "custom_lists.db"
-        private const val DATABASE_VERSION = 3
+        private const val DATABASE_VERSION = 4
         private val THREAD_COLUMNS = arrayOf(
             "list_id", "thread_id", "forum_id", "forum_name", "subject", "author_name",
             "created_at_text", "excerpt", "reply_count", "view_count", "web_url",
         )
+
+        private fun createAutoDownloadsTable(database: SQLiteDatabase) {
+            database.execSQL(
+                """
+                CREATE TABLE IF NOT EXISTS custom_list_auto_downloads (
+                    list_id INTEGER NOT NULL,
+                    thread_id INTEGER NOT NULL,
+                    PRIMARY KEY (list_id, thread_id),
+                    FOREIGN KEY (list_id) REFERENCES custom_lists(id) ON DELETE CASCADE
+                )
+                """.trimIndent(),
+            )
+            database.execSQL(
+                "CREATE INDEX IF NOT EXISTS custom_list_auto_downloads_thread_id " +
+                    "ON custom_list_auto_downloads(thread_id)",
+            )
+        }
 
         @Volatile
         private var instance: CustomListDatabase? = null

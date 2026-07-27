@@ -77,6 +77,7 @@ import com.yamibo.pocket300.R
 import com.yamibo.pocket300.api.GetThreadPostsInput
 import com.yamibo.pocket300.api.YamiboPost
 import com.yamibo.pocket300.api.YamiboThreadDetails
+import com.yamibo.pocket300.data.CustomListDatabase
 import com.yamibo.pocket300.data.download.DownloadedThread
 import com.yamibo.pocket300.data.download.ThreadDownloadKey
 import com.yamibo.pocket300.data.download.ThreadDownloadPhase
@@ -102,10 +103,12 @@ import com.yamibo.pocket300.ui.reader.ImageReaderScaleType
 import com.yamibo.pocket300.ui.resolvePostImageSource
 import com.yamibo.pocket300.ui.resolvePostLink
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 internal enum class ReaderContentSource { NETWORK, DOWNLOAD }
 
@@ -129,6 +132,7 @@ internal fun ReaderScreen(
     onThread: (PostLinkTarget.Thread) -> Unit,
 ) {
     val context = LocalContext.current
+    val customListDatabase = remember(context) { CustomListDatabase.getInstance(context) }
     val downloadRepository = remember(context) { ThreadDownloadRepository.getInstance(context) }
     val downloadStatuses by downloadRepository.statuses.collectAsState()
     val downloadKey = remember(threadId) { ThreadDownloadKey(threadId) }
@@ -155,6 +159,8 @@ internal fun ReaderScreen(
     var settingsVisible by remember { mutableStateOf(false) }
     var imageSettingsVisible by remember { mutableStateOf(false) }
     var deleteDownloadVisible by remember { mutableStateOf(false) }
+    var autoDeleteAttempted by remember(threadId) { mutableStateOf(false) }
+    var imageReadingCompleted by remember(threadId, postId) { mutableStateOf(false) }
     var readerMode by remember(threadId, postId) { mutableStateOf(preferencesStore.loadMode()) }
     var imageIndex by remember(threadId, postId) { mutableIntStateOf(0) }
     val scrollState = rememberScrollState()
@@ -167,6 +173,7 @@ internal fun ReaderScreen(
     val downloadStartedMessage = stringResource(R.string.reader_download_started)
     val downloadFailedMessage = stringResource(R.string.reader_download_failed)
     val deleteFailedMessage = stringResource(R.string.downloads_delete_failed)
+    val autoDeleteSucceededMessage = stringResource(R.string.reader_download_auto_deleted)
 
     LaunchedEffect(view, controlsVisible) {
         val controller = ViewCompat.getWindowInsetsController(view) ?: return@LaunchedEffect
@@ -239,6 +246,48 @@ internal fun ReaderScreen(
         )
         if (reconciled != state) state = reconciled
     }
+    val readerImageCount = readyContent?.let { content ->
+        val attachmentUrls = content.post.attachments.filter { it.isImage }.map { it.url }
+        resolveReaderImageUrls(
+            remoteImageUrls = postImageUrls(content.post.html, attachmentUrls),
+            localImageUrls = content.localImageUrls,
+            allowRemoteImages = content.source != ReaderContentSource.DOWNLOAD,
+        ).size
+    } ?: 0
+    LaunchedEffect(readerMode, readerImageCount) {
+        if (readerMode != ReaderMode.IMAGES || readerImageCount == 0) {
+            imageReadingCompleted = false
+        }
+    }
+    LaunchedEffect(
+        threadId,
+        completedDownload,
+        imageReadingCompleted,
+        autoDeleteAttempted,
+    ) {
+        if (!imageReadingCompleted || completedDownload == null || autoDeleteAttempted) {
+            return@LaunchedEffect
+        }
+        val shouldDelete = withContext(Dispatchers.IO) {
+            customListDatabase.shouldDeleteAutoDownloadedThreadAfterImageReading(threadId)
+        }
+        if (!shouldDelete) return@LaunchedEffect
+
+        autoDeleteAttempted = true
+        try {
+            downloadRepository.delete(downloadKey)
+            withContext(Dispatchers.IO) {
+                customListDatabase.clearAutoDownloadRecord(threadId)
+            }
+            Toast.makeText(context, autoDeleteSucceededMessage, Toast.LENGTH_SHORT).show()
+            onBack()
+        } catch (error: CancellationException) {
+            throw error
+        } catch (_: Exception) {
+            autoDeleteAttempted = false
+            Toast.makeText(context, deleteFailedMessage, Toast.LENGTH_SHORT).show()
+        }
+    }
 
     val updatePreferences: (ReaderPreferences) -> Unit = {
         preferences = it
@@ -283,6 +332,9 @@ internal fun ReaderScreen(
                             coroutineScope.launch {
                                 try {
                                     downloadRepository.delete(downloadKey)
+                                    withContext(Dispatchers.IO) {
+                                        customListDatabase.clearAutoDownloadRecord(threadId)
+                                    }
                                     val current = (state as? LoadState.Ready)?.value
                                     if (
                                         offlineOnly ||
@@ -602,6 +654,7 @@ internal fun ReaderScreen(
                         controlsVisible = controlsVisible,
                         onCurrentPageChange = { imageIndex = it },
                         onToggleControls = { controlsVisible = !controlsVisible },
+                        onImageReadingComplete = { imageReadingCompleted = true },
                     )
                 } else {
                     Column(

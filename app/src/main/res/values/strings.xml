@@ -50,6 +50,10 @@
     <string name="custom_list_search_summary">%1$s：%2$s</string>
     <string name="custom_list_auto_refresh_interval">自动更新间隔（小时）</string>
     <string name="custom_list_auto_refresh_interval_hint">默认 24 小时。应用仅在前台检查，达到间隔后自动更新。</string>
+    <string name="custom_list_auto_download_new_threads">新增主题自动下载</string>
+    <string name="custom_list_auto_download_new_threads_hint">后续刷新发现的新主题会加入离线下载队列；首次同步的已有结果不会自动下载。</string>
+    <string name="custom_list_auto_delete_after_image_reading">图片读完后自动删除下载</string>
+    <string name="custom_list_auto_delete_after_image_reading_hint">仅清理由此列表自动下载的主题；阅读到最后一张图片后会删除本地内容。</string>
     <string name="custom_list_keywords_hint">每行一个关键词，将搜索标题和帖子内容。首次获取和全量刷新会检查全部页，常规更新仅检查第一页。</string>
     <string name="custom_list_titles_hint">每行一个标题关键词，将仅搜索帖子标题。首次获取和全量刷新会检查全部页，常规更新仅检查第一页。</string>
     <string name="custom_list_user_ids_hint">每行一个用户 ID，将搜索这些用户发布的主题。首次获取和全量刷新会检查全部页，常规更新仅检查第一页。</string>
@@ -239,6 +243,7 @@
     <string name="reader_download_saving">正在保存整个主题</string>
     <string name="reader_download_delete_title">删除整个离线主题？</string>
     <string name="reader_download_delete_message">整个主题的文字和已保存图片会从本机移除。</string>
+    <string name="reader_download_auto_deleted">图片已读完，已自动删除离线主题</string>
     <string name="thread_original_poster_only">仅看楼主</string>
     <string name="thread_mark_read">设为已读</string>
     <string name="thread_mark_unread">取消已读</string>

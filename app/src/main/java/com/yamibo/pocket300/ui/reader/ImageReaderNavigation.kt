@@ -78,3 +78,6 @@ internal fun imageReaderPageAfterAction(
 
 internal fun imageReaderPageFromSlider(value: Float, pageCount: Int): Int =
     if (pageCount <= 0) 0 else value.roundToInt().coerceIn(0, pageCount - 1)
+
+internal fun imageReaderAtFinalPage(page: Int, pageCount: Int): Boolean =
+    pageCount > 0 && page == pageCount - 1

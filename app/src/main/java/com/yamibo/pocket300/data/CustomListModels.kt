@@ -4,6 +4,8 @@ import com.yamibo.pocket300.api.YamiboThreadSearchType
 import com.yamibo.pocket300.logging.AppLogger
 
 const val DEFAULT_CUSTOM_LIST_AUTO_REFRESH_INTERVAL_HOURS = 24
+const val DEFAULT_CUSTOM_LIST_AUTO_DOWNLOAD_NEW_THREADS = false
+const val DEFAULT_CUSTOM_LIST_AUTO_DELETE_AFTER_IMAGE_READING = false
 
 data class CustomThreadList(
     val id: Long,
@@ -16,7 +18,17 @@ data class CustomThreadList(
     val threadCount: Int,
     val excludedCount: Int,
     val autoRefreshIntervalHours: Int = DEFAULT_CUSTOM_LIST_AUTO_REFRESH_INTERVAL_HOURS,
+    val autoDownloadNewThreads: Boolean = DEFAULT_CUSTOM_LIST_AUTO_DOWNLOAD_NEW_THREADS,
+    val autoDeleteAfterImageReading: Boolean =
+        DEFAULT_CUSTOM_LIST_AUTO_DELETE_AFTER_IMAGE_READING,
 )
+
+/**
+ * The first sync establishes the list's baseline. Automatically downloading every historical
+ * result when a list is created would be surprising, so only later additions are eligible.
+ */
+internal fun CustomThreadList.shouldAutoDownloadAddedThreads(addedThreadCount: Int): Boolean =
+    autoDownloadNewThreads && lastSyncedAt != null && addedThreadCount > 0
 
 data class CustomListThread(
     val listId: Long,

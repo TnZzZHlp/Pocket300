@@ -8,6 +8,7 @@ import com.yamibo.pocket300.api.YamiboSearchPage
 import com.yamibo.pocket300.api.YamiboSearchThread
 import com.yamibo.pocket300.api.YamiboThreadSearchType
 import com.yamibo.pocket300.logging.AppLogger
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.sync.Mutex
@@ -27,6 +28,10 @@ enum class CustomListRefreshMode { REGULAR, FULL }
 class CustomListRepository(
     private val database: CustomListDatabase,
     private val searchApi: YamiboSearchApi,
+    private val onNewThreadsForAutoDownload: suspend (
+        list: CustomThreadList,
+        threads: List<CustomListThread>,
+    ) -> Unit = { _, _ -> },
 ) {
     suspend fun refresh(
         list: CustomThreadList,
@@ -48,11 +53,22 @@ class CustomListRepository(
             search = ::searchWithRateLimit,
             onProgress = onProgress,
         )
-        withContext(Dispatchers.IO) {
+        val addedThreads = withContext(Dispatchers.IO) {
             if (fetchAllPages) {
                 database.replaceThreads(currentList.id, results.values)
             } else {
                 database.mergeThreads(currentList.id, results.values)
+            }
+        }
+        if (currentList.shouldAutoDownloadAddedThreads(addedThreads.size)) {
+            try {
+                onNewThreadsForAutoDownload(currentList, addedThreads)
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                AppLogger.error(TAG, error) {
+                    "Could not enqueue ${addedThreads.size} new threads from custom list ${currentList.id}"
+                }
             }
         }
         CustomListRefreshEvents.notifyRefreshed(currentList.id)
