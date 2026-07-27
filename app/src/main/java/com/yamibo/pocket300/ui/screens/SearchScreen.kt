@@ -60,6 +60,7 @@ import com.yamibo.pocket300.ui.Loading
 import com.yamibo.pocket300.ui.LocalReadingHistory
 import com.yamibo.pocket300.ui.ScreenScaffold
 import com.yamibo.pocket300.ui.components.AutoLoadNextPage
+import com.yamibo.pocket300.ui.components.ThreadCardTitle
 import com.yamibo.pocket300.ui.components.ThreadLastReadPosition
 import com.yamibo.pocket300.ui.dimIfRead
 import com.yamibo.pocket300.ui.viewmodels.SearchContent
@@ -383,11 +384,10 @@ private fun SearchThreadCard(
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.primary,
             )
-            Text(
-                thread.subject,
-                style = MaterialTheme.typography.titleMedium,
+            ThreadCardTitle(
+                subject = thread.subject,
+                threadId = thread.id,
                 maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
             )
             Text(
                 stringResource(

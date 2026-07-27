@@ -43,6 +43,7 @@ import com.yamibo.pocket300.ui.LocalReadingHistory
 import com.yamibo.pocket300.ui.ScreenScaffold
 import com.yamibo.pocket300.ui.api
 import com.yamibo.pocket300.ui.components.LocalSearchField
+import com.yamibo.pocket300.ui.components.ThreadCardTitle
 import com.yamibo.pocket300.ui.components.ThreadLastReadPosition
 import com.yamibo.pocket300.ui.components.matchesLocalSearch
 import com.yamibo.pocket300.ui.dimIfRead
@@ -146,7 +147,10 @@ internal fun FavoritesScreen(
                                             Modifier.padding(16.dp),
                                             verticalArrangement = Arrangement.spacedBy(8.dp),
                                         ) {
-                                            Text(favorite.title, style = MaterialTheme.typography.titleMedium)
+                                            ThreadCardTitle(
+                                                subject = favorite.title,
+                                                threadId = favorite.threadId,
+                                            )
                                             favorite.createdAtText.takeIf(String::isNotBlank)?.let {
                                                 Text(it, style = MaterialTheme.typography.labelMedium)
                                             }

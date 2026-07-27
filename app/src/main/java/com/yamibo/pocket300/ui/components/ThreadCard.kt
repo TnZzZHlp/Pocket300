@@ -9,7 +9,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.yamibo.pocket300.api.YamiboThread
 import com.yamibo.pocket300.ui.LocalReadingHistory
@@ -24,7 +23,11 @@ internal fun ThreadCard(thread: YamiboThread, onClick: (YamiboThread) -> Unit, m
     ) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             if (thread.typeName != null) Text(thread.typeName, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
-            Text(thread.subject, style = MaterialTheme.typography.titleMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            ThreadCardTitle(
+                subject = thread.subject,
+                threadId = thread.id,
+                maxLines = 2,
+            )
             Text("${thread.author.name} · ${thread.createdAtText} · ${thread.replyCount} 回复", style = MaterialTheme.typography.labelMedium)
             ThreadLastReadPosition(thread.id)
         }
