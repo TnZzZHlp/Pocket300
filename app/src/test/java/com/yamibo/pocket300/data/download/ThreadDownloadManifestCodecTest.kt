@@ -20,6 +20,19 @@ class ThreadDownloadManifestCodecTest {
         assertEquals(request, pending)
         assertEquals(request, failed.request)
         assertEquals(ThreadDownloadRequestState.FAILED, failed.state)
+        assertEquals(request.requestedAt, failed.queueOrder)
+    }
+
+    @Test
+    fun requestRoundTripPreservesExplicitQueueOrderAndReadsLegacyRequests() {
+        val request = testRequest(requestedAt = 10L)
+        val ordered = codec.decodeStoredRequest(codec.encodeRequest(request, queueOrder = 20L))
+        val legacy = JSONObject(codec.encodeRequest(request)).apply {
+            remove("queueOrder")
+        }
+
+        assertEquals(20L, ordered.queueOrder)
+        assertEquals(10L, codec.decodeStoredRequest(legacy.toString()).queueOrder)
     }
 
     @Test

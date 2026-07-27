@@ -19,15 +19,18 @@ enum class ThreadDownloadRequestState {
 data class StoredThreadDownloadRequest(
     val request: ThreadDownloadRequest,
     val state: ThreadDownloadRequestState,
+    val queueOrder: Long = request.requestedAt,
 )
 
 class ThreadDownloadManifestCodec {
     fun encodeRequest(
         request: ThreadDownloadRequest,
         state: ThreadDownloadRequestState = ThreadDownloadRequestState.PENDING,
+        queueOrder: Long = request.requestedAt,
     ): String = JSONObject()
         .put("version", CURRENT_THREAD_DOWNLOAD_MANIFEST_VERSION)
         .put("queueState", state.name)
+        .put("queueOrder", queueOrder)
         .put("requestedAt", request.requestedAt)
         .put("thread", encodeThread(request.thread))
         .toString()
@@ -42,12 +45,16 @@ class ThreadDownloadManifestCodec {
             "queueState",
             ThreadDownloadRequestState.PENDING.name,
         ).let(ThreadDownloadRequestState::valueOf)
+        val requestedAt = root.getLong("requestedAt")
+        val queueOrder = root.optLong("queueOrder", requestedAt)
+        require(queueOrder >= 0) { "Thread download queue order must not be negative" }
         return StoredThreadDownloadRequest(
             request = ThreadDownloadRequest(
                 thread = decodeThread(root.getJSONObject("thread")),
-                requestedAt = root.getLong("requestedAt"),
+                requestedAt = requestedAt,
             ),
             state = state,
+            queueOrder = queueOrder,
         )
     }
 

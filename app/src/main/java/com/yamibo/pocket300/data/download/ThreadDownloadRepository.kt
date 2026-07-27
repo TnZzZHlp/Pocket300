@@ -16,7 +16,6 @@ import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.cancelAndJoin
-import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -46,7 +45,8 @@ class ThreadDownloadRepository internal constructor(
     private val clock: () -> Long = System::currentTimeMillis,
     private val legacyRootDirectory: File? = null,
 ) {
-    private val queue = Channel<ThreadDownloadKey>(Channel.UNLIMITED)
+    private val downloader = ThreadDownloader(store, threadPostsSource, imageDownloader)
+    private val downloadQueue = ThreadDownloadQueue()
     private val cancelledKeys = ConcurrentHashMap.newKeySet<ThreadDownloadKey>()
     private val activeTasks = ConcurrentHashMap<ThreadDownloadKey, Job>()
     private val mutationMutex = Mutex()
@@ -57,6 +57,7 @@ class ThreadDownloadRepository internal constructor(
     val downloads: StateFlow<List<DownloadedThread>> = _downloads.asStateFlow()
     val statuses: StateFlow<Map<ThreadDownloadKey, ThreadDownloadStatus>> =
         _statuses.asStateFlow()
+    val queueState: StateFlow<ThreadDownloadQueueState> = downloadQueue.state
 
     private val initialization: Deferred<Unit>
     private val processor: Job
@@ -65,15 +66,31 @@ class ThreadDownloadRepository internal constructor(
         initialization = scope.async(Dispatchers.IO) { initializeFromDisk() }
         processor = scope.launch(Dispatchers.IO) {
             initialization.await()
-            for (key in queue) {
+            while (true) {
+                val entry = downloadQueue.awaitNext()
+                val key = entry.request.key
                 supervisorScope {
-                    val task = launch(start = CoroutineStart.LAZY) { process(key) }
-                    activeTasks[key] = task
-                    task.start()
-                    try {
-                        task.join()
-                    } finally {
-                        activeTasks.remove(key, task)
+                    var task: Job? = null
+                    mutationMutex.withLock {
+                        if (!downloadQueue.state.value.isPaused) {
+                            task = launch(start = CoroutineStart.LAZY) { process(key) }
+                            activeTasks[key] = requireNotNull(task)
+                            task.start()
+                        }
+                    }
+                    val activeTask = task
+                    if (activeTask == null) {
+                        requeuePausedDownload(key, wasCancelled = true)
+                    } else {
+                        try {
+                            activeTask.join()
+                        } finally {
+                            activeTasks.remove(key, activeTask)
+                            requeuePausedDownload(
+                                key = key,
+                                wasCancelled = activeTask.isCancelled,
+                            )
+                        }
                     }
                 }
             }
@@ -106,7 +123,7 @@ class ThreadDownloadRepository internal constructor(
     ): Boolean {
         initialization.await()
         return withContext(NonCancellable) {
-            var shouldQueue = false
+            var entry: ThreadDownloadQueueEntry? = null
             mutationMutex.withLock {
                 val active = _statuses.value[request.key]?.phase
                 val hasCompleted = _downloads.value.any { it.key == request.key }
@@ -116,18 +133,23 @@ class ThreadDownloadRepository internal constructor(
                     active != ThreadDownloadPhase.FETCHING_PAGES &&
                     active != ThreadDownloadPhase.DOWNLOADING_IMAGES
                 ) {
-                    withContext(Dispatchers.IO) { store.persistRequest(request) }
+                    val queued = downloadQueue.reserve(request)
+                    withContext(Dispatchers.IO) {
+                        store.persistRequest(request, queueOrder = queued.order)
+                    }
                     cancelledKeys.remove(request.key)
                     publishStatus(
                         request.queuedStatus(
                             existing = _downloads.value.firstOrNull { it.key == request.key },
                         ),
                     )
-                    shouldQueue = true
+                    entry = queued
                 }
             }
-            if (shouldQueue) queue.send(request.key)
-            shouldQueue
+            entry?.let { queued ->
+                check(downloadQueue.enqueue(queued)) { "Could not enqueue thread download" }
+            }
+            entry != null
         }
     }
 
@@ -135,7 +157,7 @@ class ThreadDownloadRepository internal constructor(
         initialization.await()
         return withContext(NonCancellable) {
             var found = false
-            var shouldQueue = false
+            var entry: ThreadDownloadQueueEntry? = null
             mutationMutex.withLock {
                 val request = withContext(Dispatchers.IO) { store.loadQueuedRequest(key) }
                     ?: _statuses.value[key]?.request
@@ -147,19 +169,58 @@ class ThreadDownloadRepository internal constructor(
                         active != ThreadDownloadPhase.FETCHING_PAGES &&
                         active != ThreadDownloadPhase.DOWNLOADING_IMAGES
                     ) {
-                        withContext(Dispatchers.IO) { store.persistRequest(request) }
+                        val queued = downloadQueue.reserve(request)
+                        withContext(Dispatchers.IO) {
+                            store.persistRequest(request, queueOrder = queued.order)
+                        }
                         cancelledKeys.remove(key)
                         publishStatus(
                             request.queuedStatus(
                                 existing = _downloads.value.firstOrNull { it.key == key },
                             ),
                         )
-                        shouldQueue = true
+                        entry = queued
                     }
                 }
             }
-            if (shouldQueue) queue.send(key)
+            entry?.let { queued ->
+                check(downloadQueue.enqueue(queued)) { "Could not retry thread download" }
+            }
             found
+        }
+    }
+
+    /** Stops the active transfer while retaining it, and every pending task, in the durable queue. */
+    suspend fun pauseDownloads(): Boolean {
+        initialization.await()
+        var activeTask: Job? = null
+        val paused = mutationMutex.withLock {
+            activeTask = activeTasks.values.singleOrNull()
+            downloadQueue.pause()
+        }
+        if (paused) activeTask?.cancelAndJoin()
+        return paused
+    }
+
+    /** Allows the next pending task to start, or retries the task interrupted by [pauseDownloads]. */
+    suspend fun resumeDownloads(): Boolean {
+        initialization.await()
+        return downloadQueue.resume()
+    }
+
+    /** Moves a pending download to the front of the durable FIFO queue. */
+    suspend fun prioritize(key: ThreadDownloadKey): Boolean {
+        initialization.await()
+        return withContext(NonCancellable) {
+            mutationMutex.withLock {
+                val reordered = downloadQueue.prioritize(key) ?: return@withLock false
+                withContext(Dispatchers.IO) {
+                    reordered.forEach { entry ->
+                        store.persistRequest(entry.request, queueOrder = entry.order)
+                    }
+                }
+                true
+            }
         }
     }
 
@@ -185,6 +246,7 @@ class ThreadDownloadRepository internal constructor(
         withContext(NonCancellable) {
             mutationMutex.withLock {
                 cancelledKeys += key
+                downloadQueue.cancel(key)
                 try {
                     activeTasks[key]?.cancelAndJoin()
                     val previous = _statuses.value[key]
@@ -219,7 +281,8 @@ class ThreadDownloadRepository internal constructor(
         withContext(NonCancellable) {
             mutationMutex.withLock {
                 val previous = _statuses.value
-                cancelledKeys += previous.keys
+                val cancelled = (previous.keys + downloadQueue.cancelAll()).toSet()
+                cancelledKeys += cancelled
                 try {
                     val tasks = activeTasks.values.toList()
                     tasks.forEach { it.cancel() }
@@ -233,7 +296,7 @@ class ThreadDownloadRepository internal constructor(
                         throw IOException("Could not remove all thread downloads")
                     }
                 } finally {
-                    cancelledKeys.removeAll(previous.keys)
+                    cancelledKeys.removeAll(cancelled)
                 }
             }
         }
@@ -242,12 +305,12 @@ class ThreadDownloadRepository internal constructor(
     internal fun close() {
         initialization.cancel()
         processor.cancel()
-        queue.close()
+        downloadQueue.close()
     }
 
     private suspend fun initializeFromDisk() {
         val completed: List<DownloadedThread>
-        val queued: List<ThreadDownloadRequest>
+        val queued: List<ThreadDownloadQueueEntry>
         val failed: List<ThreadDownloadRequest>
         withContext(Dispatchers.IO) {
             cleanupLegacyPostDownloads()
@@ -258,7 +321,7 @@ class ThreadDownloadRepository internal constructor(
                 "Could not remove stale thread download queue files"
             }
             completed = store.listCompletedAndCleanupInvalid()
-            queued = store.loadQueuedRequests()
+            queued = store.loadQueuedEntries()
             failed = store.loadFailedRequests()
         }
         _downloads.value = completed
@@ -278,16 +341,19 @@ class ThreadDownloadRepository internal constructor(
                 )
             }
         }
-        queued.forEach { request ->
+        val pendingEntries = mutableListOf<ThreadDownloadQueueEntry>()
+        queued.forEach { entry ->
+            val request = entry.request
             val existing = completeByKey[request.key]
             if (existing.isAtLeastAsNewAs(request)) {
                 withContext(Dispatchers.IO) { store.removeQueuedRequest(request.key) }
             } else {
                 initialStatuses[request.key] = request.queuedStatus(existing)
-                queue.send(request.key)
+                pendingEntries += entry
             }
         }
         _statuses.value = initialStatuses
+        downloadQueue.restore(pendingEntries)
     }
 
     private fun cleanupLegacyPostDownloads() {
@@ -316,77 +382,41 @@ class ThreadDownloadRepository internal constructor(
             val existing = withContext(Dispatchers.IO) { store.read(key) }
 
             publishStatus(activeRequest.fetchingStatus(existing = existing))
-            val snapshot = fetchCompleteThreadSnapshot(
-                source = threadPostsSource,
+            val capture = downloader.download(
                 request = activeRequest,
-            ) { completedPages, totalPages, latestThread ->
-                publishStatus(
-                    activeRequest.fetchingStatus(
-                        completedPages = completedPages,
-                        totalPages = totalPages,
-                        thread = latestThread,
-                        existing = existing,
-                    ),
-                )
-            }
-            checkNotCancelled(key)
-
-            val remoteImageUrls = threadImageUrls(snapshot.posts)
-            require(remoteImageUrls.size <= MAX_THREAD_IMAGES) {
-                "Thread contains too many downloadable images"
-            }
-            val activeStaging = withContext(Dispatchers.IO) { store.createStaging(key) }
-            staging = activeStaging
-            val images = ArrayList<ThreadDownloadImage>(remoteImageUrls.size)
-            var downloadedBytes = 0L
-            publishStatus(
-                activeRequest.downloadingStatus(
-                    snapshot = snapshot,
-                    completedImages = 0,
-                    totalImages = remoteImageUrls.size,
-                    downloadedBytes = 0,
-                    existing = existing,
-                ),
+                checkNotCancelled = { checkNotCancelled(key) },
+                onPageFetched = { completedPages, totalPages, latestThread ->
+                    publishStatus(
+                        activeRequest.fetchingStatus(
+                            completedPages = completedPages,
+                            totalPages = totalPages,
+                            thread = latestThread,
+                            existing = existing,
+                        ),
+                    )
+                },
+                onImageProgress = { snapshot, completedImages, totalImages, downloadedBytes ->
+                    publishStatus(
+                        activeRequest.downloadingStatus(
+                            snapshot = snapshot,
+                            completedImages = completedImages,
+                            totalImages = totalImages,
+                            downloadedBytes = downloadedBytes,
+                            existing = existing,
+                        ),
+                    )
+                },
             )
-            remoteImageUrls.forEachIndexed { index, remoteUrl ->
-                checkNotCancelled(key)
-                val imageFile = activeStaging.imageFile(index)
-                val referer = snapshot.thread.webUrl.takeIf(String::isNotBlank)
-                    ?: activeRequest.referer
-                val result = imageDownloader.download(
-                    PostImageDownloadRequest(remoteUrl, referer),
-                    imageFile,
-                )
-                check(imageFile.isFile && imageFile.length() == result.byteCount) {
-                    "Downloaded image size did not match the response"
-                }
-                downloadedBytes += result.byteCount
-                images += ThreadDownloadImage(
-                    remoteUrl = remoteUrl,
-                    relativePath = "${ThreadDownloadStaging.IMAGE_DIRECTORY_NAME}/${imageFile.name}",
-                    byteCount = result.byteCount,
-                    sha256 = withContext(Dispatchers.IO) { fileSha256(imageFile) },
-                    contentType = result.contentType,
-                )
-                publishStatus(
-                    activeRequest.downloadingStatus(
-                        snapshot = snapshot,
-                        completedImages = index + 1,
-                        totalImages = remoteImageUrls.size,
-                        downloadedBytes = downloadedBytes,
-                        existing = existing,
-                    ),
-                )
-            }
+            staging = capture.staging
             checkNotCancelled(key)
             mutationMutex.withLock {
                 checkNotCancelled(key)
                 withContext(Dispatchers.IO) {
                     store.commit(
-                        staging = activeStaging,
+                        staging = capture.staging,
                         request = activeRequest,
-                        snapshot = snapshot,
-                        images = images,
+                        snapshot = capture.snapshot,
+                        images = capture.images,
                         completedAt = clock(),
                     )
                     store.removeQueuedRequest(key)
@@ -451,6 +481,20 @@ class ThreadDownloadRepository internal constructor(
         if (key in cancelledKeys) throw ThreadDownloadCancelledException()
     }
 
+    private suspend fun requeuePausedDownload(
+        key: ThreadDownloadKey,
+        wasCancelled: Boolean,
+    ) {
+        val requeued = downloadQueue.finish(key, wasCancelled)
+        requeued?.let { pending ->
+            publishStatus(
+                pending.request.queuedStatus(
+                    existing = _downloads.value.firstOrNull { it.key == key },
+                ),
+            )
+        }
+    }
+
     private fun publishStatus(status: ThreadDownloadStatus) {
         _statuses.update { it + (status.key to status) }
     }
@@ -489,7 +533,6 @@ class ThreadDownloadRepository internal constructor(
         private const val TAG = "ThreadDownload"
         private const val ROOT_DIRECTORY_NAME = "thread-downloads"
         private const val LEGACY_ROOT_DIRECTORY_NAME = "post-downloads"
-        private const val MAX_THREAD_IMAGES = 10_000
 
         @Volatile
         private var instance: ThreadDownloadRepository? = null
