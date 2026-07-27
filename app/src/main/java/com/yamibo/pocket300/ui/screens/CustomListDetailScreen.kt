@@ -1,5 +1,7 @@
 package com.yamibo.pocket300.ui.screens
 
+import android.widget.Toast
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibilityScope
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionScope
@@ -12,6 +14,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
@@ -19,6 +22,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Block
 import androidx.compose.material.icons.rounded.DoneAll
+import androidx.compose.material.icons.rounded.Download
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.SelectAll
 import androidx.compose.material3.Card
@@ -34,6 +38,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -43,9 +48,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import com.yamibo.pocket300.R
+import com.yamibo.pocket300.api.GetThreadPostsInput
 import com.yamibo.pocket300.data.CustomListDatabase
 import com.yamibo.pocket300.data.CustomListRefreshEvents
 import com.yamibo.pocket300.data.CustomListRefreshMode
@@ -53,8 +62,11 @@ import com.yamibo.pocket300.data.CustomListRepository
 import com.yamibo.pocket300.data.CustomListSyncProgress
 import com.yamibo.pocket300.data.CustomListThread
 import com.yamibo.pocket300.data.CustomThreadList
-import com.yamibo.pocket300.logging.AppLogger
 import com.yamibo.pocket300.data.ReadingHistoryDatabase
+import com.yamibo.pocket300.data.download.ThreadDownloadKey
+import com.yamibo.pocket300.data.download.ThreadDownloadRepository
+import com.yamibo.pocket300.data.download.ThreadDownloadRequest
+import com.yamibo.pocket300.logging.AppLogger
 import com.yamibo.pocket300.ui.EmptyState
 import com.yamibo.pocket300.ui.Loading
 import com.yamibo.pocket300.ui.LocalReadingHistory
@@ -81,9 +93,14 @@ internal fun CustomListDetailScreen(
     onThread: (CustomListThread) -> Unit,
 ) {
     val context = LocalContext.current
+    val resources = LocalResources.current
     val database = remember(context) { CustomListDatabase.getInstance(context) }
     val historyDatabase = remember(context) { ReadingHistoryDatabase.getInstance(context) }
     val repository = remember(database) { CustomListRepository(database, api.search) }
+    val downloadRepository = remember(context) {
+        ThreadDownloadRepository.getInstance(context.applicationContext)
+    }
+    val downloadStatuses by downloadRepository.statuses.collectAsState()
     val scope = rememberCoroutineScope()
     val listState = rememberLazyListState()
     val histories = LocalReadingHistory.current
@@ -98,7 +115,12 @@ internal fun CustomListDetailScreen(
     var refreshMenuExpanded by remember(listId) { mutableStateOf(false) }
     var selectionMode by remember(listId) { mutableStateOf(false) }
     var selectedThreadIds by remember(listId) { mutableStateOf(emptySet<Int>()) }
+    var selectionActionsMenuExpanded by remember(listId) { mutableStateOf(false) }
     var applyingSelectionAction by remember(listId) { mutableStateOf(false) }
+    var downloadRepositoryReady by remember(downloadRepository) { mutableStateOf(false) }
+    var bulkDownloadProgress by remember(listId) {
+        mutableStateOf<CustomListBulkDownloadProgress?>(null)
+    }
     var readFilter by rememberSaveable(listId) { mutableStateOf(ThreadReadFilter.UNREAD) }
     var publicationOrder by rememberSaveable(listId) {
         mutableStateOf(ThreadPublicationOrder.NEWEST_FIRST)
@@ -110,9 +132,19 @@ internal fun CustomListDetailScreen(
         publicationOrder = publicationOrder,
     )
     val displayedThreadIds = displayedThreads.map(CustomListThread::threadId)
-    val selectedThreads = threads.filter { it.threadId in selectedThreadIds }
+    val selectedThreads = selectedCustomListThreadsInDisplayOrder(
+        displayedThreads,
+        selectedThreadIds,
+    )
     val allDisplayedThreadsSelected = displayedThreadIds.isNotEmpty() &&
         selectedThreadIds.containsAll(displayedThreadIds)
+    val hasDownloadableSelectedThread = selectedThreads.any { thread ->
+        val status = downloadStatuses[ThreadDownloadKey(thread.threadId)]
+        customListBulkDownloadAction(
+            phase = status?.phase,
+            hasCompletedDownload = status?.completed != null,
+        ) != CustomListBulkDownloadAction.SKIP
+    }
 
     suspend fun loadLocal(): CustomThreadList? = withContext(Dispatchers.IO) {
         database.getList(listId).also { loaded ->
@@ -157,6 +189,7 @@ internal fun CustomListDetailScreen(
     fun exitSelectionMode() {
         selectionMode = false
         selectedThreadIds = emptySet()
+        selectionActionsMenuExpanded = false
     }
 
     fun toggleSelection(threadId: Int) {
@@ -209,9 +242,116 @@ internal fun CustomListDetailScreen(
         }
     }
 
+    fun downloadSelected() {
+        val targets = selectedThreads
+        if (
+            targets.isEmpty() ||
+            applyingSelectionAction ||
+            !downloadRepositoryReady
+        ) {
+            return
+        }
+        applyingSelectionAction = true
+        bulkDownloadProgress = CustomListBulkDownloadProgress(0, targets.size)
+        error = null
+        scope.launch {
+            try {
+                downloadRepository.awaitInitialized()
+                val result = enqueueCustomListThreadDownloads(
+                    threads = targets,
+                    actionFor = { threadId ->
+                        val status = downloadRepository.statuses.value[ThreadDownloadKey(threadId)]
+                        customListBulkDownloadAction(
+                            phase = status?.phase,
+                            hasCompletedDownload = status?.completed != null,
+                        )
+                    },
+                    retry = { threadId ->
+                        downloadRepository.retry(ThreadDownloadKey(threadId))
+                    },
+                    loadThreadDetails = { threadId ->
+                        api.posts.getThreadPosts(GetThreadPostsInput(threadId)).thread
+                    },
+                    enqueueIfMissing = { thread ->
+                        downloadRepository.enqueueIfMissing(
+                            ThreadDownloadRequest.create(thread),
+                        )
+                    },
+                    onProgress = { completedCount, totalCount ->
+                        bulkDownloadProgress = CustomListBulkDownloadProgress(
+                            completedCount,
+                            totalCount,
+                        )
+                    },
+                    onFailure = { threadId, failure ->
+                        AppLogger.warn(TAG, failure) {
+                            "Could not prepare custom-list thread $threadId for download"
+                        }
+                    },
+                )
+                val message = when {
+                    result.failedCount > 0 -> resources.getString(
+                        R.string.custom_list_download_selected_partial,
+                        result.queuedCount,
+                        result.skippedCount,
+                        result.failedCount,
+                    )
+                    result.skippedCount > 0 -> resources.getString(
+                        R.string.custom_list_download_selected_queued_with_skipped,
+                        result.queuedCount,
+                        result.skippedCount,
+                    )
+                    else -> resources.getString(
+                        R.string.custom_list_download_selected_queued,
+                        result.queuedCount,
+                    )
+                }
+                Toast.makeText(
+                    context,
+                    message,
+                    if (result.failedCount > 0) Toast.LENGTH_LONG else Toast.LENGTH_SHORT,
+                ).show()
+                if (result.failedCount == 0) {
+                    exitSelectionMode()
+                } else {
+                    selectedThreadIds = result.failedThreadIds
+                    error = message
+                }
+            } catch (failure: CancellationException) {
+                throw failure
+            } catch (failure: Exception) {
+                AppLogger.error(TAG, failure) {
+                    "Could not prepare ${targets.size} selected custom-list downloads"
+                }
+                error = failure.message ?: bulkActionFailedMessage
+            } finally {
+                bulkDownloadProgress = null
+                applyingSelectionAction = false
+            }
+        }
+    }
+
+    BackHandler(enabled = selectionMode) {
+        if (!applyingSelectionAction) exitSelectionMode()
+    }
+
     LaunchedEffect(listId) {
         val loaded = loadLocal()
         if (loaded != null && loaded.lastSyncedAt == null) sync(loaded)
+    }
+
+    LaunchedEffect(downloadRepository) {
+        try {
+            downloadRepository.awaitInitialized()
+            downloadRepositoryReady = true
+        } catch (failure: CancellationException) {
+            throw failure
+        } catch (failure: Exception) {
+            AppLogger.error(TAG, failure) {
+                "Could not initialize downloads for custom list $listId"
+            }
+            error = failure.message ?: bulkActionFailedMessage
+        }
     }
 
     LaunchedEffect(listId) {
@@ -236,7 +376,11 @@ internal fun CustomListDetailScreen(
         } else {
             list?.name ?: stringResource(R.string.list_title)
         },
-        onBack = if (selectionMode) ::exitSelectionMode else onBack,
+        onBack = when {
+            selectionMode && applyingSelectionAction -> null
+            selectionMode -> ::exitSelectionMode
+            else -> onBack
+        },
         onRefresh = if (selectionMode) null else list?.let { target ->
             {
                 if (!syncing) {
@@ -271,27 +415,75 @@ internal fun CustomListDetailScreen(
                     )
                 }
                 IconButton(
-                    enabled = selectedThreads.any { it.threadId !in histories } &&
+                    enabled = downloadRepositoryReady &&
+                        hasDownloadableSelectedThread &&
                         !applyingSelectionAction,
-                    onClick = ::markSelectedRead,
+                    onClick = ::downloadSelected,
                 ) {
-                    Icon(
-                        Icons.Rounded.DoneAll,
-                        contentDescription = stringResource(
-                            R.string.custom_list_mark_selected_read,
-                        ),
-                    )
+                    val currentProgress = bulkDownloadProgress
+                    if (currentProgress == null) {
+                        Icon(
+                            Icons.Rounded.Download,
+                            contentDescription = stringResource(
+                                R.string.custom_list_download_selected,
+                            ),
+                        )
+                    } else {
+                        val description = stringResource(
+                            R.string.custom_list_download_preparing_progress,
+                            currentProgress.completedCount,
+                            currentProgress.totalCount,
+                        )
+                        CircularProgressIndicator(
+                            modifier = Modifier
+                                .size(20.dp)
+                                .semantics { contentDescription = description },
+                            strokeWidth = 2.dp,
+                        )
+                    }
                 }
-                IconButton(
-                    enabled = selectedThreads.isNotEmpty() && !applyingSelectionAction,
-                    onClick = ::excludeSelected,
-                ) {
-                    Icon(
-                        Icons.Rounded.Block,
-                        contentDescription = stringResource(
-                            R.string.custom_list_exclude_selected,
-                        ),
-                    )
+                Box {
+                    IconButton(
+                        enabled = selectedThreads.isNotEmpty() && !applyingSelectionAction,
+                        onClick = { selectionActionsMenuExpanded = true },
+                    ) {
+                        Icon(
+                            Icons.Rounded.MoreVert,
+                            contentDescription = stringResource(
+                                R.string.custom_list_more_actions,
+                            ),
+                        )
+                    }
+                    DropdownMenu(
+                        expanded = selectionActionsMenuExpanded,
+                        onDismissRequest = { selectionActionsMenuExpanded = false },
+                    ) {
+                        DropdownMenuItem(
+                            text = {
+                                Text(stringResource(R.string.custom_list_mark_selected_read))
+                            },
+                            leadingIcon = {
+                                Icon(Icons.Rounded.DoneAll, contentDescription = null)
+                            },
+                            enabled = selectedThreads.any { it.threadId !in histories },
+                            onClick = {
+                                selectionActionsMenuExpanded = false
+                                markSelectedRead()
+                            },
+                        )
+                        DropdownMenuItem(
+                            text = {
+                                Text(stringResource(R.string.custom_list_exclude_selected))
+                            },
+                            leadingIcon = {
+                                Icon(Icons.Rounded.Block, contentDescription = null)
+                            },
+                            onClick = {
+                                selectionActionsMenuExpanded = false
+                                excludeSelected()
+                            },
+                        )
+                    }
                 }
             } else {
                 Box {
@@ -419,6 +611,7 @@ internal fun CustomListDetailScreen(
                                         onStartSelection = {
                                             startSelection(thread.threadId)
                                         },
+                                        interactionEnabled = !applyingSelectionAction,
                                         modifier = with(sharedTransitionScope) {
                                             Modifier.sharedBounds(
                                                 rememberSharedContentState("thread-${thread.threadId}"),
@@ -531,6 +724,7 @@ private fun CustomListThreadCard(
     onExclude: () -> Unit,
     selectionMode: Boolean,
     selected: Boolean,
+    interactionEnabled: Boolean,
     onToggleSelection: () -> Unit,
     onStartSelection: () -> Unit,
     modifier: Modifier = Modifier,
@@ -541,6 +735,7 @@ private fun CustomListThreadCard(
             .fillMaxWidth()
             .dimIfRead(thread.threadId, histories)
             .combinedClickable(
+                enabled = interactionEnabled,
                 onClick = {
                     if (selectionMode) onToggleSelection() else onClick(thread)
                 },
@@ -560,6 +755,7 @@ private fun CustomListThreadCard(
             if (selectionMode) {
                 Checkbox(
                     checked = selected,
+                    enabled = interactionEnabled,
                     onCheckedChange = { onToggleSelection() },
                     modifier = Modifier.padding(start = 8.dp, top = 8.dp),
                 )

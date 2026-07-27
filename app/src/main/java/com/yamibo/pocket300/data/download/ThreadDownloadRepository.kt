@@ -88,56 +88,79 @@ class ThreadDownloadRepository internal constructor(
      * Enqueues a new capture even when an older completed snapshot exists.
      */
     suspend fun enqueue(request: ThreadDownloadRequest) {
-        initialization.await()
-        var shouldQueue = false
-        mutationMutex.withLock {
-            val active = _statuses.value[request.key]?.phase
-            if (
-                active != ThreadDownloadPhase.QUEUED &&
-                active != ThreadDownloadPhase.FETCHING_PAGES &&
-                active != ThreadDownloadPhase.DOWNLOADING_IMAGES
-            ) {
-                withContext(Dispatchers.IO) { store.persistRequest(request) }
-                cancelledKeys.remove(request.key)
-                publishStatus(
-                    request.queuedStatus(
-                        existing = _downloads.value.firstOrNull { it.key == request.key },
-                    ),
-                )
-                shouldQueue = true
-            }
-        }
-        if (shouldQueue) queue.send(request.key)
+        enqueueInternal(request, skipCompleted = false)
     }
 
-    suspend fun retry(key: ThreadDownloadKey): Boolean {
+    /**
+     * Enqueues a capture only when no readable snapshot or active task exists for the thread.
+     *
+     * This is intended for bulk actions where an already downloaded thread should be skipped
+     * instead of refreshed.
+     */
+    suspend fun enqueueIfMissing(request: ThreadDownloadRequest): Boolean =
+        enqueueInternal(request, skipCompleted = true)
+
+    private suspend fun enqueueInternal(
+        request: ThreadDownloadRequest,
+        skipCompleted: Boolean,
+    ): Boolean {
         initialization.await()
-        var found = false
-        var shouldQueue = false
-        mutationMutex.withLock {
-            val request = withContext(Dispatchers.IO) { store.loadQueuedRequest(key) }
-                ?: _statuses.value[key]?.request
-            if (request != null) {
-                found = true
-                val active = _statuses.value[key]?.phase
+        return withContext(NonCancellable) {
+            var shouldQueue = false
+            mutationMutex.withLock {
+                val active = _statuses.value[request.key]?.phase
+                val hasCompleted = _downloads.value.any { it.key == request.key }
                 if (
+                    (!skipCompleted || !hasCompleted) &&
                     active != ThreadDownloadPhase.QUEUED &&
                     active != ThreadDownloadPhase.FETCHING_PAGES &&
                     active != ThreadDownloadPhase.DOWNLOADING_IMAGES
                 ) {
                     withContext(Dispatchers.IO) { store.persistRequest(request) }
-                    cancelledKeys.remove(key)
+                    cancelledKeys.remove(request.key)
                     publishStatus(
                         request.queuedStatus(
-                            existing = _downloads.value.firstOrNull { it.key == key },
+                            existing = _downloads.value.firstOrNull { it.key == request.key },
                         ),
                     )
                     shouldQueue = true
                 }
             }
+            if (shouldQueue) queue.send(request.key)
+            shouldQueue
         }
-        if (shouldQueue) queue.send(key)
-        return found
+    }
+
+    suspend fun retry(key: ThreadDownloadKey): Boolean {
+        initialization.await()
+        return withContext(NonCancellable) {
+            var found = false
+            var shouldQueue = false
+            mutationMutex.withLock {
+                val request = withContext(Dispatchers.IO) { store.loadQueuedRequest(key) }
+                    ?: _statuses.value[key]?.request
+                if (request != null) {
+                    found = true
+                    val active = _statuses.value[key]?.phase
+                    if (
+                        active != ThreadDownloadPhase.QUEUED &&
+                        active != ThreadDownloadPhase.FETCHING_PAGES &&
+                        active != ThreadDownloadPhase.DOWNLOADING_IMAGES
+                    ) {
+                        withContext(Dispatchers.IO) { store.persistRequest(request) }
+                        cancelledKeys.remove(key)
+                        publishStatus(
+                            request.queuedStatus(
+                                existing = _downloads.value.firstOrNull { it.key == key },
+                            ),
+                        )
+                        shouldQueue = true
+                    }
+                }
+            }
+            if (shouldQueue) queue.send(key)
+            found
+        }
     }
 
     suspend fun read(key: ThreadDownloadKey): DownloadedThread? {
