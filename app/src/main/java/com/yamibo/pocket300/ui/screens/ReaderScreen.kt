@@ -102,6 +102,9 @@ import com.yamibo.pocket300.ui.reader.ImageReaderScaleType
 import com.yamibo.pocket300.ui.resolvePostImageSource
 import com.yamibo.pocket300.ui.resolvePostLink
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 
 internal enum class ReaderContentSource { NETWORK, DOWNLOAD }
@@ -143,14 +146,10 @@ internal fun ReaderScreen(
         reusableContent,
         offlineOnly,
     ) {
-        mutableStateOf(
-            reusableContent
-                ?.takeUnless {
-                    offlineOnly || it.source == ReaderContentSource.DOWNLOAD
-                }
-                ?.let { LoadState.Ready(it) }
-                ?: LoadState.Loading,
-        )
+        mutableStateOf(LoadState.Loading)
+    }
+    var completedDownload by remember(threadId) {
+        mutableStateOf<DownloadedThread?>(null)
     }
     var controlsVisible by remember { mutableStateOf(true) }
     var settingsVisible by remember { mutableStateOf(false) }
@@ -186,47 +185,59 @@ internal fun ReaderScreen(
         }
     }
 
-    LaunchedEffect(threadId, postId, initialPage, reusableContent, offlineOnly) {
-        state = load {
-            resolveReaderContent(
-                threadId = threadId,
-                postId = postId,
-                initialContent = reusableContent,
-                offlineOnly = offlineOnly,
-                offlineUnavailableMessage = offlineUnavailableMessage,
-                loadDownloaded = {
-                    downloadRepository.read(downloadKey)?.toReaderContent(postId)
-                },
-                loadNetwork = {
-                    var page = api.posts.getThreadPosts(
-                        GetThreadPostsInput(threadId, initialPage.coerceAtLeast(1)),
-                    )
-                    var post = page.posts.firstOrNull { it.id == postId }
-                    if (post == null) {
-                        val resolvedPage = api.posts.findPostPage(threadId, postId)
-                            ?: error(postNotFoundMessage)
-                        page = api.posts.getThreadPosts(GetThreadPostsInput(threadId, resolvedPage))
-                        post = page.posts.firstOrNull { it.id == postId }
-                    }
-                    ReaderContent(
-                        thread = page.thread,
-                        post = post ?: error(postNotFoundMessage),
-                    )
-                },
-            )
+    LaunchedEffect(threadId) {
+        when (load { downloadRepository.awaitInitialized() }) {
+            is LoadState.Ready -> downloadRepository.statuses
+                .map { statuses -> statuses[downloadKey]?.completed }
+                .distinctUntilChanged()
+                .collectLatest { completedDownload = it }
+
+            is LoadState.Failed, LoadState.Loading -> Unit
         }
     }
-    LaunchedEffect(downloadStatus?.completed, state is LoadState.Ready) {
-        val current = (state as? LoadState.Ready)?.value ?: return@LaunchedEffect
-        if (current.source == ReaderContentSource.NETWORK) {
-            val downloaded = downloadStatus?.completed?.toReaderContent(postId)
-            val updated = if (downloaded == null) {
-                current.copy(localImageUrls = emptyMap())
-            } else {
-                current.withDownloadedImages(downloaded)
-            }
-            if (updated != current) state = LoadState.Ready(updated)
-        }
+    LaunchedEffect(threadId, postId, initialPage, reusableContent, offlineOnly) {
+        loadReaderContentLocalFirst(
+            threadId = threadId,
+            postId = postId,
+            initialContent = reusableContent,
+            offlineOnly = offlineOnly,
+            offlineUnavailableMessage = offlineUnavailableMessage,
+            loadDownloaded = {
+                downloadRepository.awaitInitialized()
+                downloadRepository.statuses.value[downloadKey]?.completed
+                    .also { completedDownload = it }
+                    ?.toReaderContent(postId)
+            },
+            loadNetwork = {
+                var page = api.posts.getThreadPosts(
+                    GetThreadPostsInput(threadId, initialPage.coerceAtLeast(1)),
+                )
+                var post = page.posts.firstOrNull { it.id == postId }
+                if (post == null) {
+                    val resolvedPage = api.posts.findPostPage(threadId, postId)
+                        ?: error(postNotFoundMessage)
+                    page = api.posts.getThreadPosts(GetThreadPostsInput(threadId, resolvedPage))
+                    post = page.posts.firstOrNull { it.id == postId }
+                }
+                ReaderContent(
+                    thread = page.thread,
+                    post = post ?: error(postNotFoundMessage),
+                )
+            },
+            onState = { state = it },
+        )
+    }
+    val readyContent = (state as? LoadState.Ready)?.value
+    LaunchedEffect(completedDownload, readyContent) {
+        val current = readyContent ?: return@LaunchedEffect
+        val downloaded = completedDownload?.toReaderContent(postId)
+        val reconciled = reconcileReaderDownloadedContent(
+            current = current,
+            downloaded = downloaded,
+            offlineOnly = offlineOnly,
+            offlineUnavailableMessage = offlineUnavailableMessage,
+        )
+        if (reconciled != state) state = reconciled
     }
 
     val updatePreferences: (ReaderPreferences) -> Unit = {
@@ -649,7 +660,7 @@ internal fun needsReaderContentLoad(
     postId: Int,
 ): Boolean = cachedThreadId != threadId || cachedPostId != postId
 
-internal suspend fun resolveReaderContent(
+internal suspend fun loadReaderContentLocalFirst(
     threadId: Int,
     postId: Int,
     initialContent: ReaderContent?,
@@ -657,36 +668,60 @@ internal suspend fun resolveReaderContent(
     offlineUnavailableMessage: String,
     loadDownloaded: suspend () -> ReaderContent?,
     loadNetwork: suspend () -> ReaderContent,
-): ReaderContent {
-    val downloaded = try {
-        loadDownloaded()
-    } catch (error: CancellationException) {
-        throw error
-    } catch (_: Exception) {
-        null
+    onState: (LoadState<ReaderContent>) -> Unit,
+) {
+    val downloaded = when (val result = load { loadDownloaded() }) {
+        is LoadState.Ready -> result.value
+        is LoadState.Failed, LoadState.Loading -> null
     }
     if (offlineOnly) {
-        return downloaded ?: throw IllegalStateException(offlineUnavailableMessage)
+        onState(
+            downloaded
+                ?.let { LoadState.Ready(it) }
+                ?: LoadState.Failed(offlineUnavailableMessage),
+        )
+        return
     }
 
     val reusable = initialContent?.takeUnless {
         needsReaderContentLoad(it.thread.id, it.post.id, threadId, postId) ||
             (it.source == ReaderContentSource.DOWNLOAD && downloaded == null)
     }
-    if (reusable != null) return reusable.withDownloadedImages(downloaded)
+    val preferred = downloaded ?: reusable?.withDownloadedImages(downloaded)
+    onState(preferred?.let { LoadState.Ready(it) } ?: LoadState.Loading)
 
-    return try {
-        loadNetwork().withDownloadedImages(downloaded)
-    } catch (error: CancellationException) {
-        throw error
-    } catch (error: Exception) {
-        downloaded ?: throw error
+    when (val refreshed = load { loadNetwork().withDownloadedImages(downloaded) }) {
+        is LoadState.Ready -> onState(refreshed)
+        is LoadState.Failed -> if (preferred == null) onState(refreshed)
+        LoadState.Loading -> Unit
     }
 }
 
+internal fun reconcileReaderDownloadedContent(
+    current: ReaderContent,
+    downloaded: ReaderContent?,
+    offlineOnly: Boolean,
+    offlineUnavailableMessage: String,
+): LoadState<ReaderContent> = when {
+    downloaded != null && current.source == ReaderContentSource.DOWNLOAD ->
+        LoadState.Ready(downloaded)
+
+    current.source == ReaderContentSource.DOWNLOAD && offlineOnly ->
+        LoadState.Failed(offlineUnavailableMessage)
+
+    current.source == ReaderContentSource.DOWNLOAD ->
+        LoadState.Ready(
+            current.copy(
+                localImageUrls = emptyMap(),
+                source = ReaderContentSource.NETWORK,
+            ),
+        )
+
+    else -> LoadState.Ready(current.withDownloadedImages(downloaded))
+}
+
 private fun ReaderContent.withDownloadedImages(downloaded: ReaderContent?): ReaderContent {
-    if (downloaded == null || downloaded.localImageUrls.isEmpty()) return this
-    return copy(localImageUrls = downloaded.localImageUrls)
+    return copy(localImageUrls = downloaded?.localImageUrls.orEmpty())
 }
 
 internal fun resolveReaderImageUrls(

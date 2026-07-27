@@ -129,6 +129,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlin.time.Duration.Companion.milliseconds
 
@@ -197,36 +198,88 @@ internal fun ThreadScreen(
         derivedStateOf { shouldShowThreadTitle(listState.firstVisibleItemIndex) }
     }
     val coroutineScope = rememberCoroutineScope()
-    var offlineState: LoadState<ThreadContent> by remember(threadId, offlineOnly) {
-        mutableStateOf(LoadState.Loading)
+    var localProbeCompleted by remember(threadId, offlineOnly) {
+        mutableStateOf(false)
     }
-    var offlineDownload by remember(threadId, offlineOnly) {
+    var networkRefreshReady by remember(threadId, offlineOnly) {
+        mutableStateOf(false)
+    }
+    var localDownload by remember(threadId, offlineOnly) {
         mutableStateOf<DownloadedThread?>(null)
     }
     val offlineUnavailableMessage = stringResource(R.string.downloads_content_unavailable_message)
     LaunchedEffect(threadId, offlineOnly) {
-        if (offlineOnly) {
-            offlineState = load {
-                val downloaded = downloadRepository.read(downloadKey)
-                    ?: error(offlineUnavailableMessage)
-                offlineDownload = downloaded
-                downloaded.toThreadContent()
-            }
-        }
+        localProbeCompleted = false
+        networkRefreshReady = false
+        probeLocalFirstThread(
+            offlineOnly = offlineOnly,
+            loadLocal = {
+                downloadRepository.awaitInitialized()
+                downloadRepository.statuses.value[downloadKey]?.completed
+            },
+            onLocalResolved = {
+                localDownload = it
+                localProbeCompleted = true
+            },
+            startNetwork = { networkRefreshReady = true },
+        )
+        downloadRepository.statuses
+            .map { statuses -> statuses[downloadKey]?.completed }
+            .distinctUntilChanged()
+            .collectLatest { localDownload = it }
     }
-    LaunchedEffect(threadId, reload, pageNumber, originalPosterOnly, offlineOnly) {
-        if (offlineOnly) return@LaunchedEffect
+    val localContent = remember(localDownload, originalPosterOnly) {
+        localDownload?.toThreadContent(
+            authorId = localDownload
+                ?.snapshot
+                ?.thread
+                ?.author
+                ?.id
+                ?.takeIf { originalPosterOnly },
+        )
+    }
+    val localState: LoadState<ThreadContent> = when {
+        !localProbeCompleted -> LoadState.Loading
+        localContent != null -> LoadState.Ready(localContent)
+        else -> LoadState.Failed(offlineUnavailableMessage)
+    }
+    LaunchedEffect(
+        threadId,
+        reload,
+        pageNumber,
+        originalPosterOnly,
+        targetFloor,
+        targetPostId,
+        offlineOnly,
+        networkRefreshReady,
+    ) {
+        if (offlineOnly || !networkRefreshReady) return@LaunchedEffect
         val previous = (viewModel.state as? LoadState.Ready)?.value
-        val originalPosterId = previous?.page?.thread?.author?.id
+        val originalPosterId = previous
+            ?.page
+            ?.thread
+            ?.author
+            ?.id
+            ?: localDownload?.snapshot?.thread?.author?.id
+        val requestedPage = downloadedTargetPage(
+            downloaded = localDownload,
+            targetFloor = targetFloor,
+            targetPostId = targetPostId,
+            fallbackPage = pageNumber,
+        )
         viewModel.loadPosts(
             GetThreadPostsInput(
                 threadId = threadId,
-                page = pageNumber,
+                page = requestedPage,
                 authorId = originalPosterId.takeIf { originalPosterOnly },
             ),
         )
     }
-    val state = if (offlineOnly) offlineState else viewModel.state
+    val state = resolveThreadDisplayState(
+        offlineOnly = offlineOnly,
+        localState = localState,
+        networkState = viewModel.state,
+    )
     val loadedContent = (state as? LoadState.Ready)?.value
     val loadedThread = loadedContent?.page?.thread
     val isRead = threadId in readingHistory
@@ -693,12 +746,7 @@ internal fun ThreadScreen(
                                 ReaderContent(
                                     thread = page.thread,
                                     post = post,
-                                    localImageUrls = offlineDownload
-                                        ?.localImageUris
-                                        ?: downloadStatus
-                                        ?.completed
-                                        ?.localImageUris
-                                        .orEmpty(),
+                                    localImageUrls = localDownload?.localImageUris.orEmpty(),
                                     source = if (offlineOnly) {
                                         ReaderContentSource.DOWNLOAD
                                     } else {
@@ -726,12 +774,7 @@ internal fun ThreadScreen(
                                 onThread(target)
                             }
                         },
-                        localImageUrls = offlineDownload
-                            ?.localImageUris
-                            ?: downloadStatus
-                            ?.completed
-                            ?.localImageUris
-                            .orEmpty(),
+                        localImageUrls = localDownload?.localImageUris.orEmpty(),
                         allowRemoteImages = !offlineOnly,
                     )
                 }
@@ -1607,8 +1650,77 @@ internal fun threadDownloadAction(phase: ThreadDownloadPhase?): ThreadDownloadAc
         ThreadDownloadPhase.COMPLETED -> ThreadDownloadAction.DOWNLOADED
     }
 
-private fun DownloadedThread.toThreadContent(): ThreadContent {
+internal suspend fun <T> probeLocalFirstThread(
+    offlineOnly: Boolean,
+    loadLocal: suspend () -> T?,
+    onLocalResolved: (T?) -> Unit,
+    startNetwork: () -> Unit,
+) {
+    val local = when (val result = load { loadLocal() }) {
+        is LoadState.Ready -> result.value
+        is LoadState.Failed, LoadState.Loading -> null
+    }
+    onLocalResolved(local)
+    if (!offlineOnly) startNetwork()
+}
+
+internal fun downloadedTargetPage(
+    downloaded: DownloadedThread?,
+    targetFloor: Int,
+    targetPostId: Int,
+    fallbackPage: Int,
+): Int {
+    require(fallbackPage > 0) { "fallbackPage must be a positive integer" }
+    if (downloaded == null || fallbackPage > 1) return fallbackPage
+    val target = downloaded.snapshot.posts.firstOrNull { post ->
+        if (targetPostId > 0) post.id == targetPostId else targetFloor > 0 && post.number == targetFloor
+    } ?: return fallbackPage
+    return ((target.position - 1) / downloaded.snapshot.sourcePageSize.coerceAtLeast(1)) + 1
+}
+
+internal fun resolveThreadDisplayState(
+    offlineOnly: Boolean,
+    localState: LoadState<ThreadContent>,
+    networkState: LoadState<ThreadContent>,
+): LoadState<ThreadContent> {
+    if (offlineOnly || localState is LoadState.Loading) return localState
+    val localContent = (localState as? LoadState.Ready)?.value
+    return when (networkState) {
+        is LoadState.Ready -> LoadState.Ready(
+            localContent?.let { mergeLocalFirstThreadContent(it, networkState.value) }
+                ?: networkState.value,
+        )
+
+        is LoadState.Failed, LoadState.Loading ->
+            localContent?.let { LoadState.Ready(it) } ?: networkState
+    }
+}
+
+internal fun mergeLocalFirstThreadContent(
+    local: ThreadContent,
+    network: ThreadContent,
+): ThreadContent {
+    val networkPosts = network.posts.associateBy(YamiboPost::id)
+    val localPostIds = local.posts.mapTo(mutableSetOf(), YamiboPost::id)
+    val mergedPosts = (
+        local.posts.map { post -> networkPosts[post.id] ?: post } +
+            network.posts.filterNot { it.id in localPostIds }
+        ).sortedWith(
+        compareBy<YamiboPost>(
+            YamiboPost::position,
+            YamiboPost::number,
+            YamiboPost::id,
+        ),
+    )
+    return network.copy(
+        page = network.page.copy(posts = mergedPosts),
+        posts = mergedPosts,
+    )
+}
+
+internal fun DownloadedThread.toThreadContent(authorId: Int? = null): ThreadContent {
     val snapshot = snapshot
+    val posts = snapshot.posts.filter { authorId == null || it.author.id == authorId }
     return ThreadContent(
         page = YamiboThreadPostsPage(
             canComment = false,
@@ -1617,13 +1729,17 @@ private fun DownloadedThread.toThreadContent(): ThreadContent {
                 page = 1,
                 pageSize = snapshot.sourcePageSize.coerceAtLeast(1),
                 totalPages = snapshot.capturedPageCount.coerceAtLeast(1),
-                totalPosts = snapshot.sourceTotalPosts.coerceAtLeast(snapshot.posts.size),
+                totalPosts = if (authorId == null) {
+                    snapshot.sourceTotalPosts.coerceAtLeast(posts.size)
+                } else {
+                    posts.size
+                },
             ),
             poll = snapshot.poll,
-            posts = snapshot.posts,
+            posts = posts,
             thread = snapshot.thread,
         ),
-        posts = snapshot.posts,
+        posts = posts,
     )
 }
 
