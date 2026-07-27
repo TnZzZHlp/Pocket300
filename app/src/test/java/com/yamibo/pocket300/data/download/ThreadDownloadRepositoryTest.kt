@@ -372,6 +372,115 @@ class ThreadDownloadRepositoryTest {
     }
 
     @Test
+    fun pausingActiveDownloadRequeuesItBeforeRemainingTasks() = runBlocking {
+        val root = temporaryFolder.newFolder("downloads")
+        val first = testThread(threadId = 1000, replyCount = 0)
+        val second = testThread(threadId = 1001, replyCount = 0)
+        val firstStarted = CompletableDeferred<Unit>()
+        val allowRetry = CompletableDeferred<Unit>()
+        var firstCalls = 0
+        val source = ThreadPostsSource { threadId, _ ->
+            when (threadId) {
+                first.id -> {
+                    firstCalls++
+                    if (firstCalls == 1) {
+                        firstStarted.complete(Unit)
+                        allowRetry.await()
+                    }
+                    testPage(
+                        first,
+                        page = 1,
+                        totalPages = 1,
+                        posts = listOf(testPost(first.id, 2000, 1)),
+                    )
+                }
+
+                second.id -> testPage(
+                    second,
+                    page = 1,
+                    totalPages = 1,
+                    posts = listOf(testPost(second.id, 3000, 1)),
+                )
+
+                else -> error("unexpected thread")
+            }
+        }
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val repository = repository(root, source, FakeImageDownloader(), scope)
+        val firstRequest = testRequest(first, requestedAt = 10L)
+        val secondRequest = testRequest(second, requestedAt = 11L)
+        try {
+            repository.enqueue(firstRequest)
+            repository.enqueue(secondRequest)
+            withTimeout(5_000) { firstStarted.await() }
+
+            assertTrue(repository.pauseDownloads())
+            val paused = withTimeout(5_000) {
+                repository.queueState.first {
+                    it.isPaused &&
+                        it.activeKey == null &&
+                        it.queuedKeys == listOf(firstRequest.key, secondRequest.key)
+                }
+            }
+            assertEquals(listOf(firstRequest.key, secondRequest.key), paused.queuedKeys)
+            assertEquals(
+                listOf(firstRequest, secondRequest),
+                ThreadDownloadFileStore(root).loadQueuedRequests(),
+            )
+
+            allowRetry.complete(Unit)
+            assertTrue(repository.resumeDownloads())
+            repository.awaitCompleted(firstRequest.key, firstRequest.requestedAt)
+            repository.awaitCompleted(secondRequest.key, secondRequest.requestedAt)
+            assertEquals(2, firstCalls)
+        } finally {
+            allowRetry.complete(Unit)
+            repository.close()
+            scope.cancel()
+        }
+    }
+
+    @Test
+    fun prioritizingPendingDownloadPersistsNewFifoOrder() = runBlocking {
+        val root = temporaryFolder.newFolder("downloads")
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val repository = repository(
+            root,
+            ThreadPostsSource { _, _ -> error("Downloads must remain paused") },
+            FakeImageDownloader(),
+            scope,
+        )
+        val first = testRequest(testThread(threadId = 1000), requestedAt = 10L)
+        val second = testRequest(testThread(threadId = 1001), requestedAt = 11L)
+        val third = testRequest(testThread(threadId = 1002), requestedAt = 12L)
+        try {
+            assertTrue(repository.pauseDownloads())
+            repository.enqueue(first)
+            repository.enqueue(second)
+            repository.enqueue(third)
+            withTimeout(5_000) {
+                repository.queueState.first {
+                    it.queuedKeys == listOf(first.key, second.key, third.key)
+                }
+            }
+
+            assertTrue(repository.prioritize(third.key))
+
+            assertEquals(
+                listOf(third.key, first.key, second.key),
+                repository.queueState.value.queuedKeys,
+            )
+            assertEquals(
+                listOf(third, first, second),
+                ThreadDownloadFileStore(root).loadQueuedRequests(),
+            )
+        } finally {
+            repository.close()
+            scope.cancel()
+        }
+    }
+
+    @Test
     fun deletingActiveThreadCancelsTransportAndCleansEveryProduct() = runBlocking {
         val root = temporaryFolder.newFolder("downloads")
         val thread = testThread(replyCount = 0)

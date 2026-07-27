@@ -65,13 +65,16 @@ class ThreadDownloadFileStore(
     }
 
     @Synchronized
-    fun persistRequest(request: ThreadDownloadRequest) {
-        persistRequest(request, ThreadDownloadRequestState.PENDING)
+    fun persistRequest(
+        request: ThreadDownloadRequest,
+        queueOrder: Long = request.requestedAt,
+    ) {
+        persistRequest(request, ThreadDownloadRequestState.PENDING, queueOrder)
     }
 
     @Synchronized
     fun persistFailedRequest(request: ThreadDownloadRequest) {
-        persistRequest(request, ThreadDownloadRequestState.FAILED)
+        persistRequest(request, ThreadDownloadRequestState.FAILED, request.requestedAt)
     }
 
     @Synchronized
@@ -82,13 +85,22 @@ class ThreadDownloadFileStore(
 
     @Synchronized
     fun loadQueuedRequests(): List<ThreadDownloadRequest> =
-        loadRequests(ThreadDownloadRequestState.PENDING)
+        loadQueuedEntries().map(ThreadDownloadQueueEntry::request)
+
+    @Synchronized
+    internal fun loadQueuedEntries(): List<ThreadDownloadQueueEntry> =
+        loadRequests(ThreadDownloadRequestState.PENDING).map { stored ->
+            ThreadDownloadQueueEntry(
+                request = stored.request,
+                order = stored.queueOrder,
+            )
+        }
 
     @Synchronized
     fun loadFailedRequests(): List<ThreadDownloadRequest> =
-        loadRequests(ThreadDownloadRequestState.FAILED)
+        loadRequests(ThreadDownloadRequestState.FAILED).map(StoredThreadDownloadRequest::request)
 
-    private fun loadRequests(state: ThreadDownloadRequestState): List<ThreadDownloadRequest> =
+    private fun loadRequests(state: ThreadDownloadRequestState): List<StoredThreadDownloadRequest> =
         requireDirectoryFiles(queueDirectory)
             .asSequence()
             .filter { it.isFile && it.extension == QUEUE_FILE_EXTENSION }
@@ -104,11 +116,15 @@ class ThreadDownloadFileStore(
                     check(file.delete()) { "Could not remove invalid thread download queue file" }
                     null
                 } else {
-                    stored.takeIf { it.state == state }?.request
+                    stored.takeIf { it.state == state }
                 }
             }
-            .distinctBy(ThreadDownloadRequest::key)
-            .sortedBy(ThreadDownloadRequest::requestedAt)
+            .distinctBy { it.request.key }
+            .sortedWith(
+                compareBy<StoredThreadDownloadRequest>(StoredThreadDownloadRequest::queueOrder)
+                    .thenBy { it.request.requestedAt }
+                    .thenBy { it.request.key.threadId },
+            )
             .toList()
 
     private fun loadStoredRequest(key: ThreadDownloadKey): StoredThreadDownloadRequest? {
@@ -122,8 +138,10 @@ class ThreadDownloadFileStore(
     private fun persistRequest(
         request: ThreadDownloadRequest,
         state: ThreadDownloadRequestState,
+        queueOrder: Long,
     ) {
-        writeUtf8Atomically(queueFile(request.key), codec.encodeRequest(request, state))
+        require(queueOrder >= 0) { "Thread download queue order must not be negative" }
+        writeUtf8Atomically(queueFile(request.key), codec.encodeRequest(request, state, queueOrder))
     }
 
     @Synchronized

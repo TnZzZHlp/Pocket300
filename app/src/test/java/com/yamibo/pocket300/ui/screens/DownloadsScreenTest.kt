@@ -66,6 +66,39 @@ class DownloadsScreenTest {
     }
 
     @Test
+    fun queueOrderTakesPrecedenceOverSavedTime() {
+        val firstQueued = downloadItem(
+            threadId = 201,
+            subject = "First queued",
+            author = "Alice",
+            downloadedAt = 100,
+            phase = ThreadDownloadPhase.QUEUED,
+        )
+        val secondQueued = downloadItem(
+            threadId = 202,
+            subject = "Second queued",
+            author = "Bob",
+            downloadedAt = 200,
+            phase = ThreadDownloadPhase.QUEUED,
+        )
+        val completed = downloadItem(
+            threadId = 203,
+            subject = "Completed",
+            author = "Carol",
+            downloadedAt = 300,
+        )
+
+        assertEquals(
+            listOf(secondQueued, firstQueued, completed),
+            filterAndSortDownloads(
+                downloads = listOf(firstQueued, completed, secondQueued),
+                query = "",
+                queueOrder = listOf(secondQueued.key, firstQueued.key),
+            ),
+        )
+    }
+
+    @Test
     fun formatsDownloadSizesAtBinaryUnitBoundaries() {
         assertEquals("0 B", formatDownloadSize(-1))
         assertEquals("1023 B", formatDownloadSize(1_023))

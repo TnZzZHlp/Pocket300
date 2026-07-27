@@ -153,6 +153,24 @@ class ThreadDownloadFileStoreTest {
     }
 
     @Test
+    fun restoresPendingRequestsByDurableQueueOrder() {
+        val root = temporaryFolder.newFolder("downloads")
+        val first = testRequest(testThread(threadId = 1000), requestedAt = 20L)
+        val second = testRequest(testThread(threadId = 1001), requestedAt = 10L)
+        val store = ThreadDownloadFileStore(root)
+        store.persistRequest(first, queueOrder = 2L)
+        store.persistRequest(second, queueOrder = 1L)
+
+        val restored = ThreadDownloadFileStore(root)
+
+        assertEquals(listOf(second, first), restored.loadQueuedRequests())
+        assertEquals(
+            listOf(second.key, first.key),
+            restored.loadQueuedEntries().map { it.request.key },
+        )
+    }
+
+    @Test
     fun unsupportedImageNeverCreatesAReadableThread() {
         val root = temporaryFolder.newFolder("downloads")
         val store = ThreadDownloadFileStore(root)

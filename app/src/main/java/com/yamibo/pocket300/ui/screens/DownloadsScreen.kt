@@ -22,7 +22,10 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.DeleteSweep
+import androidx.compose.material.icons.rounded.Pause
+import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Refresh
+import androidx.compose.material.icons.rounded.VerticalAlignTop
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -82,6 +85,8 @@ internal data class DownloadListItem(
     val sizeBytes: Long,
     val downloadedAt: Long,
     val phase: ThreadDownloadPhase,
+    val queuePosition: Int? = null,
+    val queuePaused: Boolean = false,
 )
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalSharedTransitionApi::class)
@@ -97,6 +102,7 @@ internal fun DownloadsScreen(
         ThreadDownloadRepository.getInstance(context.applicationContext)
     }
     val statuses by repository.statuses.collectAsState()
+    val queueState by repository.queueState.collectAsState()
     val coroutineScope = rememberCoroutineScope()
     val listState = rememberLazyListState()
     val deleteFailedMessage = stringResource(R.string.downloads_delete_failed)
@@ -119,15 +125,20 @@ internal fun DownloadsScreen(
         initialized = true
     }
 
-    val allItems = remember(statuses) {
-        statuses.values.map(ThreadDownloadStatus::toDownloadListItem)
+    val allItems = remember(statuses, queueState) {
+        statuses.values.map { status ->
+            status.toDownloadListItem(
+                queuePosition = queueState.queuedPosition(status.key),
+                queuePaused = queueState.isPaused && status.phase == ThreadDownloadPhase.QUEUED,
+            )
+        }
     }
     val downloadsByKey = remember(statuses) {
         statuses.values.mapNotNull(ThreadDownloadStatus::completed)
             .associateBy(DownloadedThread::key)
     }
-    val visibleItems = remember(allItems, searchQuery) {
-        filterAndSortDownloads(allItems, searchQuery)
+    val visibleItems = remember(allItems, queueState.orderedKeys, searchQuery) {
+        filterAndSortDownloads(allItems, searchQuery, queueState.orderedKeys)
     }
 
     LaunchedEffect(searchQuery) {
@@ -155,6 +166,30 @@ internal fun DownloadsScreen(
                     Icon(
                         Icons.Rounded.Close,
                         contentDescription = stringResource(R.string.downloads_cancel),
+                    )
+                }
+            }
+            if (queueState.orderedKeys.isNotEmpty()) {
+                IconButton(
+                    onClick = {
+                        coroutineScope.launch {
+                            if (queueState.isPaused) {
+                                repository.resumeDownloads()
+                            } else {
+                                repository.pauseDownloads()
+                            }
+                        }
+                    },
+                ) {
+                    Icon(
+                        if (queueState.isPaused) Icons.Rounded.PlayArrow else Icons.Rounded.Pause,
+                        contentDescription = stringResource(
+                            if (queueState.isPaused) {
+                                R.string.downloads_resume
+                            } else {
+                                R.string.downloads_pause
+                            },
+                        ),
                     )
                 }
             }
@@ -228,6 +263,19 @@ internal fun DownloadsScreen(
                                         downloadsByKey[item.key]?.let(onOpen)
                                     },
                                     onDelete = { pendingDelete = item },
+                                    onPrioritize = if (
+                                        item.phase == ThreadDownloadPhase.QUEUED &&
+                                        item.queuePosition != null &&
+                                        item.queuePosition > 1
+                                    ) {
+                                        {
+                                            coroutineScope.launch {
+                                                repository.prioritize(item.key)
+                                            }
+                                        }
+                                    } else {
+                                        null
+                                    },
                                     onRetry = {
                                         coroutineScope.launch {
                                             try {
@@ -372,6 +420,7 @@ private fun DownloadCard(
     modifier: Modifier,
     onOpen: () -> Unit,
     onDelete: () -> Unit,
+    onPrioritize: (() -> Unit)?,
     onRetry: () -> Unit,
 ) {
     val timePattern = stringResource(R.string.downloads_time_pattern)
@@ -412,6 +461,14 @@ private fun DownloadCard(
                         Icon(
                             Icons.Rounded.Refresh,
                             contentDescription = stringResource(R.string.downloads_retry),
+                        )
+                    }
+                }
+                onPrioritize?.let { prioritize ->
+                    IconButton(onClick = prioritize) {
+                        Icon(
+                            Icons.Rounded.VerticalAlignTop,
+                            contentDescription = stringResource(R.string.downloads_prioritize),
                         )
                     }
                 }
@@ -478,7 +535,14 @@ private fun DownloadCard(
 
 @Composable
 private fun downloadStatusText(item: DownloadListItem): String = when (item.phase) {
-    ThreadDownloadPhase.QUEUED -> stringResource(R.string.downloads_status_queued)
+    ThreadDownloadPhase.QUEUED -> when {
+        item.queuePaused -> stringResource(R.string.downloads_status_paused)
+        item.queuePosition != null -> stringResource(
+            R.string.downloads_status_queued_position,
+            item.queuePosition,
+        )
+        else -> stringResource(R.string.downloads_status_queued)
+    }
     ThreadDownloadPhase.FETCHING_PAGES -> {
         if (item.totalPages > 0) {
             stringResource(
@@ -508,19 +572,22 @@ private fun downloadStatusText(item: DownloadListItem): String = when (item.phas
 internal fun filterAndSortDownloads(
     downloads: List<DownloadListItem>,
     query: String,
+    queueOrder: List<ThreadDownloadKey> = emptyList(),
 ): List<DownloadListItem> {
     val terms = query
         .trim()
         .takeIf(String::isNotEmpty)
         ?.split(downloadSearchTermSeparator)
         .orEmpty()
+    val queueIndexes = queueOrder.withIndex().associate { (index, key) -> key to index }
     return downloads
         .filter { item ->
             val searchable = "${item.subject} ${item.author}"
             terms.all { term -> searchable.contains(term, ignoreCase = true) }
         }
         .sortedWith(
-            compareByDescending<DownloadListItem>(DownloadListItem::downloadedAt)
+            compareBy<DownloadListItem> { item -> queueIndexes[item.key] ?: Int.MAX_VALUE }
+                .thenByDescending(DownloadListItem::downloadedAt)
                 .thenBy { it.key.threadId },
         )
 }
@@ -554,7 +621,10 @@ internal fun formatDownloadTime(
 
 internal fun threadSharedContentKey(threadId: Int): String = "thread-$threadId"
 
-private fun ThreadDownloadStatus.toDownloadListItem() = DownloadListItem(
+private fun ThreadDownloadStatus.toDownloadListItem(
+    queuePosition: Int?,
+    queuePaused: Boolean,
+) = DownloadListItem(
     key = key,
     subject = thread.subject,
     author = thread.author.name,
@@ -566,4 +636,6 @@ private fun ThreadDownloadStatus.toDownloadListItem() = DownloadListItem(
     sizeBytes = completed?.sizeBytes ?: progress.downloadedBytes,
     downloadedAt = completed?.manifest?.completedAt ?: request?.requestedAt ?: 0L,
     phase = phase,
+    queuePosition = queuePosition,
+    queuePaused = queuePaused,
 )
