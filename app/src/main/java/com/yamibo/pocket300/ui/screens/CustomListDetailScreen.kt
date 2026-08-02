@@ -65,7 +65,7 @@ import com.yamibo.pocket300.data.CustomListThread
 import com.yamibo.pocket300.data.CustomThreadList
 import com.yamibo.pocket300.data.ReadingHistoryDatabase
 import com.yamibo.pocket300.data.download.ThreadDownloadKey
-import com.yamibo.pocket300.data.download.ThreadDownloadRepository
+import com.yamibo.pocket300.data.download.ThreadDownloadManager
 import com.yamibo.pocket300.data.download.ThreadDownloadRequest
 import com.yamibo.pocket300.logging.AppLogger
 import com.yamibo.pocket300.ui.EmptyState
@@ -98,7 +98,7 @@ internal fun CustomListDetailScreen(
     val database = remember(context) { CustomListDatabase.getInstance(context) }
     val historyDatabase = remember(context) { ReadingHistoryDatabase.getInstance(context) }
     val downloadRepository = remember(context) {
-        ThreadDownloadRepository.getInstance(context.applicationContext)
+        ThreadDownloadManager.getInstance(context.applicationContext)
     }
     val autoDownloadCoordinator = remember(database, downloadRepository) {
         CustomListAutoDownloadCoordinator(

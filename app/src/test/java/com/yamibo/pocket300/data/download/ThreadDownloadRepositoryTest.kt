@@ -323,6 +323,41 @@ class ThreadDownloadRepositoryTest {
     }
 
     @Test
+    fun restoresPausedQueueWithoutStartingWorkerUntilResumed() = runBlocking {
+        val root = temporaryFolder.newFolder("downloads")
+        val request = testRequest()
+        val store = ThreadDownloadFileStore(root)
+        store.persistRequest(request)
+        assertTrue(store.setQueuePaused(true))
+        var sourceCalls = 0
+        val source = ThreadPostsSource { _, _ ->
+            sourceCalls++
+            testPage(
+                thread = request.thread,
+                page = 1,
+                totalPages = 1,
+                posts = listOf(testPost(request.thread.id, 2000, 1)),
+            )
+        }
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val repository = repository(root, source, FakeImageDownloader(), scope)
+        try {
+            repository.awaitInitialized()
+
+            assertTrue(repository.queueState.value.isPaused)
+            assertEquals(listOf(request.key), repository.queueState.value.queuedKeys)
+            assertEquals(0, sourceCalls)
+
+            assertTrue(repository.resumeDownloads())
+            repository.awaitCompleted(request.key, request.requestedAt)
+            assertEquals(1, sourceCalls)
+        } finally {
+            repository.close()
+            scope.cancel()
+        }
+    }
+
+    @Test
     fun failedThreadDoesNotBlockTheNextQueuedThread() = runBlocking {
         val root = temporaryFolder.newFolder("downloads")
         val failedThread = testThread(threadId = 1000, replyCount = 0)
@@ -441,6 +476,106 @@ class ThreadDownloadRepositoryTest {
     }
 
     @Test
+    fun stoppingWorkerRequeuesActiveDownloadWithoutPausingIt() = runBlocking {
+        val root = temporaryFolder.newFolder("downloads")
+        val thread = testThread(replyCount = 0)
+        val started = CompletableDeferred<Unit>()
+        var calls = 0
+        val source = ThreadPostsSource { _, _ ->
+            calls++
+            if (calls == 1) {
+                started.complete(Unit)
+                CompletableDeferred<Unit>().await()
+            }
+            testPage(
+                thread = thread,
+                page = 1,
+                totalPages = 1,
+                posts = listOf(testPost(thread.id, 2000, 1)),
+            )
+        }
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val repository = repository(
+            root = root,
+            source = source,
+            downloader = FakeImageDownloader(),
+            scope = scope,
+            autoStart = false,
+        )
+        try {
+            val request = testRequest(thread)
+            repository.enqueue(request)
+            repository.start()
+            withTimeout(5_000) { started.await() }
+
+            repository.stop()
+
+            assertFalse(repository.queueState.value.isRunning)
+            assertFalse(repository.queueState.value.isPaused)
+            assertEquals(listOf(request.key), repository.queueState.value.queuedKeys)
+
+            repository.start()
+            repository.awaitCompleted(request.key, request.requestedAt)
+            assertEquals(2, calls)
+        } finally {
+            repository.close()
+            scope.cancel()
+        }
+    }
+
+    @Test
+    fun stoppingWorkerAfterQueueDequeueReturnsEntryForNextServiceGeneration() = runBlocking {
+        val root = temporaryFolder.newFolder("downloads")
+        val thread = testThread(replyCount = 0)
+        val dequeued = CompletableDeferred<Unit>()
+        val releaseDequeuedWorker = CompletableDeferred<Unit>()
+        var dequeues = 0
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val repository = ThreadDownloadRepository(
+            store = ThreadDownloadFileStore(root),
+            threadPostsSource = ThreadPostsSource { _, _ ->
+                testPage(
+                    thread = thread,
+                    page = 1,
+                    totalPages = 1,
+                    posts = listOf(testPost(thread.id, 2000, 1)),
+                )
+            },
+            imageDownloader = FakeImageDownloader(),
+            scope = scope,
+            autoStart = false,
+            onEntryDequeued = {
+                dequeues++
+                if (dequeues == 1) {
+                    dequeued.complete(Unit)
+                    releaseDequeuedWorker.await()
+                }
+            },
+        )
+        try {
+            val request = testRequest(thread)
+            repository.enqueue(request)
+            repository.start()
+            withTimeout(5_000) { dequeued.await() }
+
+            repository.stop()
+
+            assertFalse(repository.queueState.value.isRunning)
+            assertFalse(repository.queueState.value.isPaused)
+            assertNull(repository.queueState.value.activeKey)
+            assertEquals(listOf(request.key), repository.queueState.value.queuedKeys)
+
+            repository.start()
+            repository.awaitCompleted(request.key, request.requestedAt)
+            assertEquals(2, dequeues)
+        } finally {
+            releaseDequeuedWorker.complete(Unit)
+            repository.close()
+            scope.cancel()
+        }
+    }
+
+    @Test
     fun prioritizingPendingDownloadPersistsNewFifoOrder() = runBlocking {
         val root = temporaryFolder.newFolder("downloads")
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -520,12 +655,14 @@ class ThreadDownloadRepositoryTest {
         source: ThreadPostsSource,
         downloader: PostImageDownloader,
         scope: CoroutineScope,
+        autoStart: Boolean = true,
     ) = ThreadDownloadRepository(
         store = ThreadDownloadFileStore(root),
         threadPostsSource = source,
         imageDownloader = downloader,
         scope = scope,
         clock = { 30L },
+        autoStart = autoStart,
     )
 
     private fun singlePageSource(

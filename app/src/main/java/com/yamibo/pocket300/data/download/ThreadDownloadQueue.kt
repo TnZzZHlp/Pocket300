@@ -16,6 +16,7 @@ import java.util.ArrayDeque
  */
 data class ThreadDownloadQueueState(
     val isPaused: Boolean = false,
+    val isRunning: Boolean = false,
     val activeKey: ThreadDownloadKey? = null,
     val queuedKeys: List<ThreadDownloadKey> = emptyList(),
 ) {
@@ -38,21 +39,48 @@ internal class ThreadDownloadQueue {
     private val pending = ArrayDeque<ThreadDownloadQueueEntry>()
     private val _state = MutableStateFlow(ThreadDownloadQueueState())
     private var active: ThreadDownloadQueueEntry? = null
+    private var isDispatching = false
     private var nextOrder = 0L
     private var requeueActiveOnFinish = false
     private var activeWasCancelled = false
 
     val state: StateFlow<ThreadDownloadQueueState> = _state.asStateFlow()
 
-    suspend fun restore(entries: List<ThreadDownloadQueueEntry>) {
+    suspend fun restore(
+        entries: List<ThreadDownloadQueueEntry>,
+        isPaused: Boolean = false,
+    ) {
         mutex.withLock {
             check(active == null) { "Cannot restore a queue with an active download" }
             pending.clear()
             pending.addAll(entries.sortedWith(THREAD_DOWNLOAD_QUEUE_ENTRY_ORDER))
             nextOrder = nextOrderAfter(pending)
-            publishStateLocked()
+            publishStateLocked(paused = isPaused)
             wakeUp.trySend(Unit)
         }
+    }
+
+    /** Starts dispatching queued work without changing a user-requested paused state. */
+    suspend fun startDispatching(): Boolean = mutex.withLock {
+        if (isDispatching) return@withLock false
+        isDispatching = true
+        publishStateLocked()
+        wakeUp.trySend(Unit)
+        true
+    }
+
+    /**
+     * Stops dispatching while preserving queued work. An active cancelled task is returned to the
+     * head of the queue by [finish] once its worker observes cancellation.
+     */
+    suspend fun stopDispatching(): Boolean = mutex.withLock {
+        if (!isDispatching) return@withLock false
+        isDispatching = false
+        if (active != null && !activeWasCancelled) {
+            requeueActiveOnFinish = true
+        }
+        publishStateLocked()
+        true
     }
 
     /** Reserves a durable FIFO position before the caller writes the request to disk. */
@@ -76,7 +104,7 @@ internal class ThreadDownloadQueue {
     suspend fun awaitNext(): ThreadDownloadQueueEntry {
         while (true) {
             val next = mutex.withLock {
-                if (!state.value.isPaused && active == null && pending.isNotEmpty()) {
+                if (isDispatching && !state.value.isPaused && active == null && pending.isNotEmpty()) {
                     pending.removeFirst().also {
                         active = it
                         activeWasCancelled = false
@@ -107,11 +135,11 @@ internal class ThreadDownloadQueue {
         activeWasCancelled = false
         if (shouldRequeue) pending.addFirst(completed)
         publishStateLocked()
-        if (!state.value.isPaused && pending.isNotEmpty()) wakeUp.trySend(Unit)
+        if (isDispatching && !state.value.isPaused && pending.isNotEmpty()) wakeUp.trySend(Unit)
         completed.takeIf { shouldRequeue }
     }
 
-    /** Pauses dispatching and arranges for an active, cancelled task to be retried first. */
+    /** Pauses queue execution and arranges for an active, cancelled task to be retried first. */
     suspend fun pause(): Boolean = mutex.withLock {
         if (state.value.isPaused) return@withLock false
         val hasActiveDownload = active != null && !activeWasCancelled
@@ -123,7 +151,7 @@ internal class ThreadDownloadQueue {
     suspend fun resume(): Boolean = mutex.withLock {
         if (!state.value.isPaused) return@withLock false
         publishStateLocked(paused = false)
-        wakeUp.trySend(Unit)
+        if (isDispatching) wakeUp.trySend(Unit)
         true
     }
 
@@ -184,6 +212,7 @@ internal class ThreadDownloadQueue {
     private fun publishStateLocked(paused: Boolean = state.value.isPaused) {
         _state.value = ThreadDownloadQueueState(
             isPaused = paused,
+            isRunning = isDispatching,
             activeKey = active?.request?.key,
             queuedKeys = pending.map { it.request.key },
         )

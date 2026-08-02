@@ -52,6 +52,7 @@ class ThreadDownloadFileStore(
         ThreadDownloadImageDecoderValidator { true },
 ) {
     private val queueDirectory = File(rootDirectory, QUEUE_DIRECTORY_NAME)
+    private val queuePausedFile = File(queueDirectory, QUEUE_PAUSED_FILE_NAME)
     private val stagingDirectory = File(rootDirectory, STAGING_DIRECTORY_NAME)
 
     init {
@@ -99,6 +100,21 @@ class ThreadDownloadFileStore(
     @Synchronized
     fun loadFailedRequests(): List<ThreadDownloadRequest> =
         loadRequests(ThreadDownloadRequestState.FAILED).map(StoredThreadDownloadRequest::request)
+
+    @Synchronized
+    fun isQueuePaused(): Boolean = queuePausedFile.isFile
+
+    @Synchronized
+    fun setQueuePaused(paused: Boolean): Boolean {
+        if (paused) {
+            if (queuePausedFile.exists() && !queuePausedFile.isFile) {
+                if (!queuePausedFile.deleteRecursively()) return false
+            }
+            writeUtf8Atomically(queuePausedFile, QUEUE_PAUSED_MARKER)
+            return true
+        }
+        return !queuePausedFile.exists() || queuePausedFile.deleteRecursively()
+    }
 
     private fun loadRequests(state: ThreadDownloadRequestState): List<StoredThreadDownloadRequest> =
         requireDirectoryFiles(queueDirectory)
@@ -347,7 +363,10 @@ class ThreadDownloadFileStore(
         val children = queueDirectory.listFiles() ?: return false
         var success = true
         children
-            .filterNot { it.isFile && it.extension == QUEUE_FILE_EXTENSION }
+            .filterNot {
+                it.isFile &&
+                    (it.extension == QUEUE_FILE_EXTENSION || it.name == QUEUE_PAUSED_FILE_NAME)
+            }
             .forEach { child ->
                 if (!child.deleteRecursively()) success = false
             }
@@ -480,6 +499,8 @@ class ThreadDownloadFileStore(
         const val QUEUE_DIRECTORY_NAME = ".queue"
         const val STAGING_DIRECTORY_NAME = ".staging"
         const val QUEUE_FILE_EXTENSION = "json"
+        const val QUEUE_PAUSED_FILE_NAME = "paused"
+        const val QUEUE_PAUSED_MARKER = "paused"
         val GENERATION_PATTERN = Regex("[0-9a-fA-F-]{36}")
     }
 

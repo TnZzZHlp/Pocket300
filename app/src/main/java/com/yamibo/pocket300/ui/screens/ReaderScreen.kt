@@ -81,7 +81,7 @@ import com.yamibo.pocket300.data.CustomListDatabase
 import com.yamibo.pocket300.data.download.DownloadedThread
 import com.yamibo.pocket300.data.download.ThreadDownloadKey
 import com.yamibo.pocket300.data.download.ThreadDownloadPhase
-import com.yamibo.pocket300.data.download.ThreadDownloadRepository
+import com.yamibo.pocket300.data.download.ThreadDownloadManager
 import com.yamibo.pocket300.data.download.ThreadDownloadRequest
 import com.yamibo.pocket300.ui.EmptyState
 import com.yamibo.pocket300.ui.LoadContent
@@ -133,7 +133,7 @@ internal fun ReaderScreen(
 ) {
     val context = LocalContext.current
     val customListDatabase = remember(context) { CustomListDatabase.getInstance(context) }
-    val downloadRepository = remember(context) { ThreadDownloadRepository.getInstance(context) }
+    val downloadRepository = remember(context) { ThreadDownloadManager.getInstance(context) }
     val downloadStatuses by downloadRepository.statuses.collectAsState()
     val downloadKey = remember(threadId) { ThreadDownloadKey(threadId) }
     val downloadStatus = downloadStatuses[downloadKey]
