@@ -285,9 +285,6 @@ internal fun CustomListDetailScreen(
                     retry = { threadId ->
                         downloadRepository.retry(ThreadDownloadKey(threadId))
                     },
-                    loadThreadDetails = { threadId ->
-                        api.posts.getThreadPosts(GetThreadPostsInput(threadId)).thread
-                    },
                     enqueueIfMissing = { thread ->
                         downloadRepository.enqueueIfMissing(
                             ThreadDownloadRequest.create(thread),

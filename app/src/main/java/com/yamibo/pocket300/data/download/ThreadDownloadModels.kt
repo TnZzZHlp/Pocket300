@@ -2,8 +2,11 @@ package com.yamibo.pocket300.data.download
 
 import com.yamibo.pocket300.api.YAMIBO_ORIGIN
 import com.yamibo.pocket300.api.YamiboPost
+import com.yamibo.pocket300.api.YamiboPostAuthor
 import com.yamibo.pocket300.api.YamiboThreadDetails
 import com.yamibo.pocket300.api.YamiboThreadPoll
+import com.yamibo.pocket300.api.YamiboThreadSpecialType
+import com.yamibo.pocket300.data.CustomListThread
 import java.io.File
 import java.net.URI
 
@@ -16,8 +19,9 @@ data class ThreadDownloadKey(
 }
 
 /**
- * A durable queue request. The thread metadata is intentionally captured before enqueueing so a
- * queued or failed download remains identifiable without another network request.
+ * A durable queue request. The display metadata is captured before enqueueing so a queued or
+ * failed download remains identifiable without another network request. List-item metadata may
+ * be provisional; the downloader replaces it with authoritative data after fetching page one.
  */
 data class ThreadDownloadRequest(
     val thread: YamiboThreadDetails,
@@ -38,6 +42,49 @@ data class ThreadDownloadRequest(
             requestedAt: Long = System.currentTimeMillis(),
         ): ThreadDownloadRequest = ThreadDownloadRequest(
             thread = thread,
+            requestedAt = requestedAt,
+        )
+
+        /**
+         * Creates a durable request from custom-list metadata without fetching the thread first.
+         * The download service retrieves the complete, authoritative thread when it processes
+         * this request.
+         */
+        fun create(
+            thread: CustomListThread,
+            requestedAt: Long = System.currentTimeMillis(),
+        ): ThreadDownloadRequest = ThreadDownloadRequest(
+            thread = YamiboThreadDetails(
+                author = YamiboPostAuthor(
+                    avatarUrl = null,
+                    groupIconId = null,
+                    groupId = null,
+                    id = null,
+                    isAnonymous = false,
+                    name = thread.authorName,
+                ),
+                createdAt = 0,
+                digestLevel = 0,
+                forumId = thread.forumId,
+                heat = 0,
+                hasAttachment = false,
+                id = thread.threadId,
+                isClosed = false,
+                lastPoster = thread.authorName,
+                lastPostAtText = thread.createdAtText,
+                maxPosition = 0,
+                price = 0,
+                readPermission = 0,
+                recommendationCount = 0,
+                replyCount = thread.replyCount,
+                specialType = YamiboThreadSpecialType.NORMAL,
+                specialTypeId = 0,
+                subject = thread.subject,
+                typeId = null,
+                viewCount = thread.viewCount,
+                webUrl = thread.webUrl.trim().takeIf(::isHttpUrl)
+                    ?: "$YAMIBO_ORIGIN/thread-${thread.threadId}-1-1.html",
+            ),
             requestedAt = requestedAt,
         )
     }
@@ -183,6 +230,10 @@ internal val THREAD_POST_READING_ORDER: Comparator<YamiboPost> =
     compareBy<YamiboPost>({ it.position }, { it.number }, { it.id })
 
 private val SHA_256_PATTERN = Regex("[0-9a-f]{64}")
+
+private fun isHttpUrl(value: String): Boolean = runCatching {
+    requireHttpUrl(value)
+}.isSuccess
 
 internal fun requireHttpUrl(value: String) {
     val uri = runCatching { URI(value) }.getOrNull()

@@ -93,10 +93,10 @@
     <string name="custom_list_clear_selection">取消全选当前结果</string>
     <string name="custom_list_mark_selected_read">将所选主题设为已读</string>
     <string name="custom_list_download_selected">下载所选主题</string>
-    <string name="custom_list_download_preparing_progress">正在准备下载 %1$d/%2$d</string>
+    <string name="custom_list_download_preparing_progress">正在加入下载队列 %1$d/%2$d</string>
     <string name="custom_list_download_selected_queued">已将 %1$d 个主题加入下载队列</string>
     <string name="custom_list_download_selected_queued_with_skipped">已加入 %1$d 个，跳过 %2$d 个已下载或下载中的主题</string>
-    <string name="custom_list_download_selected_partial">已加入 %1$d 个，跳过 %2$d 个，%3$d 个无法准备下载</string>
+    <string name="custom_list_download_selected_partial">已加入 %1$d 个，跳过 %2$d 个，%3$d 个无法加入下载队列</string>
     <string name="custom_list_exclude_selected">排除所选主题</string>
     <string name="custom_list_bulk_action_failed">批量操作失败</string>
     <string name="custom_list_thread_metadata">%1$s · %2$s · %3$d 回复 · %4$d 浏览</string>
