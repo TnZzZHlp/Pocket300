@@ -9,9 +9,9 @@ import kotlinx.coroutines.withContext
 /**
  * Executes one complete-thread capture after [ThreadDownloadQueue] has chosen it.
  *
- * Scheduling, durable queue mutation, and publication of completed snapshots stay in
- * [ThreadDownloadRepository]. This mirrors the manager/downloader separation used by Mihon while
- * keeping this app's atomic thread-snapshot format intact.
+ * [ThreadDownloadManager] and its foreground service own scheduling, while
+ * [ThreadDownloadRepository] keeps durable queue state and publishes completed snapshots. This
+ * preserves the app's atomic thread-snapshot format.
  */
 internal class ThreadDownloader(
     private val store: ThreadDownloadFileStore,

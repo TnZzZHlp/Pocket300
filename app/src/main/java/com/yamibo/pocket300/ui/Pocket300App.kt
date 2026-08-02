@@ -22,6 +22,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -44,7 +45,7 @@ import com.yamibo.pocket300.Pocket300Application
 import com.yamibo.pocket300.R
 import com.yamibo.pocket300.data.ReadingHistoryDatabase
 import com.yamibo.pocket300.data.ReadingHistoryEntry
-import com.yamibo.pocket300.data.download.ThreadDownloadRepository
+import com.yamibo.pocket300.data.download.ThreadDownloadManager
 import com.yamibo.pocket300.ui.screens.CustomListDetailScreen
 import com.yamibo.pocket300.ui.screens.CustomListEditorScreen
 import com.yamibo.pocket300.ui.screens.DownloadsScreen
@@ -83,11 +84,14 @@ fun Pocket300App() {
     val context = LocalContext.current
     val themePreferencesStore = remember(context) { AppThemePreferencesStore(context) }
     val historyDatabase = remember(context) { ReadingHistoryDatabase.getInstance(context) }
-    val downloadRepository = remember(context) {
-        ThreadDownloadRepository.getInstance(context.applicationContext)
+    val downloadManager = remember(context) {
+        ThreadDownloadManager.getInstance(context.applicationContext)
+    }
+    LaunchedEffect(downloadManager) {
+        downloadManager.resumePendingDownloads()
     }
     val readingHistory by historyDatabase.entries.collectAsState()
-    val downloads by downloadRepository.downloads.collectAsState()
+    val downloads by downloadManager.downloads.collectAsState()
     val completedDownloadThreadIds = remember(downloads) {
         completedThreadIds(downloads)
     }

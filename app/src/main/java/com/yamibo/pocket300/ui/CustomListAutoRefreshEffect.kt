@@ -13,7 +13,7 @@ import com.yamibo.pocket300.data.CustomListAutoDownloadCoordinator
 import com.yamibo.pocket300.data.CustomListDatabase
 import com.yamibo.pocket300.data.CustomListRefreshMode
 import com.yamibo.pocket300.data.CustomListRepository
-import com.yamibo.pocket300.data.download.ThreadDownloadRepository
+import com.yamibo.pocket300.data.download.ThreadDownloadManager
 import com.yamibo.pocket300.api.GetThreadPostsInput
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -27,7 +27,7 @@ internal fun CustomListAutoRefreshEffect() {
     val lifecycleOwner = LocalLifecycleOwner.current
     val database = remember(context) { CustomListDatabase.getInstance(context) }
     val downloadRepository = remember(context) {
-        ThreadDownloadRepository.getInstance(context.applicationContext)
+        ThreadDownloadManager.getInstance(context.applicationContext)
     }
     val autoDownloadCoordinator = remember(database, downloadRepository) {
         CustomListAutoDownloadCoordinator(

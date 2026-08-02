@@ -1,7 +1,5 @@
 package com.yamibo.pocket300.data.download
 
-import android.content.Context
-import com.yamibo.pocket300.Pocket300Application
 import com.yamibo.pocket300.api.YamiboPost
 import com.yamibo.pocket300.api.YamiboThreadDetails
 import com.yamibo.pocket300.api.YamiboThreadPoll
@@ -13,7 +11,6 @@ import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
-import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -32,18 +29,21 @@ import java.util.LinkedHashMap
 import java.util.concurrent.ConcurrentHashMap
 
 /**
- * Application-level single-consumer queue for complete thread downloads.
+ * Durable single-consumer engine for complete thread downloads.
  *
+ * [ThreadDownloadManager] controls when its worker is dispatched through the foreground service.
  * Queue records are durable before work is offered to the channel. A refresh builds and validates
  * a new immutable version while the prior completed version remains readable.
  */
-class ThreadDownloadRepository internal constructor(
+internal class ThreadDownloadRepository internal constructor(
     private val store: ThreadDownloadFileStore,
     private val threadPostsSource: ThreadPostsSource,
     private val imageDownloader: PostImageDownloader,
     private val scope: CoroutineScope,
     private val clock: () -> Long = System::currentTimeMillis,
     private val legacyRootDirectory: File? = null,
+    private val autoStart: Boolean = true,
+    private val onEntryDequeued: suspend (ThreadDownloadKey) -> Unit = {},
 ) {
     private val downloader = ThreadDownloader(store, threadPostsSource, imageDownloader)
     private val downloadQueue = ThreadDownloadQueue()
@@ -60,41 +60,38 @@ class ThreadDownloadRepository internal constructor(
     val queueState: StateFlow<ThreadDownloadQueueState> = downloadQueue.state
 
     private val initialization: Deferred<Unit>
-    private val processor: Job
+    private val processorMutex = Mutex()
+    @Volatile
+    private var processor: Job? = null
 
     init {
         initialization = scope.async(Dispatchers.IO) { initializeFromDisk() }
-        processor = scope.launch(Dispatchers.IO) {
-            initialization.await()
-            while (true) {
-                val entry = downloadQueue.awaitNext()
-                val key = entry.request.key
-                supervisorScope {
-                    var task: Job? = null
-                    mutationMutex.withLock {
-                        if (!downloadQueue.state.value.isPaused) {
-                            task = launch(start = CoroutineStart.LAZY) { process(key) }
-                            activeTasks[key] = requireNotNull(task)
-                            task.start()
-                        }
-                    }
-                    val activeTask = task
-                    if (activeTask == null) {
-                        requeuePausedDownload(key, wasCancelled = true)
-                    } else {
-                        try {
-                            activeTask.join()
-                        } finally {
-                            activeTasks.remove(key, activeTask)
-                            requeuePausedDownload(
-                                key = key,
-                                wasCancelled = activeTask.isCancelled,
-                            )
-                        }
-                    }
-                }
+        if (autoStart) {
+            scope.launch { start() }
+        }
+    }
+
+    /** Starts queue dispatching. The foreground service is the only production caller. */
+    internal suspend fun start() {
+        initialization.await()
+        processorMutex.withLock {
+            downloadQueue.startDispatching()
+            if (processor?.isActive != true) {
+                processor = scope.launch(Dispatchers.IO) { processQueue() }
             }
         }
+    }
+
+    /**
+     * Stops the worker without changing a user-requested pause. An active request stays durable
+     * and is returned to the front of the in-memory queue when cancellation completes.
+     */
+    internal suspend fun stop() {
+        val activeProcessor = processorMutex.withLock {
+            downloadQueue.stopDispatching()
+            processor.also { processor = null }
+        }
+        activeProcessor?.cancelAndJoin()
     }
 
     suspend fun awaitInitialized() {
@@ -194,18 +191,46 @@ class ThreadDownloadRepository internal constructor(
     suspend fun pauseDownloads(): Boolean {
         initialization.await()
         var activeTask: Job? = null
-        val paused = mutationMutex.withLock {
-            activeTask = activeTasks.values.singleOrNull()
-            downloadQueue.pause()
+        val paused = withContext(NonCancellable) {
+            mutationMutex.withLock {
+                if (downloadQueue.state.value.isPaused) {
+                    false
+                } else {
+                    withContext(Dispatchers.IO) {
+                        check(store.setQueuePaused(true)) {
+                            "Could not persist the paused download queue"
+                        }
+                    }
+                    activeTask = activeTasks.values.singleOrNull()
+                    check(downloadQueue.pause()) { "Could not pause the download queue" }
+                    true
+                }
+            }
         }
-        if (paused) activeTask?.cancelAndJoin()
+        if (paused) {
+            withContext(NonCancellable) { activeTask?.cancelAndJoin() }
+        }
         return paused
     }
 
     /** Allows the next pending task to start, or retries the task interrupted by [pauseDownloads]. */
     suspend fun resumeDownloads(): Boolean {
         initialization.await()
-        return downloadQueue.resume()
+        return withContext(NonCancellable) {
+            mutationMutex.withLock {
+                if (!downloadQueue.state.value.isPaused) {
+                    false
+                } else {
+                    withContext(Dispatchers.IO) {
+                        check(store.setQueuePaused(false)) {
+                            "Could not persist the resumed download queue"
+                        }
+                    }
+                    check(downloadQueue.resume()) { "Could not resume the download queue" }
+                    true
+                }
+            }
+        }
     }
 
     /** Moves a pending download to the front of the durable FIFO queue. */
@@ -289,6 +314,11 @@ class ThreadDownloadRepository internal constructor(
                     tasks.joinAll()
                     val deleted = withContext(Dispatchers.IO) { store.deleteAll() }
                     if (deleted) {
+                        if (downloadQueue.state.value.isPaused) {
+                            check(downloadQueue.resume()) {
+                                "Could not reset the download queue after deletion"
+                            }
+                        }
                         _statuses.value = emptyMap()
                         _downloads.value = emptyList()
                     } else {
@@ -304,14 +334,47 @@ class ThreadDownloadRepository internal constructor(
 
     internal fun close() {
         initialization.cancel()
-        processor.cancel()
+        processor?.cancel()
         downloadQueue.close()
+    }
+
+    private suspend fun processQueue() {
+        while (true) {
+            val entry = downloadQueue.awaitNext()
+            val key = entry.request.key
+            var activeTask: Job? = null
+            try {
+                onEntryDequeued(key)
+                supervisorScope {
+                    mutationMutex.withLock {
+                        val queueState = downloadQueue.state.value
+                        if (queueState.isRunning && !queueState.isPaused) {
+                            val task = launch(start = CoroutineStart.LAZY) { process(key) }
+                            activeTask = task
+                            activeTasks[key] = task
+                            task.start()
+                        }
+                    }
+                    activeTask?.join()
+                }
+            } finally {
+                val task = activeTask
+                task?.let { activeTasks.remove(key, it) }
+                withContext(NonCancellable) {
+                    requeuePausedDownload(
+                        key = key,
+                        wasCancelled = task?.isCancelled ?: true,
+                    )
+                }
+            }
+        }
     }
 
     private suspend fun initializeFromDisk() {
         val completed: List<DownloadedThread>
         val queued: List<ThreadDownloadQueueEntry>
         val failed: List<ThreadDownloadRequest>
+        val paused: Boolean
         withContext(Dispatchers.IO) {
             cleanupLegacyPostDownloads()
             check(store.cleanupStaging()) {
@@ -323,6 +386,7 @@ class ThreadDownloadRepository internal constructor(
             completed = store.listCompletedAndCleanupInvalid()
             queued = store.loadQueuedEntries()
             failed = store.loadFailedRequests()
+            paused = store.isQueuePaused()
         }
         _downloads.value = completed
         val completeByKey = completed.associateBy(DownloadedThread::key)
@@ -353,7 +417,7 @@ class ThreadDownloadRepository internal constructor(
             }
         }
         _statuses.value = initialStatuses
-        downloadQueue.restore(pendingEntries)
+        downloadQueue.restore(pendingEntries, isPaused = paused)
     }
 
     private fun cleanupLegacyPostDownloads() {
@@ -531,32 +595,7 @@ class ThreadDownloadRepository internal constructor(
 
     companion object {
         private const val TAG = "ThreadDownload"
-        private const val ROOT_DIRECTORY_NAME = "thread-downloads"
         private const val LEGACY_ROOT_DIRECTORY_NAME = "post-downloads"
-
-        @Volatile
-        private var instance: ThreadDownloadRepository? = null
-
-        fun getInstance(context: Context): ThreadDownloadRepository =
-            instance ?: synchronized(this) {
-                instance ?: createApplicationRepository(context.applicationContext)
-                    .also { instance = it }
-            }
-
-        private fun createApplicationRepository(context: Context): ThreadDownloadRepository {
-            val noBackupRoot = context.noBackupFilesDir
-            val root = File(noBackupRoot, ROOT_DIRECTORY_NAME)
-            return ThreadDownloadRepository(
-                store = ThreadDownloadFileStore(
-                    rootDirectory = root,
-                    decoderValidator = AndroidThreadDownloadImageDecoderValidator,
-                ),
-                threadPostsSource = YamiboThreadPostsSource(Pocket300Application.api.posts),
-                imageDownloader = OkHttpPostImageDownloader(),
-                scope = CoroutineScope(SupervisorJob() + Dispatchers.IO),
-                legacyRootDirectory = File(noBackupRoot, LEGACY_ROOT_DIRECTORY_NAME),
-            )
-        }
     }
 }
 

@@ -3,7 +3,7 @@ package com.yamibo.pocket300.data
 import com.yamibo.pocket300.api.YamiboThreadDetails
 import com.yamibo.pocket300.data.download.ThreadDownloadKey
 import com.yamibo.pocket300.data.download.ThreadDownloadPhase
-import com.yamibo.pocket300.data.download.ThreadDownloadRepository
+import com.yamibo.pocket300.data.download.ThreadDownloadManager
 import com.yamibo.pocket300.data.download.ThreadDownloadRequest
 import com.yamibo.pocket300.logging.AppLogger
 import kotlinx.coroutines.CancellationException
@@ -17,7 +17,7 @@ import kotlinx.coroutines.withContext
  */
 class CustomListAutoDownloadCoordinator(
     private val database: CustomListDatabase,
-    private val downloadRepository: ThreadDownloadRepository,
+    private val downloadRepository: ThreadDownloadManager,
     private val loadThreadDetails: suspend (threadId: Int) -> YamiboThreadDetails,
 ) {
     suspend fun enqueueNewThreads(list: CustomThreadList, threads: List<CustomListThread>) {

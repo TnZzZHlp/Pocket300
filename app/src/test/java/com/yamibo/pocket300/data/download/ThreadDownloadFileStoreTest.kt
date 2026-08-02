@@ -171,6 +171,20 @@ class ThreadDownloadFileStoreTest {
     }
 
     @Test
+    fun pausedQueueStateSurvivesStoreRecreationAndQueueCleanup() {
+        val root = temporaryFolder.newFolder("downloads")
+        val store = ThreadDownloadFileStore(root)
+
+        assertTrue(store.setQueuePaused(true))
+        assertTrue(ThreadDownloadFileStore(root).isQueuePaused())
+        assertTrue(store.cleanupQueueArtifacts())
+        assertTrue(ThreadDownloadFileStore(root).isQueuePaused())
+
+        assertTrue(store.setQueuePaused(false))
+        assertFalse(ThreadDownloadFileStore(root).isQueuePaused())
+    }
+
+    @Test
     fun unsupportedImageNeverCreatesAReadableThread() {
         val root = temporaryFolder.newFolder("downloads")
         val store = ThreadDownloadFileStore(root)
