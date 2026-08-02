@@ -1,6 +1,5 @@
 package com.yamibo.pocket300.ui.screens
 
-import com.yamibo.pocket300.api.YamiboThreadDetails
 import com.yamibo.pocket300.data.CustomListThread
 import com.yamibo.pocket300.data.download.ThreadDownloadPhase
 import kotlinx.coroutines.CancellationException
@@ -51,8 +50,7 @@ internal suspend fun enqueueCustomListThreadDownloads(
     threads: List<CustomListThread>,
     actionFor: (threadId: Int) -> CustomListBulkDownloadAction,
     retry: suspend (threadId: Int) -> Boolean,
-    loadThreadDetails: suspend (threadId: Int) -> YamiboThreadDetails,
-    enqueueIfMissing: suspend (thread: YamiboThreadDetails) -> Boolean,
+    enqueueIfMissing: suspend (thread: CustomListThread) -> Boolean,
     onProgress: (completedCount: Int, totalCount: Int) -> Unit = { _, _ -> },
     onFailure: (threadId: Int, failure: Exception) -> Unit = { _, _ -> },
 ): CustomListBulkDownloadResult {
@@ -61,22 +59,16 @@ internal suspend fun enqueueCustomListThreadDownloads(
     var skippedCount = 0
     val failedThreadIds = linkedSetOf<Int>()
 
-    suspend fun prepare(threadId: Int): Boolean {
-        val details = loadThreadDetails(threadId)
-        require(details.id == threadId) { "Thread details belong to another thread" }
-        return enqueueIfMissing(details)
-    }
-
     targets.forEachIndexed { index, thread ->
         try {
             when (actionFor(thread.threadId)) {
                 CustomListBulkDownloadAction.SKIP -> skippedCount++
                 CustomListBulkDownloadAction.RETRY -> {
-                    val queued = retry(thread.threadId) || prepare(thread.threadId)
+                    val queued = retry(thread.threadId) || enqueueIfMissing(thread)
                     if (queued) queuedCount++ else skippedCount++
                 }
                 CustomListBulkDownloadAction.PREPARE -> {
-                    val queued = prepare(thread.threadId)
+                    val queued = enqueueIfMissing(thread)
                     if (queued) queuedCount++ else skippedCount++
                 }
             }

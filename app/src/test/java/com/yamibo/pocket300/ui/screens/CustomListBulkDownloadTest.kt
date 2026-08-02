@@ -2,7 +2,6 @@ package com.yamibo.pocket300.ui.screens
 
 import com.yamibo.pocket300.data.CustomListThread
 import com.yamibo.pocket300.data.download.ThreadDownloadPhase
-import com.yamibo.pocket300.data.download.testThread
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
@@ -56,10 +55,9 @@ class CustomListBulkDownloadTest {
     }
 
     @Test
-    fun preparesNewThreadsAndRetriesFailedThreadsWithoutAnotherMetadataRequest() = runBlocking {
-        val loaded = mutableListOf<Int>()
+    fun queuesNewThreadsAndRetriesFailedThreadsWithoutFetchingMetadata() = runBlocking {
         val retried = mutableListOf<Int>()
-        val enqueued = mutableListOf<Int>()
+        val enqueued = mutableListOf<CustomListThread>()
         val actions = mapOf(
             100 to CustomListBulkDownloadAction.PREPARE,
             200 to CustomListBulkDownloadAction.RETRY,
@@ -73,37 +71,31 @@ class CustomListBulkDownloadTest {
                 retried += it
                 true
             },
-            loadThreadDetails = {
-                loaded += it
-                testThread(threadId = it)
-            },
             enqueueIfMissing = {
-                enqueued += it.id
+                enqueued += it
                 true
             },
         )
 
-        assertEquals(listOf(100), loaded)
         assertEquals(listOf(200), retried)
-        assertEquals(listOf(100), enqueued)
+        assertEquals(listOf(100), enqueued.map(CustomListThread::threadId))
         assertEquals(2, result.queuedCount)
         assertEquals(1, result.skippedCount)
         assertEquals(emptySet<Int>(), result.failedThreadIds)
     }
 
     @Test
-    fun preparationFailureDoesNotBlockLaterThreads() = runBlocking {
+    fun enqueueFailureDoesNotBlockLaterThreads() = runBlocking {
         val progress = mutableListOf<Pair<Int, Int>>()
 
         val result = enqueueCustomListThreadDownloads(
             threads = listOf(thread(100), thread(200)),
             actionFor = { CustomListBulkDownloadAction.PREPARE },
             retry = { false },
-            loadThreadDetails = {
-                if (it == 100) throw IOException("denied")
-                testThread(threadId = it)
+            enqueueIfMissing = {
+                if (it.threadId == 100) throw IOException("denied")
+                true
             },
-            enqueueIfMissing = { true },
             onProgress = { completed, total -> progress += completed to total },
         )
 
@@ -114,53 +106,52 @@ class CustomListBulkDownloadTest {
     }
 
     @Test
-    fun mismatchedThreadDetailsFailWithoutEnqueueing() = runBlocking {
+    fun queuesOriginalListThread() = runBlocking {
+        val selected = thread(100)
+        var enqueued: CustomListThread? = null
+
         val result = enqueueCustomListThreadDownloads(
-            threads = listOf(thread(100)),
+            threads = listOf(selected),
             actionFor = { CustomListBulkDownloadAction.PREPARE },
             retry = { false },
-            loadThreadDetails = { testThread(threadId = 999) },
-            enqueueIfMissing = { error("must not enqueue another thread") },
+            enqueueIfMissing = {
+                enqueued = it
+                true
+            },
         )
 
-        assertEquals(0, result.queuedCount)
-        assertEquals(setOf(100), result.failedThreadIds)
+        assertEquals(selected, enqueued)
+        assertEquals(1, result.queuedCount)
+        assertEquals(emptySet<Int>(), result.failedThreadIds)
     }
 
     @Test
-    fun missingRetryRequestFallsBackToPreparationAndRaceIsCountedAsSkipped() = runBlocking {
-        val loaded = mutableListOf<Int>()
-        val enqueued = mutableListOf<Int>()
+    fun missingRetryRequestFallsBackToEnqueueAndRaceIsCountedAsSkipped() = runBlocking {
+        val enqueued = mutableListOf<CustomListThread>()
 
         val result = enqueueCustomListThreadDownloads(
             threads = listOf(thread(100)),
             actionFor = { CustomListBulkDownloadAction.RETRY },
             retry = { false },
-            loadThreadDetails = {
-                loaded += it
-                testThread(threadId = it)
-            },
             enqueueIfMissing = {
-                enqueued += it.id
+                enqueued += it
                 false
             },
         )
 
-        assertEquals(listOf(100), loaded)
-        assertEquals(listOf(100), enqueued)
+        assertEquals(listOf(100), enqueued.map(CustomListThread::threadId))
         assertEquals(0, result.queuedCount)
         assertEquals(1, result.skippedCount)
         assertEquals(emptySet<Int>(), result.failedThreadIds)
     }
 
     @Test(expected = CancellationException::class)
-    fun cancellationStopsBulkPreparation() = runBlocking {
+    fun cancellationStopsBulkQueueing() = runBlocking {
         enqueueCustomListThreadDownloads(
             threads = listOf(thread(100), thread(200)),
             actionFor = { CustomListBulkDownloadAction.PREPARE },
             retry = { false },
-            loadThreadDetails = { throw CancellationException("cancelled") },
-            enqueueIfMissing = { true },
+            enqueueIfMissing = { throw CancellationException("cancelled") },
         )
         Unit
     }
