@@ -3,6 +3,7 @@ package com.yamibo.pocket300.data.download
 import com.yamibo.pocket300.api.AndroidCookieJar
 import com.yamibo.pocket300.api.POCKET300_USER_AGENT
 import com.yamibo.pocket300.api.Pocket300UserAgentInterceptor
+import com.yamibo.pocket300.api.YamiboRequestGate
 import kotlinx.coroutines.suspendCancellableCoroutine
 import okhttp3.Call
 import okhttp3.Callback
@@ -42,6 +43,7 @@ class OkHttpPostImageDownloader(
     cookieJar: CookieJar = AndroidCookieJar(),
     timeoutMillis: Long = DEFAULT_TIMEOUT_MILLIS,
     private val userAgent: String = POCKET300_USER_AGENT,
+    private val requestGate: YamiboRequestGate? = null,
     private val callFactory: Call.Factory = OkHttpClient.Builder()
         .cookieJar(cookieJar)
         .addInterceptor(Pocket300UserAgentInterceptor(userAgent))
@@ -53,6 +55,14 @@ class OkHttpPostImageDownloader(
         .build(),
 ) : PostImageDownloader {
     override suspend fun download(
+        request: PostImageDownloadRequest,
+        destination: File,
+    ): PostImageDownloadResult {
+        requestGate?.awaitReady()
+        return downloadWithoutGate(request, destination)
+    }
+
+    private suspend fun downloadWithoutGate(
         request: PostImageDownloadRequest,
         destination: File,
     ): PostImageDownloadResult = suspendCancellableCoroutine { continuation ->

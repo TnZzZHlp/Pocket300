@@ -180,7 +180,9 @@ class ThreadDownloadManager internal constructor(
                         decoderValidator = AndroidThreadDownloadImageDecoderValidator,
                     ),
                     threadPostsSource = YamiboThreadPostsSource(Pocket300Application.api.posts),
-                    imageDownloader = OkHttpPostImageDownloader(),
+                    imageDownloader = OkHttpPostImageDownloader(
+                        requestGate = Pocket300Application.wafGate,
+                    ),
                     scope = scope,
                     legacyRootDirectory = File(noBackupRoot, LEGACY_ROOT_DIRECTORY_NAME),
                     autoStart = false,

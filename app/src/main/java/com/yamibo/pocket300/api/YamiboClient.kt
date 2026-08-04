@@ -48,6 +48,7 @@ class YamiboClient(
     cookieJar: CookieJar = AndroidCookieJar(),
     timeoutMillis: Long = 15_000,
     userAgent: String = POCKET300_USER_AGENT,
+    private val requestGate: YamiboRequestGate? = null,
 ) {
     private val http = OkHttpClient.Builder()
         .cookieJar(cookieJar)
@@ -149,7 +150,23 @@ class YamiboClient(
         YamiboPageResponse(response.body, response.url)
     }
 
-    private fun execute(request: Request): TextResponse {
+    private suspend fun execute(request: Request): TextResponse {
+        try {
+            requestGate?.awaitReady()
+        } catch (error: YamiboWafException) {
+            throw YamiboApiException(
+                YamiboApiErrorCode.SERVER_ERROR,
+                error.message ?: "百合会浏览器验证失败",
+                "browser_verification",
+                error,
+            )
+        }
+        return withContext(Dispatchers.IO) {
+            executeBlocking(request)
+        }
+    }
+
+    private fun executeBlocking(request: Request): TextResponse {
         val requestSummary = request.safeLogSummary()
         val startedAtNanos = System.nanoTime()
         AppLogger.debug(TAG) { "$requestSummary started" }
