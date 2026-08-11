@@ -273,7 +273,10 @@
     <string name="thread_poll_submitted">投票成功</string>
     <string name="thread_poll_unavailable">您已投票或当前不可参与</string>
     <string name="thread_reply_hint">写下你的回复</string>
+    <string name="thread_reply_title">回复主题</string>
     <string name="thread_reply_action">发送回帖</string>
+    <string name="thread_reply_submitting">正在发送…</string>
+    <string name="thread_reply_cancel">取消</string>
     <string name="thread_reply_submitted">回帖已提交</string>
     <string name="thread_reply_pending_moderation">回帖已提交，等待审核</string>
     <string name="thread_reply_closed">主题已关闭，无法回帖</string>

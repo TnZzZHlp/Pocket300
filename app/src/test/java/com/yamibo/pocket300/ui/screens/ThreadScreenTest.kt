@@ -182,6 +182,14 @@ class ThreadScreenTest {
     }
 
     @Test
+    fun enablesReplySubmissionOnlyForOpenThreadWithContent() {
+        assertTrue(canSubmitThreadReply(draft = "Reply", submitting = false, threadClosed = false))
+        assertFalse(canSubmitThreadReply(draft = "   ", submitting = false, threadClosed = false))
+        assertFalse(canSubmitThreadReply(draft = "Reply", submitting = true, threadClosed = false))
+        assertFalse(canSubmitThreadReply(draft = "Reply", submitting = false, threadClosed = true))
+    }
+
+    @Test
     fun showsDownloadedThreadWhileBackgroundRefreshIsLoading() {
         val local = threadContent(subject = "Downloaded")
 

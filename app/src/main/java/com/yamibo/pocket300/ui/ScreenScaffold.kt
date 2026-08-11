@@ -52,6 +52,7 @@ internal fun ScreenScaffold(
     onTopBarDoubleClick: (() -> Unit)? = null,
     actions: @Composable RowScope.() -> Unit = {},
     bottomBar: @Composable () -> Unit = {},
+    floatingActionButton: @Composable () -> Unit = {},
     content: @Composable (PaddingValues) -> Unit,
 ) = Scaffold(
     modifier = modifier,
@@ -81,6 +82,7 @@ internal fun ScreenScaffold(
         )
     },
     bottomBar = bottomBar,
+    floatingActionButton = floatingActionButton,
     content = { padding ->
         if (onRefresh == null) {
             content(padding)
