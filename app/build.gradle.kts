@@ -104,8 +104,11 @@ dependencies {
     implementation(libs.navigation.compose)
     implementation(libs.coil.compose)
     debugImplementation(libs.compose.ui.tooling)
+    debugImplementation(libs.compose.ui.test.manifest)
     testImplementation(libs.junit)
     testImplementation(libs.json)
+    androidTestImplementation(platform(libs.compose.bom))
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
+    androidTestImplementation(libs.compose.ui.test.junit4)
 }
