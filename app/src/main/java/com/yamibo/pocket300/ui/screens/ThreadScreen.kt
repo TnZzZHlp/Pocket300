@@ -40,7 +40,6 @@ import androidx.compose.material.icons.rounded.Star
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Badge
 import androidx.compose.material3.Button
-import androidx.compose.material3.BottomAppBar
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
@@ -48,6 +47,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -183,6 +183,7 @@ internal fun ThreadScreen(
     var pollSubmitting by remember(threadId) { mutableStateOf(false) }
     var replyDraft by rememberSaveable(threadId) { mutableStateOf("") }
     var replySubmitting by remember(threadId) { mutableStateOf(false) }
+    var replyEditorVisible by rememberSaveable(threadId) { mutableStateOf(false) }
     var commentTargetPostId by rememberSaveable(threadId) { mutableIntStateOf(0) }
     var commentTargetPostNumber by rememberSaveable(threadId) { mutableIntStateOf(0) }
     var commentTargetAuthorName by rememberSaveable(threadId) { mutableStateOf("") }
@@ -531,71 +532,9 @@ internal fun ThreadScreen(
                 }
             }
         },
-        bottomBar = {
-            loadedContent?.takeUnless { offlineOnly }?.let { content ->
-                ThreadReplyBar(
-                    draft = replyDraft,
-                    submitting = replySubmitting,
-                    threadClosed = content.page.thread.isClosed,
-                    onDraftChange = { replyDraft = it },
-                    onSubmit = {
-                        if (!replySubmitting) {
-                            val message = replyDraft.trim()
-                            if (message.isNotEmpty()) {
-                                replySubmitting = true
-                                coroutineScope.launch {
-                                    val result = load {
-                                        api.posts.replyToThread(
-                                            ReplyToThreadInput(
-                                                forumId = content.page.thread.forumId,
-                                                threadId = threadId,
-                                                message = message,
-                                            ),
-                                        )
-                                    }
-                                    when (result) {
-                                        is LoadState.Ready -> {
-                                            replyDraft = ""
-                                            originalPosterOnly = false
-                                            targetFloor = 0
-                                            if (result.value.pendingModeration) {
-                                                targetPostId = 0
-                                                restoredFloor = true
-                                            } else {
-                                                targetPostId = result.value.postId
-                                                restoredFloor = false
-                                                pageNumber = pageForNewReply(
-                                                    totalPosts = content.page.pagination.totalPosts,
-                                                    pageSize = content.page.pagination.pageSize,
-                                                )
-                                            }
-                                            viewModel.invalidate()
-                                            reload++
-                                            Toast.makeText(
-                                                context,
-                                                if (result.value.pendingModeration) {
-                                                    replyPendingModerationMessage
-                                                } else {
-                                                    replySubmittedMessage
-                                                },
-                                                Toast.LENGTH_SHORT,
-                                            ).show()
-                                        }
-
-                                        is LoadState.Failed -> Toast.makeText(
-                                            context,
-                                            result.message,
-                                            Toast.LENGTH_LONG,
-                                        ).show()
-
-                                        LoadState.Loading -> Unit
-                                    }
-                                    replySubmitting = false
-                                }
-                            }
-                        }
-                    },
-                )
+        floatingActionButton = {
+            loadedContent?.takeUnless { offlineOnly }?.let {
+                ThreadReplyButton(onClick = { replyEditorVisible = true })
             }
         },
     ) { padding ->
@@ -791,6 +730,78 @@ internal fun ThreadScreen(
             }
         }
     }
+    if (!offlineOnly && replyEditorVisible) {
+        ThreadReplyDialog(
+            draft = replyDraft,
+            submitting = replySubmitting,
+            threadClosed = loadedThread?.isClosed == true,
+            onDraftChange = { replyDraft = it },
+            onDismiss = { replyEditorVisible = false },
+            onSubmit = {
+                val content = loadedContent
+                val message = replyDraft.trim()
+                if (
+                    content != null && canSubmitThreadReply(
+                        draft = message,
+                        submitting = replySubmitting,
+                        threadClosed = content.page.thread.isClosed,
+                    )
+                ) {
+                    replySubmitting = true
+                    coroutineScope.launch {
+                        val result = load {
+                            api.posts.replyToThread(
+                                ReplyToThreadInput(
+                                    forumId = content.page.thread.forumId,
+                                    threadId = threadId,
+                                    message = message,
+                                ),
+                            )
+                        }
+                        when (result) {
+                            is LoadState.Ready -> {
+                                replyDraft = ""
+                                replyEditorVisible = false
+                                originalPosterOnly = false
+                                targetFloor = 0
+                                if (result.value.pendingModeration) {
+                                    targetPostId = 0
+                                    restoredFloor = true
+                                } else {
+                                    targetPostId = result.value.postId
+                                    restoredFloor = false
+                                    pageNumber = pageForNewReply(
+                                        totalPosts = content.page.pagination.totalPosts,
+                                        pageSize = content.page.pagination.pageSize,
+                                    )
+                                }
+                                viewModel.invalidate()
+                                reload++
+                                Toast.makeText(
+                                    context,
+                                    if (result.value.pendingModeration) {
+                                        replyPendingModerationMessage
+                                    } else {
+                                        replySubmittedMessage
+                                    },
+                                    Toast.LENGTH_SHORT,
+                                ).show()
+                            }
+
+                            is LoadState.Failed -> Toast.makeText(
+                                context,
+                                result.message,
+                                Toast.LENGTH_LONG,
+                            ).show()
+
+                            LoadState.Loading -> Unit
+                        }
+                        replySubmitting = false
+                    }
+                }
+            },
+        )
+    }
     if (!offlineOnly && commentTargetPostId > 0) {
         PostCommentDialog(
             authorName = commentTargetAuthorName,
@@ -938,6 +949,12 @@ internal fun pageForNewReply(totalPosts: Int, pageSize: Int): Int {
     require(pageSize > 0) { "pageSize must be a positive integer" }
     return totalPosts / pageSize + 1
 }
+
+internal fun canSubmitThreadReply(
+    draft: String,
+    submitting: Boolean,
+    threadClosed: Boolean,
+): Boolean = draft.isNotBlank() && !submitting && !threadClosed
 
 internal enum class ThreadReadAction { MARK_READ, MARK_UNREAD }
 
@@ -1276,49 +1293,73 @@ private fun PostRatingOptionRow(
 }
 
 @Composable
-private fun ThreadReplyBar(
+private fun ThreadReplyButton(
+    onClick: () -> Unit,
+) {
+    FloatingActionButton(onClick = onClick, shape = CircleShape) {
+        Icon(
+            Icons.AutoMirrored.Rounded.Send,
+            contentDescription = stringResource(R.string.thread_reply_action),
+        )
+    }
+}
+
+@Composable
+private fun ThreadReplyDialog(
     draft: String,
     submitting: Boolean,
     threadClosed: Boolean,
     onDraftChange: (String) -> Unit,
+    onDismiss: () -> Unit,
     onSubmit: () -> Unit,
 ) {
-    BottomAppBar(
-        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
-    ) {
-        OutlinedTextField(
-            value = draft,
-            onValueChange = onDraftChange,
-            modifier = Modifier.weight(1f),
-            enabled = !threadClosed && !submitting,
-            maxLines = 5,
-            placeholder = {
+    AlertDialog(
+        onDismissRequest = { if (!submitting) onDismiss() },
+        title = { Text(stringResource(R.string.thread_reply_title)) },
+        text = {
+            if (threadClosed) {
                 Text(
-                    stringResource(
-                        if (threadClosed) R.string.thread_reply_closed
-                        else R.string.thread_reply_hint,
-                    ),
-                )
-            },
-        )
-        Spacer(Modifier.width(8.dp))
-        IconButton(
-            onClick = onSubmit,
-            enabled = draft.isNotBlank() && !submitting && !threadClosed,
-        ) {
-            if (submitting) {
-                CircularProgressIndicator(
-                    modifier = Modifier.size(24.dp),
-                    strokeWidth = 2.dp,
+                    stringResource(R.string.thread_reply_closed),
+                    color = MaterialTheme.colorScheme.error,
                 )
             } else {
-                Icon(
-                    Icons.AutoMirrored.Rounded.Send,
-                    contentDescription = stringResource(R.string.thread_reply_action),
+                OutlinedTextField(
+                    value = draft,
+                    onValueChange = onDraftChange,
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = !submitting,
+                    minLines = 4,
+                    maxLines = 8,
+                    placeholder = { Text(stringResource(R.string.thread_reply_hint)) },
                 )
             }
-        }
-    }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = onSubmit,
+                enabled = canSubmitThreadReply(draft, submitting, threadClosed),
+            ) {
+                if (submitting) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(18.dp),
+                        strokeWidth = 2.dp,
+                    )
+                    Spacer(Modifier.width(8.dp))
+                }
+                Text(
+                    stringResource(
+                        if (submitting) R.string.thread_reply_submitting
+                        else R.string.thread_reply_action,
+                    ),
+                )
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss, enabled = !submitting) {
+                Text(stringResource(R.string.thread_reply_cancel))
+            }
+        },
+    )
 }
 
 @Composable
