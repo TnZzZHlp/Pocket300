@@ -37,7 +37,6 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
@@ -45,6 +44,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
@@ -68,6 +68,8 @@ import com.yamibo.pocket300.ui.viewmodels.SearchQueryError
 import com.yamibo.pocket300.ui.viewmodels.SearchViewModel
 import kotlinx.coroutines.launch
 
+internal const val SEARCH_QUERY_FIELD_TEST_TAG = "search-query"
+
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalSharedTransitionApi::class)
 @Composable
 internal fun SearchScreen(
@@ -86,8 +88,6 @@ internal fun SearchScreen(
         viewModel.submit()
         if (viewModel.queryError == null) keyboardController?.hide()
     }
-
-    LaunchedEffect(Unit) { focusRequester.requestFocus() }
 
     ScreenScaffold(
         stringResource(R.string.search_title),
@@ -159,7 +159,10 @@ private fun SearchForm(
             OutlinedTextField(
                 value = query,
                 onValueChange = onQueryChange,
-                modifier = Modifier.weight(1f).focusRequester(focusRequester),
+                modifier = Modifier
+                    .weight(1f)
+                    .focusRequester(focusRequester)
+                    .testTag(SEARCH_QUERY_FIELD_TEST_TAG),
                 label = { Text(stringResource(R.string.search_input_label)) },
                 placeholder = { Text(stringResource(R.string.search_input_placeholder)) },
                 leadingIcon = { Icon(Icons.Rounded.Search, contentDescription = null) },
