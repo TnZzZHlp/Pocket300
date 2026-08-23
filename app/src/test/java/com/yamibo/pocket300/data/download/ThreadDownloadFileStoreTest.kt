@@ -30,7 +30,10 @@ class ThreadDownloadFileStoreTest {
         assertEquals(snapshot.posts, restored?.snapshot?.posts)
         assertEquals(snapshot.posts[1], restored?.findPost(snapshot.posts[1].id))
         assertTrue(restored!!.localImageUris.isEmpty())
-        assertEquals(listOf(request.key), ThreadDownloadFileStore(root).listCompleted().map { it.key })
+        assertEquals(
+            listOf(request.key),
+            ThreadDownloadFileStore(root).listCompletedAndCleanupInvalid().map { it.key },
+        )
     }
 
     @Test
@@ -60,7 +63,7 @@ class ThreadDownloadFileStoreTest {
 
         assertTrue(store.inspect(request.key) is StoredThreadDownload.Invalid)
         assertNull(store.read(request.key))
-        assertTrue(store.cleanupInvalidDownloads())
+        assertTrue(store.listCompletedAndCleanupInvalid().isEmpty())
         assertFalse(root.resolve(thread.id.toString()).exists())
     }
 
@@ -163,7 +166,7 @@ class ThreadDownloadFileStoreTest {
 
         val restored = ThreadDownloadFileStore(root)
 
-        assertEquals(listOf(second, first), restored.loadQueuedRequests())
+        assertEquals(listOf(second, first), restored.loadQueuedEntries().map { it.request })
         assertEquals(
             listOf(second.key, first.key),
             restored.loadQueuedEntries().map { it.request.key },
@@ -185,9 +188,12 @@ class ThreadDownloadFileStoreTest {
     }
 
     @Test
-    fun unsupportedImageNeverCreatesAReadableThread() {
+    fun undecodableImageNeverCreatesAReadableThread() {
         val root = temporaryFolder.newFolder("downloads")
-        val store = ThreadDownloadFileStore(root)
+        val store = ThreadDownloadFileStore(
+            root,
+            decoderValidator = ThreadDownloadImageDecoderValidator { false },
+        )
         val url = "https://bbs.yamibo.com/image.svg"
         val thread = testThread()
         val request = testRequest(thread)
@@ -232,6 +238,6 @@ class ThreadDownloadFileStoreTest {
         assertTrue(store.delete(request.key))
         assertNull(store.read(request.key))
         assertNull(store.loadQueuedRequest(request.key))
-        assertTrue(store.listCompleted().isEmpty())
+        assertTrue(store.listCompletedAndCleanupInvalid().isEmpty())
     }
 }

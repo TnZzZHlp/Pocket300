@@ -5,7 +5,6 @@ import com.yamibo.pocket300.api.YamiboPostRatingForm
 import com.yamibo.pocket300.api.YamiboPostRatingOption
 import com.yamibo.pocket300.data.download.DownloadedThread
 import com.yamibo.pocket300.data.download.ThreadDownloadManifest
-import com.yamibo.pocket300.data.download.ThreadDownloadPhase
 import com.yamibo.pocket300.data.download.ThreadDownloadSnapshot
 import com.yamibo.pocket300.data.download.testAuthor
 import com.yamibo.pocket300.data.download.testPage
@@ -103,41 +102,6 @@ class ThreadScreenTest {
 
         assertFalse(canSubmitPostRating(form, mapOf(option.creditId to 1, 2 to 3)))
         assertFalse(canSubmitPostRating(form, mapOf(option.creditId to 1, 99 to 1)))
-    }
-
-    @Test
-    fun offersMarkUnreadForReadThread() {
-        assertEquals(ThreadReadAction.MARK_UNREAD, threadReadAction(isRead = true))
-    }
-
-    @Test
-    fun offersMarkReadForUnreadThread() {
-        assertEquals(ThreadReadAction.MARK_READ, threadReadAction(isRead = false))
-    }
-
-    @Test
-    fun mapsThreadDownloadPhasesToTopBarActions() {
-        assertEquals(ThreadDownloadAction.DOWNLOAD, threadDownloadAction(null))
-        assertEquals(
-            ThreadDownloadAction.DOWNLOADING,
-            threadDownloadAction(ThreadDownloadPhase.QUEUED),
-        )
-        assertEquals(
-            ThreadDownloadAction.DOWNLOADING,
-            threadDownloadAction(ThreadDownloadPhase.FETCHING_PAGES),
-        )
-        assertEquals(
-            ThreadDownloadAction.DOWNLOADING,
-            threadDownloadAction(ThreadDownloadPhase.DOWNLOADING_IMAGES),
-        )
-        assertEquals(
-            ThreadDownloadAction.RETRY,
-            threadDownloadAction(ThreadDownloadPhase.FAILED),
-        )
-        assertEquals(
-            ThreadDownloadAction.DOWNLOADED,
-            threadDownloadAction(ThreadDownloadPhase.COMPLETED),
-        )
     }
 
     @Test

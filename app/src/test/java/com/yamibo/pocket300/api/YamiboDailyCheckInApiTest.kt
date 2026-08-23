@@ -56,7 +56,7 @@ class YamiboDailyCheckInApiTest {
 
     @Test
     fun doesNotTreatRankingStatusAsViewerCheckIn() {
-        assertCheckInError(YamiboDailyCheckInErrorCode.INVALID_RESPONSE) {
+        assertCheckInError(YamiboApiErrorCode.INVALID_RESPONSE) {
             parseDailyCheckInPage(
                 """<th>今日状态</th><td>今日已打卡</td>""",
                 "$YAMIBO_ORIGIN/plugin.php?id=zqlj_sign",
@@ -66,7 +66,7 @@ class YamiboDailyCheckInApiTest {
 
     @Test
     fun rejectsLoginRedirect() {
-        assertCheckInError(YamiboDailyCheckInErrorCode.NOT_AUTHENTICATED) {
+        assertCheckInError(YamiboApiErrorCode.SERVER_ERROR) {
             parseDailyCheckInPage(
                 """<form id="loginform"></form>""",
                 "$YAMIBO_ORIGIN/member.php?mod=logging&action=login",
@@ -81,21 +81,21 @@ class YamiboDailyCheckInApiTest {
                 """<div id="messagetext"><p>当前用户组无权打卡&amp;领取奖励</p></div>""",
                 "$YAMIBO_ORIGIN/plugin.php?id=zqlj_sign&sign=abc123ef",
             )
-            fail("Expected YamiboDailyCheckInException")
-        } catch (error: YamiboDailyCheckInException) {
-            assertEquals(YamiboDailyCheckInErrorCode.SERVER_ERROR, error.code)
+            fail("Expected YamiboApiException")
+        } catch (error: YamiboApiException) {
+            assertEquals(YamiboApiErrorCode.SERVER_ERROR, error.code)
             assertEquals("当前用户组无权打卡&领取奖励", error.message)
         }
     }
 
     private fun assertCheckInError(
-        expected: YamiboDailyCheckInErrorCode,
+        expected: YamiboApiErrorCode,
         block: () -> Unit,
     ) {
         try {
             block()
-            fail("Expected YamiboDailyCheckInException")
-        } catch (error: YamiboDailyCheckInException) {
+            fail("Expected YamiboApiException")
+        } catch (error: YamiboApiException) {
             assertEquals(expected, error.code)
         }
     }

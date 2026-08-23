@@ -7,7 +7,6 @@ import com.yamibo.pocket300.api.YamiboPostAuthor
 import com.yamibo.pocket300.api.YamiboPostComment
 import com.yamibo.pocket300.api.YamiboThreadDetails
 import com.yamibo.pocket300.api.YamiboThreadPoll
-import com.yamibo.pocket300.api.YamiboThreadSpecialType
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -34,9 +33,6 @@ class ThreadDownloadManifestCodec {
         .put("requestedAt", request.requestedAt)
         .put("thread", encodeThread(request.thread))
         .toString()
-
-    fun decodeRequest(json: String): ThreadDownloadRequest =
-        decodeStoredRequest(json).request
 
     fun decodeStoredRequest(json: String): StoredThreadDownloadRequest {
         val root = JSONObject(json)
@@ -131,49 +127,29 @@ class ThreadDownloadManifestCodec {
 
 private fun encodeThread(thread: YamiboThreadDetails): JSONObject = JSONObject()
     .put("author", encodeAuthor(thread.author))
-    .put("createdAt", thread.createdAt)
-    .put("digestLevel", thread.digestLevel)
     .put("forumId", thread.forumId)
     .put("heat", thread.heat)
     .put("hasAttachment", thread.hasAttachment)
     .put("id", thread.id)
     .put("isClosed", thread.isClosed)
-    .put("lastPoster", thread.lastPoster)
     .put("lastPostAtText", thread.lastPostAtText)
-    .put("maxPosition", thread.maxPosition)
     .put("price", thread.price)
-    .put("readPermission", thread.readPermission)
-    .put("recommendationCount", thread.recommendationCount)
     .put("replyCount", thread.replyCount)
-    .put("specialType", thread.specialType.name)
-    .put("specialTypeId", thread.specialTypeId)
     .put("subject", thread.subject)
-    .putNullable("typeId", thread.typeId)
     .put("viewCount", thread.viewCount)
     .put("webUrl", thread.webUrl)
 
 private fun decodeThread(value: JSONObject): YamiboThreadDetails = YamiboThreadDetails(
     author = decodeAuthor(value.getJSONObject("author")),
-    createdAt = value.getLong("createdAt"),
-    digestLevel = value.getInt("digestLevel"),
     forumId = value.getInt("forumId"),
     heat = value.getInt("heat"),
     hasAttachment = value.getBoolean("hasAttachment"),
     id = value.getInt("id"),
     isClosed = value.getBoolean("isClosed"),
-    lastPoster = value.getString("lastPoster"),
     lastPostAtText = value.getString("lastPostAtText"),
-    maxPosition = value.getInt("maxPosition"),
     price = value.getInt("price"),
-    readPermission = value.getInt("readPermission"),
-    recommendationCount = value.getInt("recommendationCount"),
     replyCount = value.getInt("replyCount"),
-    specialType = runCatching {
-        YamiboThreadSpecialType.valueOf(value.getString("specialType"))
-    }.getOrDefault(YamiboThreadSpecialType.UNKNOWN),
-    specialTypeId = value.getInt("specialTypeId"),
     subject = value.getString("subject"),
-    typeId = value.optionalInt("typeId"),
     viewCount = value.getInt("viewCount"),
     webUrl = value.getString("webUrl"),
 )
@@ -185,8 +161,6 @@ private fun encodePost(post: YamiboPost): JSONObject = JSONObject()
             post.attachments.forEach { attachment ->
                 put(
                     JSONObject()
-                        .put("id", attachment.id)
-                        .put("filename", attachment.filename)
                         .put("isImage", attachment.isImage)
                         .put("url", attachment.url),
                 )
@@ -201,16 +175,11 @@ private fun encodePost(post: YamiboPost): JSONObject = JSONObject()
                 put(
                     JSONObject()
                         .put("author", encodeAuthor(comment.author))
-                        .put("createdAtText", comment.createdAtText)
-                        .put("id", comment.id)
-                        .put("message", comment.message)
-                        .put("postId", comment.postId)
-                        .put("threadId", comment.threadId),
+                        .put("message", comment.message),
                 )
             }
         },
     )
-    .put("createdAt", post.createdAt)
     .put("createdAtText", post.createdAtText)
     .put("html", post.html)
     .put("hasAttachment", post.hasAttachment)
@@ -219,15 +188,11 @@ private fun encodePost(post: YamiboPost): JSONObject = JSONObject()
     .put("number", post.number)
     .put("position", post.position)
     .put("ratingCount", post.ratingCount)
-    .put("replyCredit", post.replyCredit)
-    .put("status", post.status)
     .put("threadId", post.threadId)
 
 private fun decodePost(value: JSONObject): YamiboPost = YamiboPost(
     attachments = value.getJSONArray("attachments").objects().map { attachment ->
         YamiboPostAttachment(
-            id = attachment.getInt("id"),
-            filename = attachment.getString("filename"),
             isImage = attachment.getBoolean("isImage"),
             url = attachment.getString("url"),
         )
@@ -236,14 +201,9 @@ private fun decodePost(value: JSONObject): YamiboPost = YamiboPost(
     comments = value.getJSONArray("comments").objects().map { comment ->
         YamiboPostComment(
             author = decodeAuthor(comment.getJSONObject("author")),
-            createdAtText = comment.getString("createdAtText"),
-            id = comment.getInt("id"),
             message = comment.getString("message"),
-            postId = comment.getInt("postId"),
-            threadId = comment.getInt("threadId"),
         )
     },
-    createdAt = value.getLong("createdAt"),
     createdAtText = value.getString("createdAtText"),
     html = value.getString("html"),
     hasAttachment = value.getBoolean("hasAttachment"),
@@ -252,25 +212,17 @@ private fun decodePost(value: JSONObject): YamiboPost = YamiboPost(
     number = value.getInt("number"),
     position = value.getInt("position"),
     ratingCount = value.getInt("ratingCount"),
-    replyCredit = value.getInt("replyCredit"),
-    status = value.getInt("status"),
     threadId = value.getInt("threadId"),
 )
 
 private fun encodeAuthor(author: YamiboPostAuthor): JSONObject = JSONObject()
     .putNullable("avatarUrl", author.avatarUrl)
-    .putNullable("groupIconId", author.groupIconId)
-    .putNullable("groupId", author.groupId)
     .putNullable("id", author.id)
-    .put("isAnonymous", author.isAnonymous)
     .put("name", author.name)
 
 private fun decodeAuthor(value: JSONObject): YamiboPostAuthor = YamiboPostAuthor(
     avatarUrl = value.optionalString("avatarUrl"),
-    groupIconId = value.optionalString("groupIconId"),
-    groupId = value.optionalInt("groupId"),
     id = value.optionalInt("id"),
-    isAnonymous = value.getBoolean("isAnonymous"),
     name = value.getString("name"),
 )
 

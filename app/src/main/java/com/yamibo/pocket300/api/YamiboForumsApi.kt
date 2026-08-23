@@ -1,33 +1,18 @@
 package com.yamibo.pocket300.api
 
-import org.json.JSONArray
 import org.json.JSONObject
-
-data class YamiboSubforum(
-    val id: Int,
-    val name: String,
-    val postCount: Int,
-    val redirectUrl: String?,
-    val threadCount: Int,
-    val todayPostCount: Int,
-    val webUrl: String,
-)
 
 data class YamiboForum(
     val id: Int,
     val name: String,
     val postCount: Int,
-    val redirectUrl: String?,
     val threadCount: Int,
     val todayPostCount: Int,
-    val webUrl: String,
     val description: String,
-    val iconUrl: String?,
-    val subforums: List<YamiboSubforum>,
 )
 
 data class YamiboForumCategory(val id: Int, val name: String, val forums: List<YamiboForum>)
-data class YamiboForumIndex(val categories: List<YamiboForumCategory>, val forums: List<YamiboForum>)
+data class YamiboForumIndex(val categories: List<YamiboForumCategory>)
 
 class YamiboForumsApi(private val client: YamiboClient) {
     suspend fun getForumIndex(): YamiboForumIndex {
@@ -61,44 +46,17 @@ fun parseForumIndex(variables: JSONObject): YamiboForumIndex {
             }.mapNotNull(byId::get),
         )
     }
-    return YamiboForumIndex(categories, forums)
+    return YamiboForumIndex(categories)
 }
 
-private fun parseForum(value: JSONObject): YamiboForum {
-    val parsed = parseSubforum(value)
-    val subforums = when (val raw = value.opt("sublist")) {
-        null, JSONObject.NULL -> emptyList()
-        is JSONArray -> raw.objects("百合会返回了无效的子板块数据").map(::parseSubforum)
-        else -> invalidResponse("百合会返回了无效的子板块列表")
-    }
-    return YamiboForum(
-        id = parsed.id,
-        name = parsed.name,
-        postCount = parsed.postCount,
-        redirectUrl = parsed.redirectUrl,
-        threadCount = parsed.threadCount,
-        todayPostCount = parsed.todayPostCount,
-        webUrl = parsed.webUrl,
-        description = value.stringOrNull("description").orEmpty(),
-        iconUrl = value.nonBlankStringOrNull("icon"),
-        subforums = subforums,
-    )
-}
+private fun parseForum(value: JSONObject): YamiboForum = YamiboForum(
+    id = value.positiveInt("fid", "百合会板块数据"),
+    name = value.requiredString("name", "百合会板块数据"),
+    postCount = value.nonNegativeInt("posts", "百合会板块数据"),
+    threadCount = value.nonNegativeInt("threads", "百合会板块数据"),
+    todayPostCount = value.nonNegativeInt("todayposts", "百合会板块数据"),
+    description = value.stringOrNull("description").orEmpty(),
+)
 
-private fun parseSubforum(value: JSONObject): YamiboSubforum {
-    val context = "百合会板块数据"
-    val id = value.positiveInt("fid", context)
-    val redirectUrl = value.nonBlankStringOrNull("redirect")
-    return YamiboSubforum(
-        id = id,
-        name = value.requiredString("name", context),
-        postCount = value.nonNegativeInt("posts", context),
-        redirectUrl = redirectUrl,
-        threadCount = value.nonNegativeInt("threads", context),
-        todayPostCount = value.nonNegativeInt("todayposts", context),
-        webUrl = redirectUrl ?: "$YAMIBO_ORIGIN/forum.php?mod=forumdisplay&fid=$id",
-    )
-}
-
-private fun JSONArray.objects(errorMessage: String): List<JSONObject> =
+private fun org.json.JSONArray.objects(errorMessage: String): List<JSONObject> =
     (0 until length()).map { index -> opt(index) as? JSONObject ?: invalidResponse(errorMessage) }

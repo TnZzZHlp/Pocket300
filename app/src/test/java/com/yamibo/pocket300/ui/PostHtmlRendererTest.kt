@@ -11,9 +11,10 @@ class PostHtmlRendererTest {
 
         assertEquals(
             local,
-            resolvePostImageUrl(
+            resolvePostImageSource(
                 "/data/attachment/forum/example.jpg",
                 mapOf(remote to local),
+                allowRemoteImages = true,
             ),
         )
     }
@@ -22,7 +23,11 @@ class PostHtmlRendererTest {
     fun keepsRemoteImageWhenNoDownloadExists() {
         assertEquals(
             "https://example.com/image.jpg",
-            resolvePostImageUrl("https://example.com/image.jpg", emptyMap()),
+            resolvePostImageSource(
+                "https://example.com/image.jpg",
+                emptyMap(),
+                allowRemoteImages = true,
+            ),
         )
     }
 

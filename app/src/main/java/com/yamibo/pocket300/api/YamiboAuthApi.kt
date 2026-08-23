@@ -32,8 +32,6 @@ data class LoginInput(
     val securityQuestionId: Int = 0,
 )
 
-data class GetUserProfileInput(val uid: Int)
-
 data class YamiboProfileField(val label: String, val value: String)
 
 data class YamiboUserProfile(
@@ -44,30 +42,11 @@ data class YamiboUserProfile(
     val uid: Int,
 )
 
-enum class YamiboAuthErrorCode {
-    INVALID_CREDENTIALS,
-    SECURITY_ANSWER_REQUIRED,
-    SECURITY_ANSWER_INVALID,
-    VERIFICATION_REQUIRED,
-    TOO_MANY_ATTEMPTS,
-    NOT_AUTHENTICATED,
-    INVALID_RESPONSE,
-    NETWORK_ERROR,
-    SERVER_ERROR,
-}
-
-class YamiboAuthException(
-    val code: YamiboAuthErrorCode,
-    message: String,
-    val serverCode: String? = null,
-    cause: Throwable? = null,
-) : Exception(message, cause)
-
 class YamiboAuthApi(private val client: YamiboClient) {
     suspend fun login(input: LoginInput): YamiboSession {
         val account = input.account.trim()
         if (account.isEmpty() || input.password.isEmpty()) {
-            throw YamiboAuthException(YamiboAuthErrorCode.INVALID_CREDENTIALS, "请输入账号和密码")
+            throw YamiboApiException(YamiboApiErrorCode.SERVER_ERROR, "请输入账号和密码")
         }
         require(input.securityQuestionId in 0..7) {
             "securityQuestionId must be an integer from 0 to 7"
@@ -93,32 +72,28 @@ class YamiboAuthApi(private val client: YamiboClient) {
         return session
     }
 
-    suspend fun getLoginSecurityQuestions(): List<SecurityQuestionOption> = authCall {
+    suspend fun getLoginSecurityQuestions(): List<SecurityQuestionOption> {
         val response = client.requestPage(
             "/member.php",
             mapOf("action" to "login", "mobile" to "2", "mod" to "logging"),
         )
-        parseSecurityQuestionsFromLoginPage(response.html).ifEmpty { DEFAULT_SECURITY_QUESTIONS }
+        return parseSecurityQuestionsFromLoginPage(response.html).ifEmpty { DEFAULT_SECURITY_QUESTIONS }
     }
 
     suspend fun getUserProfile(uid: Int): YamiboUserProfile {
         require(uid > 0) { "uid must be a positive integer" }
-        return authCall {
-            val response = client.requestPage(
-                "/home.php",
-                mapOf(
-                    "do" to "profile",
-                    "mobile" to "2",
-                    "mod" to "space",
-                    "mycenter" to "1",
-                    "uid" to uid.toString(),
-                ),
-            )
-            parseUserProfilePage(response.html, response.url, uid)
-        }
+        val response = client.requestPage(
+            "/home.php",
+            mapOf(
+                "do" to "profile",
+                "mobile" to "2",
+                "mod" to "space",
+                "mycenter" to "1",
+                "uid" to uid.toString(),
+            ),
+        )
+        return parseUserProfilePage(response.html, response.url, uid)
     }
-
-    suspend fun getUserProfile(input: GetUserProfileInput): YamiboUserProfile = getUserProfile(input.uid)
 
     suspend fun getCurrentSession(): YamiboSession? = parseSession(request(mapOf("module" to "login")))
 
@@ -129,14 +104,14 @@ class YamiboAuthApi(private val client: YamiboClient) {
             return
         }
         if (session.formHash.isEmpty()) {
-            throw YamiboAuthException(
-                YamiboAuthErrorCode.INVALID_RESPONSE,
+            throw YamiboApiException(
+                YamiboApiErrorCode.INVALID_RESPONSE,
                 "百合会未返回退出登录所需的校验值",
             )
         }
         request(mapOf("hash" to session.formHash, "mlogout" to "1", "module" to "login"))
         if (getCurrentSession() != null) {
-            throw YamiboAuthException(YamiboAuthErrorCode.SERVER_ERROR, "退出登录失败")
+            throw YamiboApiException(YamiboApiErrorCode.SERVER_ERROR, "退出登录失败")
         }
         AppLogger.info(TAG) { "Logout completed successfully" }
     }
@@ -144,18 +119,7 @@ class YamiboAuthApi(private val client: YamiboClient) {
     private suspend fun request(
         parameters: Map<String, String>,
         form: Map<String, String>? = null,
-    ): DiscuzResponse = authCall { client.requestMobileApi(parameters, form) }
-
-    private suspend fun <T> authCall(block: suspend () -> T): T = try {
-        block()
-    } catch (error: YamiboApiException) {
-        throw YamiboAuthException(
-            error.code.toAuthCode(),
-            error.message ?: "百合会请求失败",
-            error.serverCode,
-            error,
-        )
-    }
+    ): DiscuzResponse = client.requestMobileApi(parameters, form)
 
     private companion object {
         const val TAG = "Authentication"
@@ -194,7 +158,7 @@ fun parseSecurityQuestionsFromLoginPage(html: String): List<SecurityQuestionOpti
 
 fun parseUserProfilePage(html: String, responseUrl: String, uid: Int): YamiboUserProfile {
     if (isLoginPage(html, responseUrl)) {
-        throw YamiboAuthException(YamiboAuthErrorCode.NOT_AUTHENTICATED, "请先登录百合会")
+        throw YamiboApiException(YamiboApiErrorCode.SERVER_ERROR, "请先登录百合会", "not_authenticated")
     }
     return YamiboUserProfile(
         avatarUrl = parseProfileAvatarUrl(html, uid),
@@ -209,22 +173,16 @@ private fun throwResponseError(response: DiscuzResponse): Nothing {
     val serverCode = response.message?.code?.takeIf(String::isNotEmpty)
         ?: response.error
         ?: "unknown_error"
-    val (code, message) = when {
-        serverCode == "login_invalid" -> YamiboAuthErrorCode.INVALID_CREDENTIALS to "账号或密码错误"
-        serverCode == "login_question_empty" -> YamiboAuthErrorCode.SECURITY_ANSWER_REQUIRED to "请输入安全提问答案"
-        serverCode == "login_question_invalid" -> YamiboAuthErrorCode.SECURITY_ANSWER_INVALID to "安全提问答案错误"
-        serverCode == "login_strike" -> YamiboAuthErrorCode.TOO_MANY_ATTEMPTS to "登录失败次数过多，请稍后再试"
+    val message = when {
+        serverCode == "login_invalid" -> "账号或密码错误"
+        serverCode == "login_question_empty" -> "请输入安全提问答案"
+        serverCode == "login_question_invalid" -> "安全提问答案错误"
+        serverCode == "login_strike" -> "登录失败次数过多，请稍后再试"
         serverCode == "login_seccheck2" || "seccode" in serverCode || "secqaa" in serverCode ->
-            YamiboAuthErrorCode.VERIFICATION_REQUIRED to "网站要求进行额外安全验证"
-        else -> YamiboAuthErrorCode.SERVER_ERROR to "百合会登录服务返回了错误"
+            "网站要求进行额外安全验证"
+        else -> "百合会登录服务返回了错误"
     }
-    throw YamiboAuthException(code, message, serverCode)
-}
-
-private fun YamiboApiErrorCode.toAuthCode(): YamiboAuthErrorCode = when (this) {
-    YamiboApiErrorCode.INVALID_RESPONSE -> YamiboAuthErrorCode.INVALID_RESPONSE
-    YamiboApiErrorCode.NETWORK_ERROR -> YamiboAuthErrorCode.NETWORK_ERROR
-    YamiboApiErrorCode.SERVER_ERROR -> YamiboAuthErrorCode.SERVER_ERROR
+    throw YamiboApiException(YamiboApiErrorCode.SERVER_ERROR, message, serverCode)
 }
 
 private fun decodeHtmlText(value: String): String = value

@@ -93,17 +93,8 @@ internal fun ImageReader(
                 when (preferences.mode) {
                     ImageReaderMode.LEFT_TO_RIGHT,
                     ImageReaderMode.RIGHT_TO_LEFT,
-                    -> HorizontalImagePager(
-                        images = images,
-                        threadId = threadId,
-                        currentPage = page,
-                        preferences = preferences,
-                        onCurrentPageChange = onCurrentPageChange,
-                        onToggleControls = onToggleControls,
-                        onImageReadingComplete = onImageReadingComplete,
-                    )
-
-                    ImageReaderMode.VERTICAL -> VerticalImagePager(
+                    ImageReaderMode.VERTICAL,
+                    -> PagedImageReader(
                         images = images,
                         threadId = threadId,
                         currentPage = page,
@@ -154,7 +145,7 @@ internal fun ImageReader(
 }
 
 @Composable
-private fun HorizontalImagePager(
+private fun PagedImageReader(
     images: List<String>,
     threadId: Int,
     currentPage: Int,
@@ -175,14 +166,8 @@ private fun HorizontalImagePager(
         if (pagerState.currentPage != currentPage) pagerState.scrollToPage(currentPage)
     }
 
-    HorizontalPager(
-        state = pagerState,
-        reverseLayout = preferences.mode == ImageReaderMode.RIGHT_TO_LEFT,
-        userScrollEnabled = !currentPageZoomed,
-        beyondViewportPageCount = 1,
-        key = { images[it] },
-        modifier = Modifier.fillMaxSize(),
-    ) { page ->
+    @Composable
+    fun Page(page: Int) {
         PagedReaderImage(
             imageUrl = images[page],
             threadId = threadId,
@@ -207,60 +192,24 @@ private fun HorizontalImagePager(
             onImageReadingComplete = onImageReadingComplete,
         )
     }
-}
 
-@Composable
-private fun VerticalImagePager(
-    images: List<String>,
-    threadId: Int,
-    currentPage: Int,
-    preferences: ImageReaderPreferences,
-    onCurrentPageChange: (Int) -> Unit,
-    onToggleControls: () -> Unit,
-    onImageReadingComplete: () -> Unit,
-) {
-    val pagerState = rememberPagerState(initialPage = currentPage) { images.size }
-    var currentPageZoomed by remember { mutableStateOf(false) }
-
-    LaunchedEffect(pagerState, onCurrentPageChange) {
-        snapshotFlow { pagerState.settledPage }
-            .distinctUntilChanged()
-            .collect(onCurrentPageChange)
-    }
-    LaunchedEffect(currentPage) {
-        if (pagerState.currentPage != currentPage) pagerState.scrollToPage(currentPage)
-    }
-
-    VerticalPager(
-        state = pagerState,
-        userScrollEnabled = !currentPageZoomed,
-        beyondViewportPageCount = 1,
-        key = { images[it] },
-        modifier = Modifier.fillMaxSize(),
-    ) { page ->
-        PagedReaderImage(
-            imageUrl = images[page],
-            threadId = threadId,
-            page = page,
-            pageCount = images.size,
-            mode = ImageReaderMode.VERTICAL,
-            scaleType = preferences.scaleType,
-            tapNavigation = preferences.tapNavigation,
-            isCurrentPage = page == pagerState.currentPage,
-            onZoomChanged = { zoomed ->
-                if (page == pagerState.currentPage) currentPageZoomed = zoomed
-            },
-            onTapAction = { action ->
-                handleTapAction(
-                    action = action,
-                    currentPage = page,
-                    pageCount = images.size,
-                    onCurrentPageChange = onCurrentPageChange,
-                    onToggleControls = onToggleControls,
-                )
-            },
-            onImageReadingComplete = onImageReadingComplete,
-        )
+    if (preferences.mode == ImageReaderMode.VERTICAL) {
+        VerticalPager(
+            state = pagerState,
+            userScrollEnabled = !currentPageZoomed,
+            beyondViewportPageCount = 1,
+            key = { images[it] },
+            modifier = Modifier.fillMaxSize(),
+        ) { Page(it) }
+    } else {
+        HorizontalPager(
+            state = pagerState,
+            reverseLayout = preferences.mode == ImageReaderMode.RIGHT_TO_LEFT,
+            userScrollEnabled = !currentPageZoomed,
+            beyondViewportPageCount = 1,
+            key = { images[it] },
+            modifier = Modifier.fillMaxSize(),
+        ) { Page(it) }
     }
 }
 

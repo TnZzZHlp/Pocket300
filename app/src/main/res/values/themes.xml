@@ -1,8 +1,5 @@
 <resources>
-    <style name="Theme.Pocket300" parent="Theme.Material3.DayNight.NoActionBar">
-        <item name="colorPrimary">#8F4A60</item>
-        <item name="colorOnPrimary">#FFFFFF</item>
-        <item name="colorSecondary">#75565E</item>
+    <style name="Theme.Pocket300" parent="@android:style/Theme.Material.Light.NoActionBar">
         <item name="android:windowLightStatusBar">true</item>
         <item name="android:navigationBarColor">@android:color/transparent</item>
         <item name="android:statusBarColor">@android:color/transparent</item>

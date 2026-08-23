@@ -460,7 +460,7 @@ class ThreadDownloadRepositoryTest {
             assertEquals(listOf(firstRequest.key, secondRequest.key), paused.queuedKeys)
             assertEquals(
                 listOf(firstRequest, secondRequest),
-                ThreadDownloadFileStore(root).loadQueuedRequests(),
+                ThreadDownloadFileStore(root).loadQueuedEntries().map { it.request },
             )
 
             allowRetry.complete(Unit)
@@ -607,7 +607,7 @@ class ThreadDownloadRepositoryTest {
             )
             assertEquals(
                 listOf(third, first, second),
-                ThreadDownloadFileStore(root).loadQueuedRequests(),
+                ThreadDownloadFileStore(root).loadQueuedEntries().map { it.request },
             )
         } finally {
             repository.close()

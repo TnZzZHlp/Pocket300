@@ -1,5 +1,6 @@
 package com.yamibo.pocket300.ui.screens
 
+import androidx.annotation.StringRes
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -53,6 +54,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -641,48 +643,28 @@ private fun DailyCheckInCard(
 }
 
 @Composable
-private fun ProfileDownloadsItem(onClick: () -> Unit) {
-    Card(
-        onClick = onClick,
-        modifier = Modifier
-            .fillMaxWidth()
-            .widthIn(max = 720.dp),
-        shape = RoundedCornerShape(20.dp),
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 18.dp, vertical = 16.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(16.dp),
-        ) {
-            Icon(
-                Icons.Rounded.DownloadForOffline,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.primary,
-            )
-            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                Text(
-                    stringResource(R.string.profile_downloads),
-                    style = MaterialTheme.typography.titleMedium,
-                )
-                Text(
-                    stringResource(R.string.profile_downloads_description),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-            Icon(
-                Icons.AutoMirrored.Rounded.KeyboardArrowRight,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-    }
-}
+private fun ProfileDownloadsItem(onClick: () -> Unit) = ProfileActionItem(
+    Icons.Rounded.DownloadForOffline,
+    R.string.profile_downloads,
+    R.string.profile_downloads_description,
+    onClick,
+)
 
 @Composable
-private fun ProfileHistoryItem(onClick: () -> Unit) {
+private fun ProfileHistoryItem(onClick: () -> Unit) = ProfileActionItem(
+    Icons.Rounded.History,
+    R.string.profile_reading_history,
+    R.string.profile_reading_history_description,
+    onClick,
+)
+
+@Composable
+private fun ProfileActionItem(
+    icon: ImageVector,
+    @StringRes title: Int,
+    @StringRes description: Int,
+    onClick: () -> Unit,
+) {
     Card(
         onClick = onClick,
         modifier = Modifier
@@ -697,18 +679,11 @@ private fun ProfileHistoryItem(onClick: () -> Unit) {
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            Icon(
-                Icons.Rounded.History,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.primary,
-            )
+            Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(stringResource(title), style = MaterialTheme.typography.titleMedium)
                 Text(
-                    stringResource(R.string.profile_reading_history),
-                    style = MaterialTheme.typography.titleMedium,
-                )
-                Text(
-                    stringResource(R.string.profile_reading_history_description),
+                    stringResource(description),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )

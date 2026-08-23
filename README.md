@@ -123,10 +123,10 @@ Windows 下可以使用仓库根目录的 `build-release.ps1` 构建并签名 AP
 （例如 `1.3.1`）以及 `alpha`、`beta`、`rc` 预发布版（例如
 `1.3.1-beta.1`）。
 
-脚本会提示输入密钥库密码，并将签名后的 APK 输出到：
+脚本会提示输入密钥库与密钥密码（两者相同时可将密钥密码留空），并将签名后的 APK 输出到：
 
 ```text
-app\build\outputs\apk\release\app-release-signed.apk
+app\build\outputs\apk\release\app-release.apk
 ```
 
 如需使用其他密钥库或别名：

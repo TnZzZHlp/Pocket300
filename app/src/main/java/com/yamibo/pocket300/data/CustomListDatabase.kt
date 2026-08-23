@@ -4,6 +4,7 @@ import android.content.ContentValues
 import android.content.Context
 import android.database.sqlite.SQLiteDatabase
 import android.database.sqlite.SQLiteOpenHelper
+import androidx.core.database.sqlite.transaction
 import com.yamibo.pocket300.api.YamiboSearchThread
 import com.yamibo.pocket300.api.YamiboThreadSearchType
 import com.yamibo.pocket300.logging.AppLogger
@@ -484,15 +485,6 @@ class CustomListDatabase private constructor(context: Context) :
         autoDownloadNewThreads = getInt(10) != 0,
         autoDeleteAfterImageReading = getInt(11) != 0,
     )
-
-    private inline fun <T> SQLiteDatabase.transaction(block: SQLiteDatabase.() -> T): T {
-        beginTransaction()
-        return try {
-            block().also { setTransactionSuccessful() }
-        } finally {
-            endTransaction()
-        }
-    }
 
     companion object {
         private const val TAG = "CustomListDatabase"

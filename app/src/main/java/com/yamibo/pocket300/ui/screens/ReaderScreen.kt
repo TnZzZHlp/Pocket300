@@ -246,14 +246,19 @@ internal fun ReaderScreen(
         )
         if (reconciled != state) state = reconciled
     }
-    val readerImageCount = readyContent?.let { content ->
-        val attachmentUrls = content.post.attachments.filter { it.isImage }.map { it.url }
-        resolveReaderImageUrls(
-            remoteImageUrls = postImageUrls(content.post.html, attachmentUrls),
-            localImageUrls = content.localImageUrls,
-            allowRemoteImages = content.source != ReaderContentSource.DOWNLOAD,
-        ).size
-    } ?: 0
+    val readerAttachmentUrls = remember(readyContent) {
+        readyContent?.post?.attachments?.filter { it.isImage }?.map { it.url }.orEmpty()
+    }
+    val readerImages = remember(readyContent, readerAttachmentUrls) {
+        readyContent?.let { content ->
+            resolveReaderImageUrls(
+                remoteImageUrls = postImageUrls(content.post.html, readerAttachmentUrls),
+                localImageUrls = content.localImageUrls,
+                allowRemoteImages = content.source != ReaderContentSource.DOWNLOAD,
+            )
+        }.orEmpty()
+    }
+    val readerImageCount = readerImages.size
     LaunchedEffect(readerMode, readerImageCount) {
         if (readerMode != ReaderMode.IMAGES || readerImageCount == 0) {
             imageReadingCompleted = false
@@ -515,19 +520,8 @@ internal fun ReaderScreen(
                                     }
                                 }
                             }
-                            val attachmentUrls = content?.post?.attachments
-                                ?.filter { it.isImage }
-                                ?.map { it.url }
-                                .orEmpty()
-                            val images = content?.let {
-                                resolveReaderImageUrls(
-                                    postImageUrls(it.post.html, attachmentUrls),
-                                    it.localImageUrls,
-                                    allowRemoteImages = it.source != ReaderContentSource.DOWNLOAD,
-                                )
-                            }.orEmpty()
-                            val effectiveMode = if (images.isNotEmpty()) readerMode else ReaderMode.TEXT
-                            if (images.isNotEmpty()) {
+                            val effectiveMode = if (readerImages.isNotEmpty()) readerMode else ReaderMode.TEXT
+                            if (readerImages.isNotEmpty()) {
                                 IconButton(onClick = {
                                     val updatedMode = if (effectiveMode == ReaderMode.TEXT) {
                                         ReaderMode.IMAGES
@@ -576,22 +570,10 @@ internal fun ReaderScreen(
                     ),
                 ) {
                     Surface(color = MaterialTheme.colorScheme.surface, tonalElevation = 3.dp) {
-                        val content = (state as? LoadState.Ready)?.value
-                        val attachmentUrls = content?.post?.attachments
-                            ?.filter { it.isImage }
-                            ?.map { it.url }
-                            .orEmpty()
-                        val imageCount = content?.let {
-                            resolveReaderImageUrls(
-                                postImageUrls(it.post.html, attachmentUrls),
-                                it.localImageUrls,
-                                allowRemoteImages = it.source != ReaderContentSource.DOWNLOAD,
-                            ).size
-                        } ?: 0
-                        if (readerMode == ReaderMode.IMAGES && imageCount > 0) {
+                        if (readerMode == ReaderMode.IMAGES && readerImages.isNotEmpty()) {
                             ImageReaderBottomBar(
                                 currentPage = imageIndex,
-                                pageCount = imageCount,
+                                pageCount = readerImages.size,
                                 preferences = imagePreferences,
                                 onCurrentPageChange = { imageIndex = it },
                                 onOpenSettings = { imageSettingsVisible = true },
@@ -637,17 +619,9 @@ internal fun ReaderScreen(
                         is PostLinkTarget.External -> uriHandler.openUri(target.url)
                     }
                 }
-                val attachmentUrls = content.post.attachments.filter { it.isImage }.map { it.url }
-                val images = remember(content.post.html, attachmentUrls, content.localImageUrls) {
-                    resolveReaderImageUrls(
-                        postImageUrls(content.post.html, attachmentUrls),
-                        content.localImageUrls,
-                        allowRemoteImages = content.source != ReaderContentSource.DOWNLOAD,
-                    )
-                }
-                if (readerMode == ReaderMode.IMAGES && images.isNotEmpty()) {
+                if (readerMode == ReaderMode.IMAGES && readerImages.isNotEmpty()) {
                     ImageReader(
-                        images = images,
+                        images = readerImages,
                         threadId = content.post.threadId,
                         currentPage = imageIndex,
                         preferences = imagePreferences,
@@ -689,7 +663,7 @@ internal fun ReaderScreen(
                         PostHtml(
                             html = content.post.html,
                             threadId = content.post.threadId,
-                            attachmentUrls = attachmentUrls,
+                            attachmentUrls = readerAttachmentUrls,
                             onLink = openLink,
                             textStyle = MaterialTheme.typography.bodyLarge.copy(
                                 fontSize = preferences.fontSizeSp.sp,

@@ -2,7 +2,6 @@ package com.yamibo.pocket300.api
 
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNull
 import org.junit.Test
 
 class YamiboForumsApiTest {
@@ -10,12 +9,11 @@ class YamiboForumsApiTest {
     fun parsesForumIndexAndSkipsInvisibleCategoryIds() {
         val result = parseForumIndex(JSONObject(FIXTURE))
 
-        assertEquals(1, result.forums.size)
-        assertEquals("动画", result.forums.single().name)
-        assertEquals(12, result.forums.single().todayPostCount)
-        assertEquals(1, result.forums.single().subforums.size)
-        assertNull(result.forums.single().redirectUrl)
-        assertEquals(listOf(300), result.categories.single().forums.map(YamiboForum::id))
+        val forum = result.categories.single().forums.single()
+        assertEquals(300, forum.id)
+        assertEquals("动画", forum.name)
+        assertEquals(12, forum.todayPostCount)
+        assertEquals("动画讨论", forum.description)
     }
 
     @Test(expected = YamiboApiException::class)

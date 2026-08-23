@@ -331,13 +331,6 @@ internal fun normalizePostImageUrl(source: String): String {
     }
 }
 
-internal fun resolvePostImageUrl(
-    source: String,
-    localImageUrls: Map<String, String>,
-): String = requireNotNull(
-    resolvePostImageSource(source, localImageUrls, allowRemoteImages = true),
-)
-
 internal fun resolvePostImageSource(
     source: String,
     localImageUrls: Map<String, String>,

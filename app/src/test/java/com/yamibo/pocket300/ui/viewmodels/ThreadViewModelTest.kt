@@ -33,11 +33,7 @@ class ThreadViewModelTest {
         val posts = listOf(testPost(9), testPost(10))
         val comment = YamiboPostComment(
             author = testAuthor,
-            createdAtText = "刚刚",
-            id = 3,
             message = "新点评",
-            postId = 10,
-            threadId = 1000,
         )
 
         val updated = replacePostComments(posts, postId = 10, comments = listOf(comment))
@@ -58,10 +54,7 @@ class ThreadViewModelTest {
     @Test
     fun replacesOnlyTargetPostWithoutChangingPostOrder() {
         val posts = listOf(testPost(9), testPost(10), testPost(11))
-        val updatedPost = posts[1].copy(
-            ratingCount = 2,
-            replyCredit = 3,
-        )
+        val updatedPost = posts[1].copy(ratingCount = 2)
 
         val updated = replacePost(posts, updatedPost)
 
@@ -129,10 +122,7 @@ class ThreadViewModelTest {
     @Test
     fun keepsUpdatedPostWhenNextPageContainsStaleCopy() {
         val original = testPost(9)
-        val updatedPost = original.copy(
-            ratingCount = 2,
-            replyCredit = 3,
-        )
+        val updatedPost = original.copy(ratingCount = 2)
         val updated = replacePost(
             posts = listOf(original),
             post = updatedPost,
@@ -152,11 +142,7 @@ class ThreadViewModelTest {
     fun keepsRefreshedCommentsWhenNextPageFinishesLoading() {
         val comment = YamiboPostComment(
             author = testAuthor,
-            createdAtText = "刚刚",
-            id = 3,
             message = "新点评",
-            postId = 9,
-            threadId = 1000,
         )
         val refreshed = replacePostComments(
             posts = listOf(testPost(9)),
@@ -346,7 +332,6 @@ class ThreadViewModelTest {
         attachments = emptyList(),
         author = testAuthor,
         comments = emptyList(),
-        createdAt = 10_000,
         createdAtText = "刚刚",
         html = "<p>正文 $id</p>",
         hasAttachment = false,
@@ -355,8 +340,6 @@ class ThreadViewModelTest {
         number = id - 8,
         position = id - 8,
         ratingCount = 0,
-        replyCredit = 0,
-        status = 0,
         threadId = 1000,
     )
 
@@ -379,10 +362,7 @@ class ThreadViewModelTest {
     private companion object {
         val testAuthor = YamiboPostAuthor(
             avatarUrl = null,
-            groupIconId = null,
-            groupId = 10,
             id = 42,
-            isAnonymous = false,
             name = "alice",
         )
     }

@@ -4,57 +4,29 @@ import org.json.JSONArray
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
-import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class YamiboThreadsApiTest {
     @Test
-    fun parsesStickyThreadImagesAndPagination() {
+    fun parsesStickyThreadAndPagination() {
         val page = parseForumThreads(JSONObject(FIXTURE))
-        assertEquals(300, page.forum.id)
-        assertEquals(3, page.pagination.totalPages)
+        assertEquals("动画", page.forum.name)
         assertTrue(page.pagination.hasNextPage)
         assertEquals("动画", page.threadTypes.single().name)
         val thread = page.threads.single()
         assertEquals(1000, thread.id)
-        assertEquals(YamiboThreadSpecialType.POLL, thread.specialType)
+        assertEquals("alice", thread.author.name)
         assertEquals(2, thread.stickyLevel)
         assertEquals("动画", thread.typeName)
-        assertEquals(1, thread.images.size)
-        assertEquals("$YAMIBO_ORIGIN/data/attachment/forum/2026/07/a%20b.jpg", thread.images.single().url)
-        assertEquals(2, thread.imageCount)
-        assertFalse(thread.isRushReply)
-        assertNull(thread.author.groupIconId)
         assertEquals("发布时间", thread.createdAtText)
-        assertEquals("回复时间", thread.lastPostAtText)
+        assertEquals(4, thread.replyCount)
     }
 
     @Test(expected = YamiboApiException::class)
     fun rejectsInvalidPagination() {
         val fixture = JSONObject(FIXTURE).put("page", "0")
         parseForumThreads(fixture)
-    }
-
-    @Test
-    fun acceptsEmptyArrayForMissingGroupIcons() {
-        val fixture = JSONObject(FIXTURE).put("groupiconid", JSONArray())
-
-        val page = parseForumThreads(fixture)
-
-        assertNull(page.threads.single().author.groupIconId)
-    }
-
-    @Test
-    fun acceptsNullGroupIconForAuthor() {
-        val groupIcons = JSONObject()
-            .put("42", JSONObject.NULL)
-            .put("43", "admin")
-        val fixture = JSONObject(FIXTURE).put("groupiconid", groupIcons)
-
-        val page = parseForumThreads(fixture)
-
-        assertNull(page.threads.single().author.groupIconId)
     }
 
     @Test

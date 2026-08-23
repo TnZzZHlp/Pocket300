@@ -85,10 +85,6 @@ class ThreadDownloadFileStore(
             ?.request
 
     @Synchronized
-    fun loadQueuedRequests(): List<ThreadDownloadRequest> =
-        loadQueuedEntries().map(ThreadDownloadQueueEntry::request)
-
-    @Synchronized
     internal fun loadQueuedEntries(): List<ThreadDownloadQueueEntry> =
         loadRequests(ThreadDownloadRequestState.PENDING).map { stored ->
             ThreadDownloadQueueEntry(
@@ -261,19 +257,11 @@ class ThreadDownloadFileStore(
         (inspect(key) as? StoredThreadDownload.Complete)?.download
 
     @Synchronized
-    fun listCompleted(): List<DownloadedThread> =
-        scanCompleted(cleanInvalid = false).downloads
-
-    @Synchronized
     fun listCompletedAndCleanupInvalid(): List<DownloadedThread> {
         val scan = scanCompleted(cleanInvalid = true)
         check(scan.cleanupSucceeded) { "Could not remove invalid thread downloads" }
         return scan.downloads
     }
-
-    @Synchronized
-    fun cleanupInvalidDownloads(): Boolean =
-        scanCompleted(cleanInvalid = true).cleanupSucceeded
 
     private fun scanCompleted(cleanInvalid: Boolean): CompletedDownloadScan {
         var success = true
@@ -450,9 +438,6 @@ class ThreadDownloadFileStore(
         require(fileSha256(file) == image.sha256) {
             "Downloaded image digest differs from its manifest: ${image.relativePath}"
         }
-        require(hasSupportedImageSignature(file)) {
-            "Downloaded image has an unsupported or invalid signature: ${image.relativePath}"
-        }
         require(runCatching { decoderValidator.canDecode(file) }.getOrDefault(false)) {
             "Downloaded image cannot be decoded: ${image.relativePath}"
         }
@@ -598,31 +583,5 @@ private fun requireDirectoryFiles(directory: File): Array<File> {
     check(directory.isDirectory) { "${directory.name} is not a directory" }
     return checkNotNull(directory.listFiles()) {
         "Could not list ${directory.name}"
-    }
-}
-
-private fun hasSupportedImageSignature(file: File): Boolean {
-    val header = ByteArray(16)
-    val count = file.inputStream().use { it.read(header) }
-    if (count < 4) return false
-    return header.startsWith(0xFF, 0xD8, 0xFF) ||
-        header.startsWith(0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A) ||
-        header.asciiStartsWith("GIF87a") ||
-        header.asciiStartsWith("GIF89a") ||
-        header.asciiStartsWith("BM") ||
-        (header.asciiStartsWith("RIFF") && header.asciiAt(8, "WEBP"))
-}
-
-private fun ByteArray.startsWith(vararg expected: Int): Boolean =
-    expected.indices.all { index ->
-        index < size && this[index].toInt() and 0xFF == expected[index]
-    }
-
-private fun ByteArray.asciiStartsWith(value: String): Boolean = asciiAt(0, value)
-
-private fun ByteArray.asciiAt(offset: Int, value: String): Boolean {
-    if (offset + value.length > size) return false
-    return value.indices.all { index ->
-        this[offset + index].toInt().toChar() == value[index]
     }
 }

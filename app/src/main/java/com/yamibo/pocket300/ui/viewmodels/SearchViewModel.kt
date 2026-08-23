@@ -26,23 +26,6 @@ internal data class SearchContent(
 
 internal enum class SearchQueryError { EMPTY, INVALID_USER_ID }
 
-internal sealed interface ThreadSearchRequest {
-    data class Site(val input: SearchSiteThreadsInput) : ThreadSearchRequest
-    data class Forum(val input: SearchForumThreadsInput) : ThreadSearchRequest
-}
-
-internal fun buildThreadSearchRequest(
-    keyword: String,
-    page: Int,
-    searchId: Int?,
-    type: YamiboThreadSearchType,
-    forumId: Int?,
-): ThreadSearchRequest = if (forumId != null) {
-    ThreadSearchRequest.Forum(SearchForumThreadsInput(keyword, forumId, page, searchId, type))
-} else {
-    ThreadSearchRequest.Site(SearchSiteThreadsInput(keyword, page, searchId, type))
-}
-
 internal fun validateSearchQuery(
     query: String,
     type: YamiboThreadSearchType,
@@ -108,15 +91,21 @@ internal class SearchViewModel(savedStateHandle: SavedStateHandle) : ViewModel()
         }
         searchJob = viewModelScope.launch {
             val result = load {
-                when (val request = buildThreadSearchRequest(
-                    keyword = submittedKeyword,
-                    page = page,
-                    searchId = if (page == 1) null else searchId,
-                    type = submittedSearchType,
-                    forumId = forumId,
-                )) {
-                    is ThreadSearchRequest.Site -> api.search.searchSiteThreads(request.input)
-                    is ThreadSearchRequest.Forum -> api.search.searchForumThreads(request.input)
+                val nextSearchId = if (page == 1) null else searchId
+                if (forumId == null) {
+                    api.search.searchSiteThreads(
+                        SearchSiteThreadsInput(submittedKeyword, page, nextSearchId, submittedSearchType),
+                    )
+                } else {
+                    api.search.searchForumThreads(
+                        SearchForumThreadsInput(
+                            submittedKeyword,
+                            forumId,
+                            page,
+                            nextSearchId,
+                            submittedSearchType,
+                        ),
+                    )
                 }
             }
             state = when (result) {

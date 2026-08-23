@@ -681,25 +681,17 @@ private fun CustomListDisplayControls(
             contentPadding = PaddingValues(horizontal = 16.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            item {
+            items(listOf(ThreadReadFilter.UNREAD, ThreadReadFilter.READ, ThreadReadFilter.ALL)) { filter ->
                 FilterChip(
-                    selected = readFilter == ThreadReadFilter.UNREAD,
-                    onClick = { onReadFilterChange(ThreadReadFilter.UNREAD) },
-                    label = { Text(stringResource(R.string.custom_list_unread_only)) },
-                )
-            }
-            item {
-                FilterChip(
-                    selected = readFilter == ThreadReadFilter.READ,
-                    onClick = { onReadFilterChange(ThreadReadFilter.READ) },
-                    label = { Text(stringResource(R.string.custom_list_read_only)) },
-                )
-            }
-            item {
-                FilterChip(
-                    selected = readFilter == ThreadReadFilter.ALL,
-                    onClick = { onReadFilterChange(ThreadReadFilter.ALL) },
-                    label = { Text(stringResource(R.string.custom_list_read_all)) },
+                    selected = readFilter == filter,
+                    onClick = { onReadFilterChange(filter) },
+                    label = {
+                        Text(stringResource(when (filter) {
+                            ThreadReadFilter.UNREAD -> R.string.custom_list_unread_only
+                            ThreadReadFilter.READ -> R.string.custom_list_read_only
+                            ThreadReadFilter.ALL -> R.string.custom_list_read_all
+                        }))
+                    },
                 )
             }
         }
@@ -712,18 +704,14 @@ private fun CustomListDisplayControls(
             contentPadding = PaddingValues(horizontal = 16.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            item {
+            items(ThreadPublicationOrder.entries) { order ->
                 FilterChip(
-                    selected = publicationOrder == ThreadPublicationOrder.NEWEST_FIRST,
-                    onClick = { onPublicationOrderChange(ThreadPublicationOrder.NEWEST_FIRST) },
-                    label = { Text(stringResource(R.string.custom_list_newest_first)) },
-                )
-            }
-            item {
-                FilterChip(
-                    selected = publicationOrder == ThreadPublicationOrder.OLDEST_FIRST,
-                    onClick = { onPublicationOrderChange(ThreadPublicationOrder.OLDEST_FIRST) },
-                    label = { Text(stringResource(R.string.custom_list_oldest_first)) },
+                    selected = publicationOrder == order,
+                    onClick = { onPublicationOrderChange(order) },
+                    label = { Text(stringResource(when (order) {
+                        ThreadPublicationOrder.NEWEST_FIRST -> R.string.custom_list_newest_first
+                        ThreadPublicationOrder.OLDEST_FIRST -> R.string.custom_list_oldest_first
+                    })) },
                 )
             }
         }

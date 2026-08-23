@@ -39,25 +39,16 @@ data class YamiboReplyResult(
 
 data class YamiboPostAuthor(
     val avatarUrl: String?,
-    val groupIconId: String?,
-    val groupId: Int?,
     val id: Int?,
-    val isAnonymous: Boolean,
     val name: String,
 )
 
 data class YamiboPostComment(
     val author: YamiboPostAuthor,
-    val createdAtText: String,
-    val id: Int,
     val message: String,
-    val postId: Int,
-    val threadId: Int,
 )
 
 data class YamiboPostAttachment(
-    val id: Int,
-    val filename: String,
     val isImage: Boolean,
     val url: String,
 )
@@ -95,7 +86,6 @@ data class YamiboPost(
     val attachments: List<YamiboPostAttachment>,
     val author: YamiboPostAuthor,
     val comments: List<YamiboPostComment>,
-    val createdAt: Long,
     val createdAtText: String,
     /** Discuz-rendered, untrusted HTML. Render only with a restrictive HTML policy. */
     val html: String,
@@ -105,8 +95,6 @@ data class YamiboPost(
     val number: Int,
     val position: Int,
     val ratingCount: Int,
-    val replyCredit: Int,
-    val status: Int,
     val threadId: Int,
 )
 
@@ -130,24 +118,15 @@ data class YamiboThreadPoll(
 
 data class YamiboThreadDetails(
     val author: YamiboPostAuthor,
-    val createdAt: Long,
-    val digestLevel: Int,
     val forumId: Int,
     val heat: Int,
     val hasAttachment: Boolean,
     val id: Int,
     val isClosed: Boolean,
-    val lastPoster: String,
     val lastPostAtText: String,
-    val maxPosition: Int,
     val price: Int,
-    val readPermission: Int,
-    val recommendationCount: Int,
     val replyCount: Int,
-    val specialType: YamiboThreadSpecialType,
-    val specialTypeId: Int,
     val subject: String,
-    val typeId: Int?,
     val viewCount: Int,
     val webUrl: String,
 )
@@ -441,9 +420,6 @@ internal fun targetPostParameters(threadId: Int, postId: Int): Map<String, Strin
     "tid" to threadId.toString(),
     "viewpid" to postId.toString(),
 )
-
-internal fun postCommentsParameters(threadId: Int, postId: Int): Map<String, String> =
-    targetPostParameters(threadId, postId)
 
 const val POST_RATING_REASON_MAX_LENGTH = 40
 
@@ -932,13 +908,6 @@ internal fun parseCommentResult(
     throw YamiboApiException(YamiboApiErrorCode.SERVER_ERROR, message, serverCode)
 }
 
-internal fun parsePostCommentsForTarget(
-    variables: JSONObject,
-    expectedThreadId: Int,
-    expectedPostId: Int,
-): List<YamiboPostComment> =
-    parsePostForTarget(variables, expectedThreadId, expectedPostId).comments
-
 internal fun parsePostForTarget(
     variables: JSONObject,
     expectedThreadId: Int,
@@ -1051,27 +1020,25 @@ private fun parsePostCommentPermission(raw: Any?): Boolean {
 private fun parsePostThread(raw: Any?): YamiboThreadDetails {
     val value = raw as? JSONObject ?: invalidResponse("百合会未返回有效的主题详情")
     val id = value.postPositive("tid")
-    val specialId = value.postNonNegative("special")
+    value.postTimestamp("dateline")
+    value.postNonNegative("digest")
+    value.postString("lastposter")
+    value.postNonNegative("maxposition")
+    value.postNonNegative("readperm")
+    value.postNonNegative("recommend_add")
+    value.postNonNegative("special")
+    postOptionalPositive(value.opt("typeid"), "typeid")
     return YamiboThreadDetails(
         author = parseSummaryAuthor(value),
-        createdAt = value.postTimestamp("dateline"),
-        digestLevel = value.postNonNegative("digest"),
         forumId = value.postPositive("fid"),
         heat = value.postNonNegative("heats"),
         hasAttachment = value.postFlag("attachment"),
         id = id,
         isClosed = value.postFlag("closed"),
-        lastPoster = value.postString("lastposter"),
         lastPostAtText = value.postString("lastpost"),
-        maxPosition = value.postNonNegative("maxposition"),
         price = value.postNonNegative("price"),
-        readPermission = value.postNonNegative("readperm"),
-        recommendationCount = value.postNonNegative("recommend_add"),
         replyCount = value.postNonNegative("replies"),
-        specialType = YamiboThreadSpecialType.entries.getOrNull(specialId) ?: YamiboThreadSpecialType.UNKNOWN,
-        specialTypeId = specialId,
         subject = value.postString("subject"),
-        typeId = postOptionalPositive(value.opt("typeid"), "typeid"),
         viewCount = value.postNonNegative("views"),
         webUrl = "$YAMIBO_ORIGIN/forum.php?mod=viewthread&tid=$id&mobile=2",
     )
@@ -1080,11 +1047,13 @@ private fun parsePostThread(raw: Any?): YamiboThreadDetails {
 private fun parsePost(value: JSONObject, comments: Map<Int, List<YamiboPostComment>>): YamiboPost {
     val id = value.postPositive("pid")
     val position = value.postPositive("position")
+    value.postTimestamp("dbdateline")
+    value.postNonNegative("replycredit")
+    value.postNonNegative("status")
     return YamiboPost(
         attachments = parsePostAttachments(value.opt("attachments") ?: value.opt("attachlist")),
         author = parseFloorAuthor(value),
         comments = comments[id].orEmpty(),
-        createdAt = value.postTimestamp("dbdateline"),
         createdAtText = value.postString("dateline"),
         html = sanitizePostHtml(value.postString("message")),
         hasAttachment = value.postFlag("attachment"),
@@ -1093,8 +1062,6 @@ private fun parsePost(value: JSONObject, comments: Map<Int, List<YamiboPostComme
         number = postDisplayNumber(value.opt("number"), position),
         position = position,
         ratingCount = value.postNonNegative("ratetimes"),
-        replyCredit = value.postNonNegative("replycredit"),
-        status = value.postNonNegative("status"),
         threadId = value.postPositive("tid"),
     )
 }
@@ -1198,9 +1165,8 @@ private fun parsePostAttachments(raw: Any?): List<YamiboPostAttachment> {
             attachment.isNotEmpty() -> "/data/attachment/forum/${attachment.trimStart('/')}"
             else -> "$YAMIBO_ORIGIN/forum.php?mod=attachment&aid=$id"
         }
+        value.postString("filename", attachment.substringAfterLast('/'))
         YamiboPostAttachment(
-            id = id,
-            filename = value.postString("filename", attachment.substringAfterLast('/')).ifBlank { "附件 $id" },
             isImage = attachmentIsImage(value.opt("isimage"), attachment, baseUrl),
             url = normalizePostUrl(directUrl) ?: invalidResponse("百合会返回了无效的附件地址"),
         )
@@ -1228,35 +1194,38 @@ private fun parseComments(raw: Any?): Map<Int, List<YamiboPostComment>> {
         val postId = rawPostId.toIntOrNull()?.takeIf { it > 0 }
             ?: invalidResponse("百合会返回了无效的楼中点评数据")
         val list = value.opt(rawPostId) as? JSONArray ?: invalidResponse("百合会返回了无效的楼中点评数据")
-        val comments = list.postObjects("百合会返回了无效的楼中点评").map(::parseComment)
-        if (comments.any { it.postId != postId }) invalidResponse("百合会楼中点评与楼层 ID 不一致")
-        postId to comments
+        postId to list.postObjects("百合会返回了无效的楼中点评").map {
+            parseComment(it, postId)
+        }
     }
 }
 
-private fun parseComment(value: JSONObject) = YamiboPostComment(
-    author = parseCommentAuthor(value),
-    createdAtText = value.postString("dateline"),
-    id = value.postPositive("id"),
-    message = value.postString("comment"),
-    postId = value.postPositive("pid"),
-    threadId = value.postPositive("tid"),
-)
+private fun parseComment(value: JSONObject, expectedPostId: Int): YamiboPostComment {
+    value.postPositive("id")
+    value.postString("dateline")
+    if (value.postPositive("pid") != expectedPostId) {
+        invalidResponse("百合会楼中点评与楼层 ID 不一致")
+    }
+    value.postPositive("tid")
+    return YamiboPostComment(
+        author = parseCommentAuthor(value),
+        message = value.postString("comment"),
+    )
+}
 
 private fun parseSummaryAuthor(value: JSONObject): YamiboPostAuthor {
     val id = postOptionalPositive(value.opt("authorid"), "authorid")
-    return YamiboPostAuthor(avatarForPostUser(id), null, null, id, id == null, value.postString("author"))
+    return YamiboPostAuthor(avatarForPostUser(id), id, value.postString("author"))
 }
 
 private fun parseFloorAuthor(value: JSONObject): YamiboPostAuthor {
     val id = postOptionalPositive(value.opt("authorid"), "authorid")
     val anonymous = value.postFlag("anonymous")
+    value.postString("groupiconid", "")
+    postOptionalPositive(value.opt("groupid"), "groupid")
     return YamiboPostAuthor(
         avatarUrl = if (anonymous) null else avatarForPostUser(id),
-        groupIconId = value.postString("groupiconid", "").trim().ifEmpty { null },
-        groupId = postOptionalPositive(value.opt("groupid"), "groupid"),
         id = if (anonymous) null else id,
-        isAnonymous = anonymous,
         name = value.postString("author"),
     )
 }
@@ -1264,7 +1233,7 @@ private fun parseFloorAuthor(value: JSONObject): YamiboPostAuthor {
 private fun parseCommentAuthor(value: JSONObject): YamiboPostAuthor {
     val id = postOptionalPositive(value.opt("authorid"), "authorid")
     val avatar = normalizePostUrl(value.postString("avatar", "")) ?: avatarForPostUser(id)
-    return YamiboPostAuthor(avatar, null, null, id, id == null, value.postString("author"))
+    return YamiboPostAuthor(avatar, id, value.postString("author"))
 }
 
 private fun parsePoll(raw: Any?): YamiboThreadPoll? {

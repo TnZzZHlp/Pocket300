@@ -76,14 +76,6 @@ class ThreadDownloadManager internal constructor(
 
     suspend fun prioritize(key: ThreadDownloadKey): Boolean = repository.prioritize(key)
 
-    suspend fun read(key: ThreadDownloadKey): DownloadedThread? = repository.read(key)
-
-    suspend fun listCompleted(): List<DownloadedThread> = repository.listCompleted()
-
-    suspend fun refresh() {
-        repository.refresh()
-    }
-
     suspend fun delete(key: ThreadDownloadKey) {
         repository.delete(key)
         stopServiceIfIdle()

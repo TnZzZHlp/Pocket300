@@ -8,31 +8,18 @@ data class YamiboDailyCheckInStatus(
     val state: YamiboDailyCheckInState,
 )
 
-enum class YamiboDailyCheckInErrorCode {
-    NOT_AUTHENTICATED,
-    INVALID_RESPONSE,
-    NETWORK_ERROR,
-    SERVER_ERROR,
-}
-
-class YamiboDailyCheckInException(
-    val code: YamiboDailyCheckInErrorCode,
-    message: String,
-    cause: Throwable? = null,
-) : Exception(message, cause)
-
 class YamiboDailyCheckInApi(private val client: YamiboClient) {
-    suspend fun getStatus(): YamiboDailyCheckInStatus = checkInCall {
+    suspend fun getStatus(): YamiboDailyCheckInStatus {
         requireSession()
-        requestStatus().status
+        return requestStatus().status
     }
 
-    suspend fun checkIn(): YamiboDailyCheckInStatus = checkInCall {
+    suspend fun checkIn(): YamiboDailyCheckInStatus {
         requireSession()
         val current = requestStatus()
         if (current.status.state == YamiboDailyCheckInState.CHECKED_IN) {
             AppLogger.debug(TAG) { "Daily check-in skipped because it is already complete" }
-            return@checkInCall current.status
+            return current.status
         }
 
         val token = current.signToken ?: checkInInvalid("百合会签到页缺少打卡校验值")
@@ -46,22 +33,15 @@ class YamiboDailyCheckInApi(private val client: YamiboClient) {
         )
         val result = parseDailyCheckInSubmission(response.html, response.url)
         if (result.status.state != YamiboDailyCheckInState.CHECKED_IN) {
-            throw YamiboDailyCheckInException(
-                YamiboDailyCheckInErrorCode.SERVER_ERROR,
-                "签到未完成，请稍后重试",
-            )
+            throw YamiboApiException(YamiboApiErrorCode.SERVER_ERROR, "签到未完成，请稍后重试")
         }
         AppLogger.info(TAG) { "Daily check-in completed successfully" }
-        result.status
+        return result.status
     }
 
     private suspend fun requireSession() {
-        val session = YamiboAuthApi(client).getCurrentSession()
-        if (session == null) {
-            throw YamiboDailyCheckInException(
-                YamiboDailyCheckInErrorCode.NOT_AUTHENTICATED,
-                "请先登录百合会",
-            )
+        if (YamiboAuthApi(client).getCurrentSession() == null) {
+            throw YamiboApiException(YamiboApiErrorCode.SERVER_ERROR, "请先登录百合会", "not_authenticated")
         }
     }
 
@@ -71,33 +51,6 @@ class YamiboDailyCheckInApi(private val client: YamiboClient) {
             mapOf("id" to CHECK_IN_PLUGIN_ID, "mobile" to "2"),
         )
         return parseDailyCheckInPage(response.html, response.url)
-    }
-
-    private suspend fun <T> checkInCall(block: suspend () -> T): T = try {
-        block()
-    } catch (error: YamiboDailyCheckInException) {
-        throw error
-    } catch (error: YamiboAuthException) {
-        throw YamiboDailyCheckInException(
-            when (error.code) {
-                YamiboAuthErrorCode.NOT_AUTHENTICATED -> YamiboDailyCheckInErrorCode.NOT_AUTHENTICATED
-                YamiboAuthErrorCode.INVALID_RESPONSE -> YamiboDailyCheckInErrorCode.INVALID_RESPONSE
-                YamiboAuthErrorCode.NETWORK_ERROR -> YamiboDailyCheckInErrorCode.NETWORK_ERROR
-                else -> YamiboDailyCheckInErrorCode.SERVER_ERROR
-            },
-            error.message ?: "百合会请求失败",
-            error,
-        )
-    } catch (error: YamiboApiException) {
-        throw YamiboDailyCheckInException(
-            when (error.code) {
-                YamiboApiErrorCode.INVALID_RESPONSE -> YamiboDailyCheckInErrorCode.INVALID_RESPONSE
-                YamiboApiErrorCode.NETWORK_ERROR -> YamiboDailyCheckInErrorCode.NETWORK_ERROR
-                YamiboApiErrorCode.SERVER_ERROR -> YamiboDailyCheckInErrorCode.SERVER_ERROR
-            },
-            error.message ?: "百合会请求失败",
-            error,
-        )
     }
 
     private companion object {
@@ -125,10 +78,7 @@ internal fun parseDailyCheckInSubmission(html: String, responseUrl: String): Par
 
 internal fun parseDailyCheckInPage(html: String, responseUrl: String): ParsedDailyCheckInPage {
     if (isDailyCheckInLoginPage(html, responseUrl)) {
-        throw YamiboDailyCheckInException(
-            YamiboDailyCheckInErrorCode.NOT_AUTHENTICATED,
-            "请先登录百合会",
-        )
+        throw YamiboApiException(YamiboApiErrorCode.SERVER_ERROR, "请先登录百合会", "not_authenticated")
     }
 
     val button = Regex(
@@ -141,7 +91,7 @@ internal fun parseDailyCheckInPage(html: String, responseUrl: String): ParsedDai
             RegexOption.IGNORE_CASE,
         ).find(html)?.groupValues?.get(1)?.let(::dailyCheckInText)
         if (!message.isNullOrEmpty()) {
-            throw YamiboDailyCheckInException(YamiboDailyCheckInErrorCode.SERVER_ERROR, message)
+            throw YamiboApiException(YamiboApiErrorCode.SERVER_ERROR, message)
         }
         checkInInvalid("百合会返回了无法识别的签到页")
     }
@@ -181,10 +131,8 @@ private fun dailyCheckInText(value: String): String = value
     .replace(Regex("""\s+"""), " ")
     .trim()
 
-private fun checkInInvalid(message: String): Nothing = throw YamiboDailyCheckInException(
-    YamiboDailyCheckInErrorCode.INVALID_RESPONSE,
-    message,
-)
+private fun checkInInvalid(message: String): Nothing =
+    throw YamiboApiException(YamiboApiErrorCode.INVALID_RESPONSE, message)
 
 private const val CHECK_IN_PLUGIN_ID = "zqlj_sign"
 private val CHECK_IN_SUCCESS_MESSAGES = listOf(

@@ -12,7 +12,7 @@ class ThreadDownloadManifestCodecTest {
     fun requestRoundTripPreservesThreadMetadataAndQueueState() {
         val request = testRequest()
 
-        val pending = codec.decodeRequest(codec.encodeRequest(request))
+        val pending = codec.decodeStoredRequest(codec.encodeRequest(request)).request
         val failed = codec.decodeStoredRequest(
             codec.encodeRequest(request, ThreadDownloadRequestState.FAILED),
         )
@@ -84,7 +84,7 @@ class ThreadDownloadManifestCodecTest {
             codec.decodeStoredRequest(legacy.toString()).state,
         )
         assertThrows(IllegalArgumentException::class.java) {
-            codec.decodeRequest(unsupported)
+            codec.decodeStoredRequest(unsupported)
         }
     }
 }
