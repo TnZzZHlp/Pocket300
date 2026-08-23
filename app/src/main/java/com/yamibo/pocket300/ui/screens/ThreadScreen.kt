@@ -401,9 +401,9 @@ internal fun ThreadScreen(
                         modifier = Modifier.padding(horizontal = 12.dp),
                     )
                 } else {
-                    when (threadDownloadAction(downloadStatus?.phase)) {
-                        ThreadDownloadAction.DOWNLOAD,
-                        ThreadDownloadAction.RETRY,
+                    when (downloadStatus?.phase) {
+                        null,
+                        ThreadDownloadPhase.FAILED,
                         -> IconButton(
                             onClick = {
                                 coroutineScope.launch {
@@ -449,21 +449,24 @@ internal fun ThreadScreen(
                             )
                         }
 
-                        ThreadDownloadAction.DOWNLOADING -> {
-                            val progress = downloadStatus?.progress
+                        ThreadDownloadPhase.QUEUED,
+                        ThreadDownloadPhase.FETCHING_PAGES,
+                        ThreadDownloadPhase.DOWNLOADING_IMAGES,
+                        -> {
+                            val progress = downloadStatus.progress
                             val description = if (
-                                downloadStatus?.phase == ThreadDownloadPhase.FETCHING_PAGES
+                                downloadStatus.phase == ThreadDownloadPhase.FETCHING_PAGES
                             ) {
                                 stringResource(
                                     R.string.thread_download_pages_progress,
-                                    progress?.completedPages ?: 0,
-                                    progress?.totalPages ?: 0,
+                                    progress.completedPages,
+                                    progress.totalPages,
                                 )
                             } else {
                                 stringResource(
                                     R.string.thread_download_images_progress,
-                                    progress?.completedImages ?: 0,
-                                    progress?.totalImages ?: 0,
+                                    progress.completedImages,
+                                    progress.totalImages,
                                 )
                             }
                             IconButton(
@@ -480,7 +483,7 @@ internal fun ThreadScreen(
                             }
                         }
 
-                        ThreadDownloadAction.DOWNLOADED -> IconButton(
+                        ThreadDownloadPhase.COMPLETED -> IconButton(
                             onClick = {},
                             enabled = false,
                         ) {
@@ -491,42 +494,23 @@ internal fun ThreadScreen(
                         }
                     }
                 }
-                val action = threadReadAction(isRead)
                 IconButton(
                     onClick = {
-                        when (action) {
-                            ThreadReadAction.MARK_READ -> {
-                                trackReadingProgress = true
-                                historyDatabase.record(thread, lastVisibleFloor)
-                                Toast.makeText(
-                                    context,
-                                    markedReadMessage,
-                                    Toast.LENGTH_SHORT,
-                                ).show()
-                            }
-
-                            ThreadReadAction.MARK_UNREAD -> {
-                                trackReadingProgress = false
-                                historyDatabase.remove(threadId)
-                                Toast.makeText(
-                                    context,
-                                    markedUnreadMessage,
-                                    Toast.LENGTH_SHORT,
-                                ).show()
-                            }
+                        if (isRead) {
+                            trackReadingProgress = false
+                            historyDatabase.remove(threadId)
+                            Toast.makeText(context, markedUnreadMessage, Toast.LENGTH_SHORT).show()
+                        } else {
+                            trackReadingProgress = true
+                            historyDatabase.record(thread, lastVisibleFloor)
+                            Toast.makeText(context, markedReadMessage, Toast.LENGTH_SHORT).show()
                         }
                     },
                 ) {
                     Icon(
-                        imageVector = when (action) {
-                            ThreadReadAction.MARK_READ -> Icons.Rounded.DoneAll
-                            ThreadReadAction.MARK_UNREAD -> Icons.Rounded.RemoveDone
-                        },
+                        imageVector = if (isRead) Icons.Rounded.RemoveDone else Icons.Rounded.DoneAll,
                         contentDescription = stringResource(
-                            when (action) {
-                                ThreadReadAction.MARK_READ -> R.string.thread_mark_read
-                                ThreadReadAction.MARK_UNREAD -> R.string.thread_mark_unread
-                            },
+                            if (isRead) R.string.thread_mark_unread else R.string.thread_mark_read,
                         ),
                     )
                 }
@@ -955,11 +939,6 @@ internal fun canSubmitThreadReply(
     submitting: Boolean,
     threadClosed: Boolean,
 ): Boolean = draft.isNotBlank() && !submitting && !threadClosed
-
-internal enum class ThreadReadAction { MARK_READ, MARK_UNREAD }
-
-internal fun threadReadAction(isRead: Boolean): ThreadReadAction =
-    if (isRead) ThreadReadAction.MARK_UNREAD else ThreadReadAction.MARK_READ
 
 @Composable
 private fun PostCommentDialog(
@@ -1671,25 +1650,6 @@ private fun PostCard(
         }
     }
 }
-
-internal enum class ThreadDownloadAction {
-    DOWNLOAD,
-    DOWNLOADING,
-    RETRY,
-    DOWNLOADED,
-}
-
-internal fun threadDownloadAction(phase: ThreadDownloadPhase?): ThreadDownloadAction =
-    when (phase) {
-        null -> ThreadDownloadAction.DOWNLOAD
-        ThreadDownloadPhase.QUEUED,
-        ThreadDownloadPhase.FETCHING_PAGES,
-        ThreadDownloadPhase.DOWNLOADING_IMAGES,
-        -> ThreadDownloadAction.DOWNLOADING
-
-        ThreadDownloadPhase.FAILED -> ThreadDownloadAction.RETRY
-        ThreadDownloadPhase.COMPLETED -> ThreadDownloadAction.DOWNLOADED
-    }
 
 internal suspend fun <T> probeLocalFirstThread(
     offlineOnly: Boolean,

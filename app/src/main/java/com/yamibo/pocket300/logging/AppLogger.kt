@@ -111,19 +111,6 @@ internal class InMemoryLogSink(
     }
 }
 
-private class CompositeLogSink(
-    private vararg val sinks: LogSink,
-) : LogSink {
-    override fun write(
-        level: LogLevel,
-        component: String,
-        message: String,
-        throwable: Throwable?,
-    ) {
-        sinks.forEach { it.write(level, component, message, throwable) }
-    }
-}
-
 /**
  * Process-wide logging entry point.
  *
@@ -142,7 +129,10 @@ internal object AppLogger {
     fun initialize(isDebugBuild: Boolean) {
         logger = Logger(
             minimumLevel = if (isDebugBuild) LogLevel.VERBOSE else LogLevel.INFO,
-            sink = CompositeLogSink(inMemorySink, AndroidLogSink),
+            sink = LogSink { level, component, message, throwable ->
+                inMemorySink.write(level, component, message, throwable)
+                AndroidLogSink.write(level, component, message, throwable)
+            },
         )
     }
 
