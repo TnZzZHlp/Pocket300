@@ -30,7 +30,7 @@ Use `./gradlew` on macOS/Linux. JDK 17 required (AGP 9.x). Open the repository r
 - A keystore at `%USERPROFILE%\pocket300-release.jks` (override with `-KeystorePath`)
 - `ANDROID_SDK_ROOT` or `sdk.dir` in `local.properties`
 
-Run: `.\build-release.ps1` - prompts for keystore password and outputs to `app\build\outputs\apk\release\app-release-signed.apk`.
+Run: `.\build-release.ps1` - prompts for keystore and key passwords and outputs to `app\build\outputs\apk\release\app-release.apk`.
 
 CI releases are triggered by tags matching `v*` (e.g., `v1.2.3`, `v1.0.0-beta.1`). Pushing such a tag builds and publishes a signed release APK to GitHub Releases.
 

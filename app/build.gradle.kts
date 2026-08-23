@@ -74,10 +74,6 @@ android {
         release {
             isMinifyEnabled = false
             signingConfig = signingConfigs.findByName("release")
-            proguardFiles(
-                getDefaultProguardFile("proguard-android-optimize.txt"),
-                "proguard-rules.pro"
-            )
         }
     }
     compileOptions {
@@ -92,14 +88,11 @@ android {
 
 dependencies {
     implementation(libs.androidx.core.ktx)
-    implementation(libs.androidx.appcompat)
-    implementation(libs.material)
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.okhttp)
     implementation(platform(libs.compose.bom))
     implementation(libs.compose.material3)
     implementation(libs.compose.material.icons)
-    implementation(libs.compose.ui.tooling.preview)
     implementation(libs.activity.compose)
     implementation(libs.navigation.compose)
     implementation(libs.coil.compose)
@@ -109,6 +102,5 @@ dependencies {
     testImplementation(libs.json)
     androidTestImplementation(platform(libs.compose.bom))
     androidTestImplementation(libs.androidx.junit)
-    androidTestImplementation(libs.androidx.espresso.core)
     androidTestImplementation(libs.compose.ui.test.junit4)
 }

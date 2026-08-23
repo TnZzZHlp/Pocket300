@@ -3,91 +3,52 @@ param(
     [ValidatePattern('^\d+\.\d+\.\d+(-(alpha|beta|rc)(\.\d+)?)?$')]
     [string]$VersionName,
     [string]$KeystorePath = "$env:USERPROFILE\pocket300-release.jks",
-    [string]$KeyAlias = "pocket300",
-    [string]$OutputPath = "app\build\outputs\apk\release\app-release-signed.apk"
+    [string]$KeyAlias = "pocket300"
 )
 
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
-
-$repositoryRoot = $PSScriptRoot
-Set-Location $repositoryRoot
+Set-Location $PSScriptRoot
 
 if (-not (Test-Path -LiteralPath $KeystorePath -PathType Leaf)) {
     throw "Signing keystore not found: $KeystorePath"
 }
 
-$sdkRoot = @(
-    $env:ANDROID_SDK_ROOT
-    $env:ANDROID_HOME
-) | Where-Object { $_ -and (Test-Path -LiteralPath $_ -PathType Container) } | Select-Object -First 1
+$storeSecret = Read-Host "Keystore password" -AsSecureString
+$keySecret = Read-Host "Key password (press Enter to reuse the keystore password)" -AsSecureString
+if ($keySecret.Length -eq 0) {
+    $keySecret = $storeSecret
+}
 
-if (-not $sdkRoot) {
-    $localProperties = Join-Path $repositoryRoot "local.properties"
-    if (Test-Path -LiteralPath $localProperties -PathType Leaf) {
-        $sdkEntry = Get-Content -LiteralPath $localProperties |
-            Where-Object { $_ -match '^sdk\.dir=' } |
-            Select-Object -First 1
-        if ($sdkEntry) {
-            # local.properties uses Java properties escaping on Windows, for
-            # example: C\:\\Users\\name\\AppData\\Local\\Android\\Sdk
-            $sdkRoot = ($sdkEntry -replace '^sdk\.dir=', '')
-            $sdkRoot = ($sdkRoot -replace '\\:', ':') -replace '\\\\', '\'
-        }
+$signingVariables = @{
+    RELEASE_KEYSTORE_PATH = (Resolve-Path -LiteralPath $KeystorePath).Path
+    RELEASE_STORE_PASSWORD = [pscredential]::new("store", $storeSecret).GetNetworkCredential().Password
+    RELEASE_KEY_ALIAS = $KeyAlias
+    RELEASE_KEY_PASSWORD = [pscredential]::new("key", $keySecret).GetNetworkCredential().Password
+}
+$previousVariables = @{}
+foreach ($name in $signingVariables.Keys) {
+    $previousVariables[$name] = [Environment]::GetEnvironmentVariable($name)
+    [Environment]::SetEnvironmentVariable($name, $signingVariables[$name])
+}
+
+try {
+    $arguments = @("assembleRelease")
+    if ($VersionName) {
+        $arguments += "-PversionName=$VersionName"
+    }
+    & "$PSScriptRoot\gradlew.bat" @arguments
+    if ($LASTEXITCODE -ne 0) {
+        throw "Gradle release build failed with exit code $LASTEXITCODE"
+    }
+} finally {
+    foreach ($name in $previousVariables.Keys) {
+        [Environment]::SetEnvironmentVariable($name, $previousVariables[$name])
     }
 }
 
-if (-not $sdkRoot -or -not (Test-Path -LiteralPath $sdkRoot -PathType Container)) {
-    throw "Android SDK not found. Set ANDROID_SDK_ROOT or sdk.dir in local.properties."
+$apk = Join-Path $PSScriptRoot "app\build\outputs\apk\release\app-release.apk"
+if (-not (Test-Path -LiteralPath $apk -PathType Leaf)) {
+    throw "Signed release APK not found: $apk"
 }
-
-$buildToolsRoot = Join-Path $sdkRoot "build-tools"
-$buildTools = Get-ChildItem -LiteralPath $buildToolsRoot -Directory |
-    Sort-Object { try { [version]$_.Name } catch { [version]'0.0' } } -Descending |
-    Where-Object { Test-Path -LiteralPath (Join-Path $_.FullName "apksigner.bat") } |
-    Select-Object -First 1
-
-if (-not $buildTools) {
-    throw "apksigner.bat not found under $buildToolsRoot"
-}
-
-$unsignedApk = Join-Path $repositoryRoot "app\build\outputs\apk\release\app-release-unsigned.apk"
-$signedApk = [System.IO.Path]::GetFullPath((Join-Path $repositoryRoot $OutputPath))
-$signedDirectory = Split-Path -Parent $signedApk
-
-Write-Host "Building release APK..."
-$gradleArguments = @("assembleRelease")
-if ($VersionName) {
-    $gradleArguments += "-PversionName=$VersionName"
-}
-& "$repositoryRoot\gradlew.bat" @gradleArguments
-if ($LASTEXITCODE -ne 0) {
-    throw "Gradle release build failed with exit code $LASTEXITCODE"
-}
-if (-not (Test-Path -LiteralPath $unsignedApk -PathType Leaf)) {
-    throw "Unsigned release APK not found: $unsignedApk"
-}
-
-New-Item -ItemType Directory -Path $signedDirectory -Force | Out-Null
-if (Test-Path -LiteralPath $signedApk) {
-    Remove-Item -LiteralPath $signedApk -Force
-}
-
-$apksigner = Join-Path $buildTools.FullName "apksigner.bat"
-Write-Host "Signing APK with alias '$KeyAlias'. Enter the keystore password when prompted..."
-& $apksigner sign `
-    --ks $KeystorePath `
-    --ks-key-alias $KeyAlias `
-    --out $signedApk `
-    $unsignedApk
-if ($LASTEXITCODE -ne 0) {
-    throw "APK signing failed with exit code $LASTEXITCODE"
-}
-
-Write-Host "Verifying APK signature..."
-& $apksigner verify --verbose --print-certs $signedApk
-if ($LASTEXITCODE -ne 0) {
-    throw "APK signature verification failed with exit code $LASTEXITCODE"
-}
-
-Write-Host "Signed release APK: $signedApk"
+Write-Host "Signed release APK: $apk"

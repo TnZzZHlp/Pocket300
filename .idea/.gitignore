@@ -1,3 +1,7 @@
 # Default ignored files
+/appInsightsSettings.xml
+/deploymentTargetSelector.xml
+/deviceManager.xml
+/runConfigurations.xml
 /shelf/
 /workspace.xml
