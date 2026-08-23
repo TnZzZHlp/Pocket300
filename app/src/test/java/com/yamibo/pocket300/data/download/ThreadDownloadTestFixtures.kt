@@ -9,7 +9,6 @@ import com.yamibo.pocket300.api.YamiboThreadDetails
 import com.yamibo.pocket300.api.YamiboThreadPoll
 import com.yamibo.pocket300.api.YamiboThreadPostsPage
 import com.yamibo.pocket300.api.YamiboThreadPostsPagination
-import com.yamibo.pocket300.api.YamiboThreadSpecialType
 import java.util.Base64
 
 internal val TEST_PNG_BYTES: ByteArray = Base64.getDecoder().decode(
@@ -22,10 +21,7 @@ internal fun testAuthor(
     name: String = "Alice",
 ): YamiboPostAuthor = YamiboPostAuthor(
     avatarUrl = "https://bbs.yamibo.com/avatar-$id.png",
-    groupIconId = "group",
-    groupId = 2,
     id = id,
-    isAnonymous = false,
     name = name,
 )
 
@@ -35,24 +31,15 @@ internal fun testThread(
     subject: String = "Offline subject",
 ): YamiboThreadDetails = YamiboThreadDetails(
     author = testAuthor(),
-    createdAt = 1L,
-    digestLevel = 1,
     forumId = 300,
     heat = 4,
     hasAttachment = false,
     id = threadId,
     isClosed = false,
-    lastPoster = "Bob",
     lastPostAtText = "Today",
-    maxPosition = replyCount + 1,
     price = 0,
-    readPermission = 0,
-    recommendationCount = 3,
     replyCount = replyCount,
-    specialType = YamiboThreadSpecialType.NORMAL,
-    specialTypeId = 0,
     subject = subject,
-    typeId = 7,
     viewCount = 99,
     webUrl = "https://bbs.yamibo.com/thread-$threadId-1-1.html",
 )
@@ -65,10 +52,8 @@ internal fun testPost(
     attachmentUrls: List<String> = emptyList(),
     isOriginalPost: Boolean = position == 1,
 ): YamiboPost = YamiboPost(
-    attachments = attachmentUrls.mapIndexed { index, url ->
+    attachments = attachmentUrls.map { url ->
         YamiboPostAttachment(
-            id = postId * 10 + index,
-            filename = "image-$postId-$index.png",
             isImage = true,
             url = url,
         )
@@ -77,14 +62,9 @@ internal fun testPost(
     comments = listOf(
         YamiboPostComment(
             author = testAuthor(90 + position, "Commenter $position"),
-            createdAtText = "Later",
-            id = postId * 100,
             message = "Comment",
-            postId = postId,
-            threadId = threadId,
         ),
     ),
-    createdAt = position.toLong(),
     createdAtText = "Now",
     html = html,
     hasAttachment = attachmentUrls.isNotEmpty(),
@@ -93,8 +73,6 @@ internal fun testPost(
     number = position,
     position = position,
     ratingCount = 2,
-    replyCredit = 0,
-    status = 0,
     threadId = threadId,
 )
 

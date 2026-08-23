@@ -3,7 +3,6 @@ package com.yamibo.pocket300.ui.screens
 import com.yamibo.pocket300.api.YamiboPost
 import com.yamibo.pocket300.api.YamiboPostAuthor
 import com.yamibo.pocket300.api.YamiboThreadDetails
-import com.yamibo.pocket300.api.YamiboThreadSpecialType
 import com.yamibo.pocket300.data.download.DownloadedThread
 import com.yamibo.pocket300.data.download.ThreadDownloadImage
 import com.yamibo.pocket300.data.download.ThreadDownloadManifest
@@ -358,7 +357,7 @@ class ReaderScreenTest {
         val downloaded = DownloadedThread(
             manifest = ThreadDownloadManifest(
                 snapshot = ThreadDownloadSnapshot(
-                    thread = original.thread.copy(replyCount = 1, maxPosition = 2),
+                    thread = original.thread.copy(replyCount = 1),
                     poll = null,
                     posts = listOf(original.post, reply),
                     capturedPageCount = 1,
@@ -395,33 +394,21 @@ class ReaderScreenTest {
     ): ReaderContent {
         val author = YamiboPostAuthor(
             avatarUrl = null,
-            groupIconId = null,
-            groupId = null,
             id = 10,
-            isAnonymous = false,
             name = "Author",
         )
         return ReaderContent(
             thread = YamiboThreadDetails(
                 author = author,
-                createdAt = 1L,
-                digestLevel = 0,
                 forumId = 300,
                 heat = 0,
                 hasAttachment = localImages.isNotEmpty(),
                 id = 1000,
                 isClosed = false,
-                lastPoster = "Author",
                 lastPostAtText = "today",
-                maxPosition = 1,
                 price = 0,
-                readPermission = 0,
-                recommendationCount = 0,
                 replyCount = 0,
-                specialType = YamiboThreadSpecialType.NORMAL,
-                specialTypeId = 0,
                 subject = "Subject",
-                typeId = null,
                 viewCount = 1,
                 webUrl = "https://bbs.yamibo.com/thread-1000-1-1.html",
             ),
@@ -429,7 +416,6 @@ class ReaderScreenTest {
                 attachments = emptyList(),
                 author = author,
                 comments = emptyList(),
-                createdAt = 1L,
                 createdAtText = "today",
                 html = "<p>Text</p>",
                 hasAttachment = localImages.isNotEmpty(),
@@ -438,8 +424,6 @@ class ReaderScreenTest {
                 number = 1,
                 position = 1,
                 ratingCount = 0,
-                replyCredit = 0,
-                status = 0,
                 threadId = 1000,
             ),
             localImageUrls = localImages,

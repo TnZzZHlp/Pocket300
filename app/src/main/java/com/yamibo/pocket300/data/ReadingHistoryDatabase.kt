@@ -4,6 +4,7 @@ import android.content.ContentValues
 import android.content.Context
 import android.database.sqlite.SQLiteDatabase
 import android.database.sqlite.SQLiteOpenHelper
+import androidx.core.database.sqlite.transaction
 import com.yamibo.pocket300.api.YamiboThreadDetails
 import com.yamibo.pocket300.logging.AppLogger
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -156,15 +157,6 @@ class ReadingHistoryDatabase private constructor(context: Context) :
             )
             """.trimIndent(),
         )
-    }
-
-    private inline fun <T> SQLiteDatabase.transaction(block: SQLiteDatabase.() -> T): T {
-        beginTransaction()
-        return try {
-            block().also { setTransactionSuccessful() }
-        } finally {
-            endTransaction()
-        }
     }
 
     companion object {

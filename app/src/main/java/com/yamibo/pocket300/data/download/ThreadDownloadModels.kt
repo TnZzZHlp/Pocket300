@@ -5,7 +5,6 @@ import com.yamibo.pocket300.api.YamiboPost
 import com.yamibo.pocket300.api.YamiboPostAuthor
 import com.yamibo.pocket300.api.YamiboThreadDetails
 import com.yamibo.pocket300.api.YamiboThreadPoll
-import com.yamibo.pocket300.api.YamiboThreadSpecialType
 import com.yamibo.pocket300.data.CustomListThread
 import java.io.File
 import java.net.URI
@@ -57,30 +56,18 @@ data class ThreadDownloadRequest(
             thread = YamiboThreadDetails(
                 author = YamiboPostAuthor(
                     avatarUrl = null,
-                    groupIconId = null,
-                    groupId = null,
                     id = null,
-                    isAnonymous = false,
                     name = thread.authorName,
                 ),
-                createdAt = 0,
-                digestLevel = 0,
                 forumId = thread.forumId,
                 heat = 0,
                 hasAttachment = false,
                 id = thread.threadId,
                 isClosed = false,
-                lastPoster = thread.authorName,
                 lastPostAtText = thread.createdAtText,
-                maxPosition = 0,
                 price = 0,
-                readPermission = 0,
-                recommendationCount = 0,
                 replyCount = thread.replyCount,
-                specialType = YamiboThreadSpecialType.NORMAL,
-                specialTypeId = 0,
                 subject = thread.subject,
-                typeId = null,
                 viewCount = thread.viewCount,
                 webUrl = thread.webUrl.trim().takeIf(::isHttpUrl)
                     ?: "$YAMIBO_ORIGIN/thread-${thread.threadId}-1-1.html",
@@ -181,10 +168,6 @@ class DownloadedThread internal constructor(
     }
 
     fun findPost(postId: Int): YamiboPost? = snapshot.posts.firstOrNull { it.id == postId }
-
-    fun localImageFile(remoteUrl: String): File? = localImageFiles[remoteUrl]
-
-    fun localImageUri(remoteUrl: String): String? = localImageUris[remoteUrl]
 }
 
 enum class ThreadDownloadPhase {

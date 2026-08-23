@@ -51,7 +51,7 @@ class YamiboAuthApiTest {
         assertEquals(listOf(YamiboProfileField("注册时间", "2020-01-01")), profile.fields)
     }
 
-    @Test(expected = YamiboAuthException::class)
+    @Test(expected = YamiboApiException::class)
     fun rejectsLoginPageAsProfile() {
         parseUserProfilePage("<form id='loginform'>", "$YAMIBO_ORIGIN/member.php?mod=logging", 42)
     }

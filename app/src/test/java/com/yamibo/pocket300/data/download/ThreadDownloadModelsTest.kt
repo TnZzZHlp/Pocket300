@@ -1,9 +1,7 @@
 package com.yamibo.pocket300.data.download
 
-import com.yamibo.pocket300.api.YamiboThreadSpecialType
 import com.yamibo.pocket300.data.CustomListThread
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Test
 
@@ -23,8 +21,6 @@ class ThreadDownloadModelsTest {
         assertEquals(34, request.thread.viewCount)
         assertEquals("列表作者", request.thread.author.name)
         assertNull(request.thread.author.id)
-        assertFalse(request.thread.author.isAnonymous)
-        assertEquals(YamiboThreadSpecialType.NORMAL, request.thread.specialType)
         assertEquals("https://bbs.yamibo.com/thread-100-1-1.html", request.referer)
     }
 

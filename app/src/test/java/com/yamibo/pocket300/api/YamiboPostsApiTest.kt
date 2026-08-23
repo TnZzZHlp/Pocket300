@@ -11,7 +11,6 @@ class YamiboPostsApiTest {
     fun parsesPostsCommentsAndPoll() {
         val page = parseThreadPosts(JSONObject(FIXTURE), 1)
         assertEquals(1000, page.thread.id)
-        assertEquals(YamiboThreadSpecialType.POLL, page.thread.specialType)
         assertEquals(2, page.pagination.totalPosts)
         assertEquals(1, page.pagination.totalPages)
         assertFalse(page.pagination.hasNextPage)
@@ -108,18 +107,6 @@ class YamiboPostsApiTest {
     }
 
     @Test
-    fun buildsTargetPostCommentRefreshRequest() {
-        assertEquals(
-            mapOf(
-                "module" to "viewthread",
-                "tid" to "1000",
-                "viewpid" to "9",
-            ),
-            postCommentsParameters(threadId = 1000, postId = 9),
-        )
-    }
-
-    @Test
     fun buildsTargetPostRefreshRequestForCommentsAndRatingCount() {
         assertEquals(
             mapOf(
@@ -129,17 +116,6 @@ class YamiboPostsApiTest {
             ),
             targetPostParameters(threadId = 1000, postId = 9),
         )
-    }
-
-    @Test
-    fun parsesCommentsForRequestedPost() {
-        val comments = parsePostCommentsForTarget(
-            JSONObject(FIXTURE),
-            expectedThreadId = 1000,
-            expectedPostId = 9,
-        )
-
-        assertEquals(listOf("点评"), comments.map { it.message })
     }
 
     @Test
@@ -156,8 +132,8 @@ class YamiboPostsApiTest {
     }
 
     @Test(expected = YamiboApiException::class)
-    fun rejectsCommentRefreshAssignedToDifferentPost() {
-        parsePostCommentsForTarget(
+    fun rejectsTargetRefreshAssignedToDifferentPost() {
+        parsePostForTarget(
             JSONObject(FIXTURE),
             expectedThreadId = 1000,
             expectedPostId = 10,

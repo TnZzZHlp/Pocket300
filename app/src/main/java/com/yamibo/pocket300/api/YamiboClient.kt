@@ -256,34 +256,6 @@ class AndroidCookieJar(
         .orEmpty()
 }
 
-/** Thread-safe process-lifetime cookie storage, including HttpOnly authentication cookies. */
-class InMemoryCookieJar : CookieJar {
-    private val cookies = mutableListOf<Cookie>()
-
-    @Synchronized
-    override fun saveFromResponse(url: HttpUrl, cookies: List<Cookie>) {
-        val now = System.currentTimeMillis()
-        this.cookies.removeAll { stored ->
-            stored.expiresAt < now || cookies.any { incoming ->
-                incoming.name == stored.name &&
-                    incoming.domain == stored.domain &&
-                    incoming.path == stored.path
-            }
-        }
-        this.cookies += cookies.filter { it.expiresAt >= now }
-    }
-
-    @Synchronized
-    override fun loadForRequest(url: HttpUrl): List<Cookie> {
-        val now = System.currentTimeMillis()
-        cookies.removeAll { it.expiresAt < now }
-        return cookies.filter { it.matches(url) }
-    }
-
-    @Synchronized
-    fun clear() = cookies.clear()
-}
-
 internal fun JSONObject.objectOrNull(key: String): JSONObject? =
     if (!has(key) || isNull(key)) null else opt(key) as? JSONObject
 

@@ -254,18 +254,6 @@ internal class ThreadDownloadRepository internal constructor(
         return withContext(Dispatchers.IO) { store.read(key) }
     }
 
-    suspend fun listCompleted(): List<DownloadedThread> {
-        initialization.await()
-        return withContext(Dispatchers.IO) { store.listCompleted() }
-    }
-
-    suspend fun refresh() {
-        initialization.await()
-        mutationMutex.withLock {
-            refreshFromDiskLocked()
-        }
-    }
-
     suspend fun delete(key: ThreadDownloadKey) {
         initialization.await()
         withContext(NonCancellable) {
