@@ -1,6 +1,5 @@
 # Pocket300
 
-[![CI](https://github.com/TnZzZHlp/Pocket300/actions/workflows/ci.yml/badge.svg)](https://github.com/TnZzZHlp/Pocket300/actions/workflows/ci.yml)
 [![GitHub Release](https://img.shields.io/github/v/release/TnZzZHlp/Pocket300?include_prereleases)](https://github.com/TnZzZHlp/Pocket300/releases)
 
 Pocket300 是一个面向[百合会（Yamibo）](https://bbs.yamibo.com/)的第三方 Android 客户端，使用 Kotlin 与 Jetpack Compose 构建，提供更适合移动端的论坛浏览和阅读体验。
