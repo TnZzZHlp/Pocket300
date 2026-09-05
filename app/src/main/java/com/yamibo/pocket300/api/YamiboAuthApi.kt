@@ -257,6 +257,12 @@ private fun parseProfileDisplayName(html: String): String? {
 }
 
 private fun parseProfileAvatarUrl(html: String, uid: Int): String {
+    val staticPath = Regex.escape(URI(yamiboAvatarUrl(uid)).path)
+    val staticAvatar = Regex(
+        """<img\b[^>]*\bsrc=["']([^"']*$staticPath(?:\?[^"']*)?)["'][^>]*>""",
+        RegexOption.IGNORE_CASE,
+    ).find(html)?.groupValues?.get(1)
+    if (staticAvatar != null) return normalizeSiteUrl(staticAvatar)
     val uidPattern = Regex.escape(uid.toString())
     val exact = Regex(
         """<img\b[^>]*\bsrc=["']([^"']*avatar\.php\?[^"']*uid=$uidPattern[^"']*)["'][^>]*>""",

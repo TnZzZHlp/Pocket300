@@ -226,7 +226,7 @@ private fun PostInlineHtml(
 }
 
 @Composable
-internal fun rememberPostImageRequest(url: String, threadId: Int): ImageRequest {
+internal fun rememberPostImageRequest(url: String, threadId: Int? = null): ImageRequest {
     val context = LocalContext.current
     val userAgent = POCKET300_USER_AGENT
     return remember(url, threadId, userAgent) {
@@ -237,7 +237,7 @@ internal fun rememberPostImageRequest(url: String, threadId: Int): ImageRequest 
                 if (url.startsWith("http://") || url.startsWith("https://")) {
                     val cookie = CookieManager.getInstance().getCookie(url)
                     if (!cookie.isNullOrBlank()) addHeader("Cookie", cookie)
-                    addHeader("Referer", "$YAMIBO_ORIGIN/forum.php?mod=viewthread&tid=$threadId")
+                    addHeader("Referer", threadId?.let { "$YAMIBO_ORIGIN/forum.php?mod=viewthread&tid=$it" } ?: "$YAMIBO_ORIGIN/")
                     addHeader("User-Agent", userAgent)
                 }
             }
