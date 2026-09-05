@@ -62,6 +62,8 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
+import com.yamibo.pocket300.api.resolveYamiboAvatarUrl
+import com.yamibo.pocket300.ui.rememberPostImageRequest
 import com.yamibo.pocket300.R
 import com.yamibo.pocket300.api.DEFAULT_SECURITY_QUESTIONS
 import com.yamibo.pocket300.api.LoginInput
@@ -391,8 +393,8 @@ private fun ProfileSummary(
                                 )
                                 loadedProfile?.avatarUrl?.let { avatarUrl ->
                                     AsyncImage(
-                                        model = avatarUrl,
-                                        contentDescription = "头像",
+                                        model = rememberPostImageRequest(resolveYamiboAvatarUrl(avatarUrl)),
+                                        contentDescription = stringResource(R.string.post_author_avatar, session.username),
                                         contentScale = ContentScale.Crop,
                                         modifier = Modifier
                                             .fillMaxSize()

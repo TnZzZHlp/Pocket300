@@ -17,6 +17,8 @@ import androidx.compose.ui.unit.Dp
 import coil.compose.AsyncImage
 import com.yamibo.pocket300.R
 import com.yamibo.pocket300.api.YamiboPostAuthor
+import com.yamibo.pocket300.api.resolveYamiboAvatarUrl
+import com.yamibo.pocket300.ui.rememberPostImageRequest
 
 @Composable
 internal fun PostAuthorAvatar(
@@ -37,7 +39,7 @@ internal fun PostAuthorAvatar(
             )
             author.avatarUrl?.takeIf { allowRemoteImage }?.let { avatarUrl ->
                 AsyncImage(
-                    model = avatarUrl,
+                    model = rememberPostImageRequest(resolveYamiboAvatarUrl(avatarUrl)),
                     contentDescription = stringResource(R.string.post_author_avatar, author.name),
                     contentScale = ContentScale.Crop,
                     modifier = Modifier

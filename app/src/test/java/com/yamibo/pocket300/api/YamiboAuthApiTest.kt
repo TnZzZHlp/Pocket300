@@ -51,6 +51,19 @@ class YamiboAuthApiTest {
         assertEquals(listOf(YamiboProfileField("注册时间", "2020-01-01")), profile.fields)
     }
 
+    @Test
+    fun parsesStaticProfileAvatarAndPreservesCacheVersion() {
+        val html = """
+            <img src="/uc_server/avatar.php?uid=42&amp;size=small">
+            <img src="/uc_server/data/avatar/000/59/42/15_avatar_small.jpg?ts=1742136902&amp;v=2" class="user_avatar">
+        """.trimIndent()
+        val profile = parseUserProfilePage(html, "$YAMIBO_ORIGIN/home.php?uid=594215", 594215)
+        assertEquals(
+            "$YAMIBO_ORIGIN/uc_server/data/avatar/000/59/42/15_avatar_small.jpg?ts=1742136902&v=2",
+            profile.avatarUrl,
+        )
+    }
+
     @Test(expected = YamiboApiException::class)
     fun rejectsLoginPageAsProfile() {
         parseUserProfilePage("<form id='loginform'>", "$YAMIBO_ORIGIN/member.php?mod=logging", 42)
