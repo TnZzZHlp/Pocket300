@@ -19,10 +19,12 @@ data class ReadingHistoryEntry(
     val lastPostAtText: String,
     val lastReadFloor: Int,
     val readAt: Long,
+    val authorId: Int? = null,
+    val authorAvatarUrl: String? = null,
 )
 
-class ReadingHistoryDatabase private constructor(context: Context) :
-    SQLiteOpenHelper(context, DATABASE_NAME, null, DATABASE_VERSION) {
+class ReadingHistoryDatabase internal constructor(context: Context, databaseName: String = DATABASE_NAME) :
+    SQLiteOpenHelper(context, databaseName, null, DATABASE_VERSION) {
 
     private val _entries = MutableStateFlow<Map<Int, ReadingHistoryEntry>>(emptyMap())
     val entries: StateFlow<Map<Int, ReadingHistoryEntry>> = _entries.asStateFlow()
@@ -40,6 +42,8 @@ class ReadingHistoryDatabase private constructor(context: Context) :
                 forum_id INTEGER NOT NULL,
                 subject TEXT NOT NULL,
                 author_name TEXT NOT NULL,
+                author_id INTEGER,
+                author_avatar_url TEXT,
                 last_post_at_text TEXT NOT NULL,
                 read_at INTEGER NOT NULL,
                 last_read_floor INTEGER NOT NULL DEFAULT 1
@@ -58,6 +62,7 @@ class ReadingHistoryDatabase private constructor(context: Context) :
             database.execSQL("DROP INDEX IF EXISTS reading_history_read_at")
             createIndexes(database)
         }
+        if (oldVersion < 3) addThreadAuthorColumns(database, "reading_history")
     }
 
     fun record(thread: YamiboThreadDetails, lastReadFloor: Int, readAt: Long = System.currentTimeMillis()) {
@@ -66,6 +71,8 @@ class ReadingHistoryDatabase private constructor(context: Context) :
             put("forum_id", thread.forumId)
             put("subject", thread.subject)
             put("author_name", thread.author.name)
+            put("author_id", thread.author.id)
+            put("author_avatar_url", thread.author.avatarUrl)
             put("last_post_at_text", thread.lastPostAtText)
             put("last_read_floor", lastReadFloor.coerceAtLeast(1))
             put("read_at", readAt)
@@ -95,6 +102,8 @@ class ReadingHistoryDatabase private constructor(context: Context) :
                         put("forum_id", thread.forumId)
                         put("subject", thread.subject)
                         put("author_name", thread.authorName)
+                        put("author_id", thread.authorId)
+                        put("author_avatar_url", thread.authorAvatarUrl)
                         put("last_post_at_text", "")
                         put("last_read_floor", 1)
                         put("read_at", readAt)
@@ -138,6 +147,8 @@ class ReadingHistoryDatabase private constructor(context: Context) :
                         lastPostAtText = cursor.getString(4),
                         lastReadFloor = cursor.getInt(5),
                         readAt = cursor.getLong(6),
+                        authorId = if (cursor.isNull(7)) null else cursor.getInt(7),
+                        authorAvatarUrl = cursor.getString(8),
                     ),
                 )
             }
@@ -162,7 +173,7 @@ class ReadingHistoryDatabase private constructor(context: Context) :
     companion object {
         private const val TAG = "ReadingHistoryDatabase"
         private const val DATABASE_NAME = "pocket300.db"
-        private const val DATABASE_VERSION = 2
+        private const val DATABASE_VERSION = 3
         private const val MAX_ENTRIES = 500
         private val COLUMNS = arrayOf(
             "thread_id",
@@ -172,6 +183,8 @@ class ReadingHistoryDatabase private constructor(context: Context) :
             "last_post_at_text",
             "last_read_floor",
             "read_at",
+            "author_id",
+            "author_avatar_url",
         )
 
         private fun createIndexes(database: SQLiteDatabase) {

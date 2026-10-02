@@ -26,7 +26,7 @@ enum class YamiboForumThreadSort(
 data class YamiboForumDetails(val name: String, val threadCount: Int)
 data class YamiboForumChild(val id: Int, val name: String, val threadCount: Int)
 data class YamiboThreadType(val id: Int, val name: String)
-data class YamiboThreadAuthor(val name: String)
+data class YamiboThreadAuthor(val name: String, val id: Int? = null)
 
 data class YamiboThread(
     val author: YamiboThreadAuthor,
@@ -138,7 +138,10 @@ private fun parseThreadSubforum(value: JSONObject) = YamiboForumChild(
 private fun parseThread(value: JSONObject, typeNames: Map<Int, String>): YamiboThread {
     val typeId = optionalPositive(value.opt("typeid"), "typeid")
     return YamiboThread(
-        author = YamiboThreadAuthor(value.threadString("author")),
+        author = YamiboThreadAuthor(
+            name = value.threadString("author"),
+            id = value.opt("authorid")?.toString()?.toIntOrNull()?.takeIf { it > 0 },
+        ),
         createdAtText = value.threadString("dateline"),
         id = value.threadPositive("tid"),
         replyCount = value.threadNonNegative("replies"),

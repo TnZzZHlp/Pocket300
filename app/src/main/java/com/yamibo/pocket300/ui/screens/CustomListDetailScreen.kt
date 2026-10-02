@@ -32,6 +32,7 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -46,6 +47,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.res.stringResource
@@ -53,6 +55,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import com.yamibo.pocket300.R
+import com.yamibo.pocket300.api.YamiboPostAuthor
 import com.yamibo.pocket300.api.GetThreadPostsInput
 import com.yamibo.pocket300.data.CustomListAutoDownloadCoordinator
 import com.yamibo.pocket300.data.CustomListDatabase
@@ -606,8 +609,8 @@ internal fun CustomListDetailScreen(
                             LazyColumn(
                                 state = listState,
                                 modifier = Modifier.weight(1f),
-                                contentPadding = PaddingValues(PocketSpacing.screen),
-                                verticalArrangement = Arrangement.spacedBy(PocketSpacing.itemGap),
+                                contentPadding = PaddingValues(bottom = 16.dp),
+                                verticalArrangement = Arrangement.spacedBy(0.dp),
                             ) {
                                 items(
                                     displayedThreads,
@@ -744,7 +747,7 @@ private fun CustomListThreadCard(
             ),
         colors = threadCardColors(selected),
         border = threadCardBorder(selected),
-        shape = MaterialTheme.shapes.medium,
+        shape = RectangleShape,
     ) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
             if (selectionMode) {
@@ -761,14 +764,17 @@ private fun CustomListThreadCard(
                     .padding(
                         start = if (selectionMode) 8.dp else 16.dp,
                         end = if (selectionMode) 16.dp else 0.dp,
-                        top = 16.dp,
-                        bottom = 16.dp,
+                        top = 14.dp,
+                        bottom = 14.dp,
                     ),
                 threadId = thread.threadId,
                 subject = thread.subject,
                 category = thread.forumName,
-                metadata = stringResource(R.string.thread_card_metadata, thread.authorName, thread.createdAtText),
-                activity = stringResource(R.string.thread_card_activity, thread.replyCount, thread.viewCount),
+                author = YamiboPostAuthor(thread.authorAvatarUrl, thread.authorId, thread.authorName),
+                dateText = thread.createdAtText,
+                replyCount = thread.replyCount,
+                viewCount = thread.viewCount,
+                resolveMissingAuthor = true,
             )
             if (!selectionMode) {
                 Box(Modifier.padding(4.dp)) {
@@ -781,5 +787,6 @@ private fun CustomListThreadCard(
                 }
             }
         }
+        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
     }
 }

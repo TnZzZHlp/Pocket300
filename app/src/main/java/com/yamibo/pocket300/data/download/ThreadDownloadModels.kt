@@ -55,8 +55,8 @@ data class ThreadDownloadRequest(
         ): ThreadDownloadRequest = ThreadDownloadRequest(
             thread = YamiboThreadDetails(
                 author = YamiboPostAuthor(
-                    avatarUrl = null,
-                    id = null,
+                    avatarUrl = thread.authorAvatarUrl,
+                    id = thread.authorId,
                     name = thread.authorName,
                 ),
                 forumId = thread.forumId,

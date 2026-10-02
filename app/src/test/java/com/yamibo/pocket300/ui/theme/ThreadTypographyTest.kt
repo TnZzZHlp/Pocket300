@@ -2,6 +2,7 @@ package com.yamibo.pocket300.ui.theme
 
 import androidx.compose.material3.Typography
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.text.font.FontWeight
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
@@ -13,6 +14,13 @@ class ThreadTypographyTest {
 
         assertEquals(appTypography.bodyLarge, typography.body)
         assertEquals(appTypography.titleMedium, typography.heading)
+    }
+
+    @Test
+    fun feedTitlesHaveOneSharedProminentScale() {
+        assertEquals(18.sp, ThreadFeedTitleStyle.fontSize)
+        assertEquals(27.sp, ThreadFeedTitleStyle.lineHeight)
+        assertEquals(FontWeight.SemiBold, ThreadFeedTitleStyle.fontWeight)
     }
 
     @Test

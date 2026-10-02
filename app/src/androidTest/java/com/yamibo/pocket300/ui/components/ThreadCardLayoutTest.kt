@@ -11,11 +11,13 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import com.yamibo.pocket300.api.YamiboPostAuthor
 import com.yamibo.pocket300.data.ReadingHistoryEntry
 import com.yamibo.pocket300.ui.LocalDownloadedThreadIds
 import com.yamibo.pocket300.ui.LocalReadingHistory
@@ -51,8 +53,10 @@ class ThreadCardLayoutTest {
                                 threadId = 12,
                                 subject = "这是一个需要换行显示的中文主题标题",
                                 category = "原创",
-                                metadata = "很长的作者名称 · 3月14日",
-                                activity = "128 回复 · 3,000 浏览",
+                                author = YamiboPostAuthor(null, null, "很长的作者名称"),
+                                dateText = "3月14日",
+                                replyCount = 128,
+                                viewCount = 3_000,
                             )
                         }
                     }
@@ -60,10 +64,17 @@ class ThreadCardLayoutTest {
             }
         }
 
-        composeRule.onNodeWithText("上次读到第 24 楼", useUnmergedTree = true)
+        composeRule.onNodeWithText("读到 24 楼", useUnmergedTree = true)
             .performScrollTo().assertIsDisplayed()
-        composeRule.onNodeWithText("很长的作者名称 · 3月14日", useUnmergedTree = true)
+        composeRule.onNodeWithText("很长的作者名称", useUnmergedTree = true)
             .performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithText("3月14日", useUnmergedTree = true)
+            .performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithContentDescription("128 回复", useUnmergedTree = true)
+            .performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithText("已下载", useUnmergedTree = true)
+            .performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithText("很", useUnmergedTree = true).assertDoesNotExist()
         composeRule.onNodeWithText("这是一个需要换行显示的中文主题标题")
             .performScrollTo().performClick()
         composeRule.runOnIdle { assertEquals(1, opened) }

@@ -25,6 +25,14 @@ class ThreadDownloadModelsTest {
     }
 
     @Test
+    fun keepsConfirmedAuthorIdentityInProvisionalDownloadRequest() {
+        val thread = customListThread().copy(authorId = 42, authorAvatarUrl = "https://bbs.yamibo.com/avatar.jpg")
+        val request = ThreadDownloadRequest.create(thread)
+        assertEquals(42, request.thread.author.id)
+        assertEquals(thread.authorAvatarUrl, request.thread.author.avatarUrl)
+    }
+
+    @Test
     fun fallsBackToCanonicalRefererForInvalidListUrl() {
         val request = ThreadDownloadRequest.create(
             thread = customListThread(webUrl = "not a URL"),

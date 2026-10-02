@@ -87,6 +87,12 @@ internal val PocketTypography = Typography(
     ),
 )
 
+internal val ThreadFeedTitleStyle = TextStyle(
+    fontWeight = FontWeight.SemiBold,
+    fontSize = 18.sp,
+    lineHeight = 27.sp,
+)
+
 @Immutable
 internal data class ThreadTypography(
     val heading: TextStyle,

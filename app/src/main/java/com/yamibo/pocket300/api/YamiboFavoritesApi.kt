@@ -10,6 +10,8 @@ data class YamiboFavoriteThread(
     val title: String,
     val description: String,
     val createdAtText: String,
+    val author: YamiboPostAuthor? = null,
+    val replyCount: Int? = null,
 )
 
 class YamiboFavoritesApi(private val client: YamiboClient) {
@@ -98,6 +100,11 @@ internal fun parseFavoriteThreads(variables: JSONObject): List<YamiboFavoriteThr
             title = value.favoriteString("title"),
             description = value.favoriteString("description", ""),
             createdAtText = value.favoriteString("dateline", ""),
+            author = value.favoriteString("author", "").takeIf(String::isNotBlank)?.let { name ->
+                val authorId = value.opt("authorid")?.toString()?.toIntOrNull()?.takeIf { it > 0 }
+                YamiboPostAuthor(avatarUrl = authorId?.let(::yamiboAvatarUrl), id = authorId, name = name)
+            },
+            replyCount = value.opt("replies")?.toString()?.toIntOrNull()?.takeIf { it >= 0 },
         )
     }
 }

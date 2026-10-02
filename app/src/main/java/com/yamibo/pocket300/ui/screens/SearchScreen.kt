@@ -52,13 +52,13 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.yamibo.pocket300.R
+import com.yamibo.pocket300.api.YamiboPostAuthor
 import com.yamibo.pocket300.api.YamiboSearchThread
 import com.yamibo.pocket300.api.YamiboThreadSearchType
 import com.yamibo.pocket300.ui.LoadState
 import com.yamibo.pocket300.ui.Loading
 import com.yamibo.pocket300.ui.ScreenScaffold
 import com.yamibo.pocket300.ui.ScrollableEmptyState
-import com.yamibo.pocket300.ui.theme.PocketSpacing
 import com.yamibo.pocket300.ui.components.AutoLoadNextPage
 import com.yamibo.pocket300.ui.components.ThreadCardContent
 import com.yamibo.pocket300.ui.components.ThreadCardSurface
@@ -274,12 +274,12 @@ private fun SearchResults(
     )
     LazyColumn(
         state = listState,
-        contentPadding = PaddingValues(start = 16.dp, top = 4.dp, end = 16.dp, bottom = 16.dp),
-        verticalArrangement = Arrangement.spacedBy(PocketSpacing.itemGap),
+        contentPadding = PaddingValues(top = 4.dp, bottom = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(0.dp),
     ) {
         item(key = "search-summary") {
             Row(
-                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.Bottom,
             ) {
@@ -361,8 +361,10 @@ private fun SearchThreadCard(
             threadId = thread.id,
             subject = thread.subject,
             category = thread.forum.name,
-            metadata = stringResource(R.string.thread_card_metadata, thread.author.name, thread.createdAtText),
-            activity = stringResource(R.string.thread_card_activity, thread.replyCount, thread.viewCount),
+            author = YamiboPostAuthor(thread.author.avatarUrl, thread.author.id, thread.author.name),
+            dateText = thread.createdAtText,
+            replyCount = thread.replyCount,
+            viewCount = thread.viewCount,
         )
     }
 }

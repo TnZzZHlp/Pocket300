@@ -9,8 +9,8 @@ import com.yamibo.pocket300.api.YamiboSearchThread
 import com.yamibo.pocket300.api.YamiboThreadSearchType
 import com.yamibo.pocket300.logging.AppLogger
 
-class CustomListDatabase private constructor(context: Context) :
-    SQLiteOpenHelper(context, DATABASE_NAME, null, DATABASE_VERSION) {
+class CustomListDatabase internal constructor(context: Context, databaseName: String = DATABASE_NAME) :
+    SQLiteOpenHelper(context, databaseName, null, DATABASE_VERSION) {
 
     override fun onConfigure(database: SQLiteDatabase) {
         super.onConfigure(database)
@@ -44,6 +44,8 @@ class CustomListDatabase private constructor(context: Context) :
                 forum_name TEXT NOT NULL,
                 subject TEXT NOT NULL,
                 author_name TEXT NOT NULL,
+                author_id INTEGER,
+                author_avatar_url TEXT,
                 created_at_text TEXT NOT NULL,
                 excerpt TEXT,
                 reply_count INTEGER NOT NULL,
@@ -92,6 +94,7 @@ class CustomListDatabase private constructor(context: Context) :
             )
             createAutoDownloadsTable(database)
         }
+        if (oldVersion < 5) addThreadAuthorColumns(database, "custom_list_threads")
     }
 
     fun createList(
@@ -213,6 +216,8 @@ class CustomListDatabase private constructor(context: Context) :
                         replyCount = cursor.getInt(8),
                         viewCount = cursor.getInt(9),
                         webUrl = cursor.getString(10),
+                        authorId = if (cursor.isNull(11)) null else cursor.getInt(11),
+                        authorAvatarUrl = cursor.getString(12),
                     ),
                 )
             }
@@ -430,6 +435,8 @@ class CustomListDatabase private constructor(context: Context) :
         put("forum_name", thread.forum.name)
         put("subject", thread.subject)
         put("author_name", thread.author.name)
+        put("author_id", thread.author.id)
+        put("author_avatar_url", thread.author.avatarUrl)
         put("created_at_text", thread.createdAtText)
         put("excerpt", thread.excerpt)
         put("reply_count", thread.replyCount)
@@ -467,6 +474,8 @@ class CustomListDatabase private constructor(context: Context) :
         replyCount = replyCount,
         viewCount = viewCount,
         webUrl = webUrl,
+        authorId = author.id,
+        authorAvatarUrl = author.avatarUrl,
     )
 
     private fun android.database.Cursor.toCustomList() = CustomThreadList(
@@ -489,10 +498,11 @@ class CustomListDatabase private constructor(context: Context) :
     companion object {
         private const val TAG = "CustomListDatabase"
         private const val DATABASE_NAME = "custom_lists.db"
-        private const val DATABASE_VERSION = 4
+        private const val DATABASE_VERSION = 5
         private val THREAD_COLUMNS = arrayOf(
             "list_id", "thread_id", "forum_id", "forum_name", "subject", "author_name",
             "created_at_text", "excerpt", "reply_count", "view_count", "web_url",
+            "author_id", "author_avatar_url",
         )
 
         private fun createAutoDownloadsTable(database: SQLiteDatabase) {

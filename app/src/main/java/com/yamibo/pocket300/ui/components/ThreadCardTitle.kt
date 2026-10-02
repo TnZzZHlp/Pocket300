@@ -1,5 +1,6 @@
 package com.yamibo.pocket300.ui.components
 
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -17,6 +18,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.yamibo.pocket300.R
@@ -31,6 +33,8 @@ internal fun ThreadCardTitle(
     threadId: Int,
     modifier: Modifier = Modifier,
     maxLines: Int = Int.MAX_VALUE,
+    textStyle: TextStyle = MaterialTheme.typography.titleMedium,
+    showDownloadedIndicator: Boolean = true,
 ) {
     Row(
         modifier = modifier.fillMaxWidth(),
@@ -40,17 +44,17 @@ internal fun ThreadCardTitle(
         Text(
             subject,
             modifier = Modifier.weight(1f),
-            style = MaterialTheme.typography.titleMedium,
+            style = textStyle,
             color = threadTitleColor(MaterialTheme.colorScheme, threadId in LocalReadingHistory.current),
             maxLines = maxLines,
             overflow = TextOverflow.Ellipsis,
         )
-        ThreadDownloadedIndicator(threadId)
+        if (showDownloadedIndicator) ThreadDownloadedIndicator(threadId)
     }
 }
 
 @Composable
-private fun ThreadDownloadedIndicator(threadId: Int) {
+internal fun ThreadDownloadedIndicator(threadId: Int) {
     if (!shouldShowDownloadedIndicator(threadId, LocalDownloadedThreadIds.current)) return
 
     val description = stringResource(R.string.thread_downloaded)
@@ -58,9 +62,9 @@ private fun ThreadDownloadedIndicator(threadId: Int) {
         modifier = Modifier.clearAndSetSemantics {
             contentDescription = description
         },
-        shape = MaterialTheme.shapes.small,
-        color = MaterialTheme.colorScheme.primaryContainer,
-        contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+        shape = CircleShape,
+        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+        contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
     ) {
         Row(
             modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp),

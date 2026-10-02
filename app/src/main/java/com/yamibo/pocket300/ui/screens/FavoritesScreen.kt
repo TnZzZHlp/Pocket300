@@ -36,6 +36,8 @@ import com.yamibo.pocket300.api.YamiboFavoriteThread
 import com.yamibo.pocket300.ui.EmptyState
 import com.yamibo.pocket300.ui.LoadContent
 import com.yamibo.pocket300.ui.LoadState
+import com.yamibo.pocket300.ui.LocalReadingHistory
+import com.yamibo.pocket300.ui.favoriteThreadAuthor
 import com.yamibo.pocket300.ui.ScreenScaffold
 import com.yamibo.pocket300.ui.api
 import com.yamibo.pocket300.ui.components.LocalSearchField
@@ -43,7 +45,6 @@ import com.yamibo.pocket300.ui.components.ThreadCardContent
 import com.yamibo.pocket300.ui.components.ThreadCardSurface
 import com.yamibo.pocket300.ui.components.matchesLocalSearch
 import com.yamibo.pocket300.ui.load
-import com.yamibo.pocket300.ui.theme.PocketSpacing
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalSharedTransitionApi::class)
@@ -125,8 +126,8 @@ internal fun FavoritesScreen(
                         else -> {
                             LazyColumn(
                                 state = listState,
-                                contentPadding = PaddingValues(PocketSpacing.screen),
-                                verticalArrangement = Arrangement.spacedBy(PocketSpacing.itemGap),
+                                contentPadding = PaddingValues(bottom = 16.dp),
+                                verticalArrangement = Arrangement.spacedBy(0.dp),
                             ) {
                                 items(filteredFavorites, key = { it.favoriteId }) { favorite ->
                                     ThreadCardSurface(
@@ -138,10 +139,16 @@ internal fun FavoritesScreen(
                                             )
                                         },
                                     ) {
+                                        val history = LocalReadingHistory.current[favorite.threadId]
                                         ThreadCardContent(
                                             subject = favorite.title,
                                             threadId = favorite.threadId,
-                                            metadata = favorite.createdAtText,
+                                            author = favoriteThreadAuthor(favorite, history),
+                                            dateText = favorite.createdAtText.takeIf(String::isNotBlank)?.let {
+                                                stringResource(R.string.favorite_saved_at, it)
+                                            }.orEmpty(),
+                                            replyCount = favorite.replyCount,
+                                            resolveMissingAuthor = true,
                                         )
                                     }
                                 }

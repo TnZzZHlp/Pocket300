@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
@@ -22,16 +23,17 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.ExpandLess
 import androidx.compose.material.icons.rounded.ExpandMore
-import androidx.compose.material.icons.rounded.Sort
+import androidx.compose.material.icons.rounded.PushPin
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.ElevatedCard
+import androidx.compose.material3.Surface
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -44,6 +46,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.yamibo.pocket300.R
@@ -60,7 +63,6 @@ import com.yamibo.pocket300.ui.components.ListFooter
 import com.yamibo.pocket300.ui.components.SectionLabel
 import com.yamibo.pocket300.ui.components.ThreadCard
 import com.yamibo.pocket300.ui.load
-import com.yamibo.pocket300.ui.theme.PocketSpacing
 import kotlinx.coroutines.launch
 
 private data class ForumContent(
@@ -165,37 +167,12 @@ internal fun ForumScreen(
                 animatedVisibilityScope
             )
         },
-        title = (state as? LoadState.Ready)?.value?.page?.forum?.name ?: "板块",
+        title = (state as? LoadState.Ready)?.value?.page?.forum?.name ?: stringResource(R.string.forum_title),
         onBack = onBack,
         onSearch = onSearch,
         onRefresh = { refreshingThreads = true; pageNumber = 1; reload++ },
         isRefreshing = refreshingThreads,
         onTopBarDoubleClick = { coroutineScope.launch { listState.animateScrollToItem(0) } },
-        actions = {
-            Box {
-                IconButton(onClick = { sortMenuExpanded = true }) {
-                    Icon(
-                        imageVector = Icons.Rounded.Sort,
-                        contentDescription = stringResource(R.string.forum_sort),
-                        tint = if (sort != YamiboForumThreadSort.LATEST_REPLY) {
-                            MaterialTheme.colorScheme.primary
-                        } else {
-                            MaterialTheme.colorScheme.onSurfaceVariant
-                        },
-                    )
-                }
-                ForumSortMenu(
-                    expanded = sortMenuExpanded,
-                    sort = sort,
-                    onDismiss = { sortMenuExpanded = false },
-                    onSort = {
-                        sort = it
-                        pageNumber = 1
-                        sortMenuExpanded = false
-                    },
-                )
-            }
-        },
     ) { padding ->
         LoadContent(state, padding, onRetry = { reload++ }) { content ->
             val page = content.page
@@ -206,26 +183,39 @@ internal fun ForumScreen(
             )
             LazyColumn(
                 state = listState,
-                contentPadding = PaddingValues(PocketSpacing.screen),
-                verticalArrangement = Arrangement.spacedBy(PocketSpacing.itemGap),
+                contentPadding = PaddingValues(bottom = 16.dp),
+                verticalArrangement = Arrangement.spacedBy(0.dp),
             ) {
                 if (page.subforums.isNotEmpty()) {
-                    item { SectionLabel("子板块") }
                     item {
-                        LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Box(Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) {
+                            SectionLabel(stringResource(R.string.forum_subforums))
+                        }
+                    }
+                    item {
+                        LazyRow(
+                            contentPadding = PaddingValues(horizontal = 16.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
                             items(page.subforums, key = { it.id }) { subforum ->
                                 AssistChip(
                                     onClick = { onForum(subforum.id) },
-                                    label = { Text("${subforum.name} · ${subforum.threadCount} 主题") },
+                                    label = { Text(stringResource(R.string.forum_subforum_summary, subforum.name, subforum.threadCount)) },
                                 )
                             }
                         }
                     }
                 }
-                if (page.threadTypes.isNotEmpty()) {
-                    item { SectionLabel(stringResource(R.string.forum_filter_category)) }
-                    item {
-                        LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                item(key = "thread-filters") {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        LazyRow(
+                            modifier = Modifier.weight(1f),
+                            contentPadding = PaddingValues(start = 16.dp, end = 8.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
                             item {
                                 FilterChip(
                                     selected = selectedTypeId == null,
@@ -240,6 +230,22 @@ internal fun ForumScreen(
                                     label = { Text(type.name) },
                                 )
                             }
+                        }
+                        Box(Modifier.padding(end = 8.dp)) {
+                            TextButton(onClick = { sortMenuExpanded = true }) {
+                                Text(stringResource(forumSortLabel(sort)), style = MaterialTheme.typography.labelMedium)
+                                Icon(Icons.Rounded.ExpandMore, contentDescription = stringResource(R.string.forum_sort), modifier = Modifier.size(16.dp))
+                            }
+                            ForumSortMenu(
+                                expanded = sortMenuExpanded,
+                                sort = sort,
+                                onDismiss = { sortMenuExpanded = false },
+                                onSort = {
+                                    sort = it
+                                    pageNumber = 1
+                                    sortMenuExpanded = false
+                                },
+                            )
                         }
                     }
                 }
@@ -272,9 +278,11 @@ internal fun ForumScreen(
                             Column(
                                 modifier = Modifier.fillMaxWidth(),
                             ) {
-                                ElevatedCard(
+                                Surface(
                                     onClick = { stickyThreadsExpanded = !stickyThreadsExpanded },
                                     modifier = Modifier.fillMaxWidth(),
+                                    shape = RectangleShape,
+                                    color = MaterialTheme.colorScheme.surfaceContainerHigh,
                                 ) {
                                     Row(
                                         modifier = Modifier
@@ -283,10 +291,16 @@ internal fun ForumScreen(
                                         horizontalArrangement = Arrangement.SpaceBetween,
                                         verticalAlignment = Alignment.CenterVertically,
                                     ) {
-                                        Text(
-                                            stringResource(R.string.forum_sticky_threads, stickyThreads.size),
-                                            style = MaterialTheme.typography.titleMedium,
-                                        )
+                                        Row(
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                        ) {
+                                            Icon(Icons.Rounded.PushPin, contentDescription = null, modifier = Modifier.size(16.dp))
+                                            Text(
+                                                stringResource(R.string.forum_sticky_threads, stickyThreads.size),
+                                                style = MaterialTheme.typography.labelLarge,
+                                            )
+                                        }
                                         Icon(
                                             imageVector = if (stickyThreadsExpanded) {
                                                 Icons.Rounded.ExpandLess
@@ -303,15 +317,13 @@ internal fun ForumScreen(
                                         )
                                     }
                                 }
+                                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                                 AnimatedVisibility(
                                     visible = stickyThreadsExpanded,
                                     enter = expandVertically(expandFrom = Alignment.Top),
                                     exit = shrinkVertically(shrinkTowards = Alignment.Top),
                                 ) {
-                                    Column(
-                                        modifier = Modifier.padding(top = 8.dp),
-                                        verticalArrangement = Arrangement.spacedBy(8.dp),
-                                    ) {
+                                    Column {
                                         stickyThreads.forEach { thread ->
                                             ForumThreadCard(
                                                 thread = thread,
@@ -346,6 +358,13 @@ internal fun ForumScreen(
     }
 }
 
+private fun forumSortLabel(sort: YamiboForumThreadSort): Int = when (sort) {
+    YamiboForumThreadSort.LATEST_REPLY -> R.string.forum_sort_latest_reply
+    YamiboForumThreadSort.POPULAR -> R.string.forum_sort_popular
+    YamiboForumThreadSort.DIGEST -> R.string.forum_sort_digest
+    YamiboForumThreadSort.NEWEST -> R.string.forum_sort_newest
+}
+
 @Composable
 private fun ForumSortMenu(
     expanded: Boolean,
@@ -364,14 +383,7 @@ private fun ForumSortMenu(
             DropdownMenuItem(
                 text = {
                     Text(
-                        stringResource(
-                            when (option) {
-                                YamiboForumThreadSort.LATEST_REPLY -> R.string.forum_sort_latest_reply
-                                YamiboForumThreadSort.POPULAR -> R.string.forum_sort_popular
-                                YamiboForumThreadSort.DIGEST -> R.string.forum_sort_digest
-                                YamiboForumThreadSort.NEWEST -> R.string.forum_sort_newest
-                            }
-                        )
+                        stringResource(forumSortLabel(option))
                     )
                 },
                 onClick = { onSort(option) },
