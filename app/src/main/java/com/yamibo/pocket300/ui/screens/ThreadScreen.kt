@@ -187,7 +187,9 @@ internal fun ThreadScreen(
     var commentTargetPostNumber by rememberSaveable(threadId) { mutableIntStateOf(0) }
     var commentTargetAuthorName by rememberSaveable(threadId) { mutableStateOf("") }
     var commentTargetIsOriginalPost by rememberSaveable(threadId) { mutableStateOf(false) }
-    var commentDraft by rememberSaveable(threadId) { mutableStateOf("") }
+    val commentDrafts = rememberSaveable(threadId, saver = PostCommentDrafts.Saver) {
+        PostCommentDrafts()
+    }
     var commentSubmitting by remember(threadId) { mutableStateOf(false) }
     var originalPosterOnly by rememberSaveable(threadId) { mutableStateOf(false) }
     var trackReadingProgress by rememberSaveable(threadId) { mutableStateOf(true) }
@@ -664,7 +666,6 @@ internal fun ThreadScreen(
                             commentTargetPostNumber = post.number
                             commentTargetAuthorName = post.author.name
                             commentTargetIsOriginalPost = post.isOriginalPost
-                            commentDraft = ""
                         },
                         onRate = { viewModel.openPostRating(post) },
                         onReader = {
@@ -718,7 +719,12 @@ internal fun ThreadScreen(
         }
     }
     if (!offlineOnly && replyEditorVisible) {
-        ThreadReplyDialog(
+        ReplyComposerSheet(
+            title = stringResource(R.string.thread_reply_title),
+            target = loadedThread?.subject.orEmpty(),
+            hint = stringResource(R.string.thread_reply_hint),
+            submitLabel = stringResource(R.string.thread_reply_action),
+            submittingLabel = stringResource(R.string.thread_reply_submitting),
             draft = replyDraft,
             submitting = replySubmitting,
             threadClosed = loadedThread?.isClosed == true,
@@ -790,29 +796,39 @@ internal fun ThreadScreen(
         )
     }
     if (!offlineOnly && commentTargetPostId > 0) {
-        PostCommentDialog(
-            authorName = commentTargetAuthorName,
-            draft = commentDraft,
-            isOriginalPost = commentTargetIsOriginalPost,
-            postNumber = commentTargetPostNumber,
-            submitting = commentSubmitting,
-            onDraftChange = { proposed ->
-                if (proposed.length <= POST_COMMENT_MAX_LENGTH) commentDraft = proposed
+        ReplyComposerSheet(
+            title = stringResource(R.string.thread_comment_title),
+            target = if (commentTargetIsOriginalPost) {
+                stringResource(R.string.thread_comment_target_original, commentTargetAuthorName)
+            } else {
+                stringResource(
+                    R.string.thread_comment_target_floor,
+                    commentTargetAuthorName,
+                    commentTargetPostNumber,
+                )
             },
+            hint = stringResource(R.string.thread_comment_hint),
+            submitLabel = stringResource(R.string.thread_comment_submit),
+            submittingLabel = stringResource(R.string.thread_comment_submitting),
+            draft = commentDrafts[commentTargetPostId],
+            submitting = commentSubmitting,
+            threadClosed = loadedThread?.isClosed == true,
+            maxLength = POST_COMMENT_MAX_LENGTH,
+            onDraftChange = { proposed -> commentDrafts.update(commentTargetPostId, proposed) },
             onDismiss = {
                 if (!commentSubmitting) {
                     commentTargetPostId = 0
                     commentTargetPostNumber = 0
                     commentTargetAuthorName = ""
                     commentTargetIsOriginalPost = false
-                    commentDraft = ""
                 }
             },
             onSubmit = {
-                if (!commentSubmitting) {
-                    val message = commentDraft.trim()
+                val draft = commentDrafts[commentTargetPostId]
+                if (canSubmitThreadReply(draft, commentSubmitting, loadedThread?.isClosed == true)) {
+                    val message = draft.trim()
                     val forumId = loadedThread?.forumId
-                    if (message.isNotEmpty() && forumId != null) {
+                    if (forumId != null) {
                         val postId = commentTargetPostId
                         commentSubmitting = true
                         coroutineScope.launch {
@@ -832,7 +848,7 @@ internal fun ThreadScreen(
                                     commentTargetPostNumber = 0
                                     commentTargetAuthorName = ""
                                     commentTargetIsOriginalPost = false
-                                    commentDraft = ""
+                                    commentDrafts.clear(postId)
                                     val refreshed = load {
                                         api.posts.getPostComments(threadId, postId)
                                     }
@@ -942,83 +958,6 @@ internal fun canSubmitThreadReply(
     submitting: Boolean,
     threadClosed: Boolean,
 ): Boolean = draft.isNotBlank() && !submitting && !threadClosed
-
-@Composable
-private fun PostCommentDialog(
-    authorName: String,
-    draft: String,
-    isOriginalPost: Boolean,
-    postNumber: Int,
-    submitting: Boolean,
-    onDraftChange: (String) -> Unit,
-    onDismiss: () -> Unit,
-    onSubmit: () -> Unit,
-) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(stringResource(R.string.thread_comment_title)) },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text(
-                    text = if (isOriginalPost) {
-                        stringResource(R.string.thread_comment_target_original, authorName)
-                    } else {
-                        stringResource(
-                            R.string.thread_comment_target_floor,
-                            authorName,
-                            postNumber,
-                        )
-                    },
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                OutlinedTextField(
-                    value = draft,
-                    onValueChange = onDraftChange,
-                    modifier = Modifier.fillMaxWidth(),
-                    enabled = !submitting,
-                    minLines = 3,
-                    maxLines = 6,
-                    placeholder = { Text(stringResource(R.string.thread_comment_hint)) },
-                    supportingText = {
-                        Text(
-                            stringResource(
-                                R.string.thread_comment_character_count,
-                                draft.length,
-                                POST_COMMENT_MAX_LENGTH,
-                            ),
-                        )
-                    },
-                )
-            }
-        },
-        confirmButton = {
-            TextButton(
-                onClick = onSubmit,
-                enabled = draft.isNotBlank() && !submitting,
-            ) {
-                if (submitting) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(18.dp),
-                        strokeWidth = 2.dp,
-                    )
-                    Spacer(Modifier.width(8.dp))
-                }
-                Text(
-                    stringResource(
-                        if (submitting) R.string.thread_comment_submitting
-                        else R.string.thread_comment_submit,
-                    ),
-                )
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss, enabled = !submitting) {
-                Text(stringResource(R.string.thread_comment_cancel))
-            }
-        },
-    )
-}
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -1284,64 +1223,6 @@ private fun ThreadReplyButton(
             contentDescription = stringResource(R.string.thread_reply_action),
         )
     }
-}
-
-@Composable
-private fun ThreadReplyDialog(
-    draft: String,
-    submitting: Boolean,
-    threadClosed: Boolean,
-    onDraftChange: (String) -> Unit,
-    onDismiss: () -> Unit,
-    onSubmit: () -> Unit,
-) {
-    AlertDialog(
-        onDismissRequest = { if (!submitting) onDismiss() },
-        title = { Text(stringResource(R.string.thread_reply_title)) },
-        text = {
-            if (threadClosed) {
-                Text(
-                    stringResource(R.string.thread_reply_closed),
-                    color = MaterialTheme.colorScheme.error,
-                )
-            } else {
-                OutlinedTextField(
-                    value = draft,
-                    onValueChange = onDraftChange,
-                    modifier = Modifier.fillMaxWidth(),
-                    enabled = !submitting,
-                    minLines = 4,
-                    maxLines = 8,
-                    placeholder = { Text(stringResource(R.string.thread_reply_hint)) },
-                )
-            }
-        },
-        confirmButton = {
-            TextButton(
-                onClick = onSubmit,
-                enabled = canSubmitThreadReply(draft, submitting, threadClosed),
-            ) {
-                if (submitting) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(18.dp),
-                        strokeWidth = 2.dp,
-                    )
-                    Spacer(Modifier.width(8.dp))
-                }
-                Text(
-                    stringResource(
-                        if (submitting) R.string.thread_reply_submitting
-                        else R.string.thread_reply_action,
-                    ),
-                )
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss, enabled = !submitting) {
-                Text(stringResource(R.string.thread_reply_cancel))
-            }
-        },
-    )
 }
 
 @Composable
