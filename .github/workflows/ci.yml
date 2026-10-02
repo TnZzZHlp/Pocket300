@@ -103,11 +103,15 @@ jobs:
           if-no-files-found: ignore
           retention-days: 14
 
+      - name: Prepare debug APK
+        if: success() && steps.changes.outputs.code_changed == 'true'
+        run: cp app/build/outputs/apk/debug/app-debug.apk Pocket300-debug.apk
+
       - name: Upload debug APK
         if: success() && steps.changes.outputs.code_changed == 'true'
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
-          name: Pocket300-debug
-          path: app/build/outputs/apk/debug/app-debug.apk
+          path: Pocket300-debug.apk
+          archive: false
           if-no-files-found: error
           retention-days: 14
