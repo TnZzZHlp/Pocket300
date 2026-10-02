@@ -27,7 +27,11 @@ Pocket300 是一个面向[百合会（Yamibo）](https://bbs.yamibo.com/)的第�
 ## 获取应用
 
 - [正式版与预发布版](https://github.com/TnZzZHlp/Pocket300/releases)
-- [最新开发版](https://github.com/TnZzZHlp/Pocket300/releases/tag/continuous)：由 `main` 分支自动构建，可能包含尚未充分验证的改动
+- [开发版 CI 构建](https://github.com/TnZzZHlp/Pocket300/actions/workflows/ci.yml)：成功构建后的调试 APK 位于该次运行的 Artifacts 中，可能包含尚未充分验证的改动
+
+下载开发版时，请登录 GitHub，在上述 CI 页面选择目标分支或提交对应的成功运行，在页面底部的 **Artifacts** 中下载 `Pocket300-debug`，解压后安装 `app-debug.apk`。APK artifact 保留 14 天，CI 不再上传或更新 `continuous` release。
+
+拉取请求的构建对应其待合并代码；如需最新 `main` 的开发版，可在 CI 页面选择 **Run workflow**，将分支设为 `main` 后手动运行。纯文档改动跳过构建时不会生成 APK artifact。
 
 Pocket300 支持 Android 8.0（API 26）及以上版本。安装从 GitHub 下载的 APK 时，系统可能要求允许浏览器或文件管理器安装未知来源应用。
 
@@ -96,7 +100,7 @@ adb shell setprop log.tag.Pocket300 V
 .\gradlew.bat assembleDebug      # 调试构建
 ```
 
-CI 会对涉及应用代码或构建配置的 `main` 分支拉取请求执行相同的测试、Lint 和构建任务；纯文档改动会跳过这些任务。
+CI 会对涉及应用代码或构建配置的 `main` 分支拉取请求执行相同的测试、Lint 和构建任务；纯文档改动会跳过这些任务。手动触发 CI 时会执行完整验证。验证成功后，调试 APK 会作为 `Pocket300-debug` artifact 上传，测试与 Lint 报告作为 `ci-reports` artifact 上传（失败时也会尝试上传报告），两者均保留 14 天。
 
 ## 构建签名版
 
