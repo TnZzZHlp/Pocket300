@@ -57,8 +57,8 @@ internal val PocketTypography = Typography(
     ),
     bodyLarge = TextStyle(
         fontWeight = FontWeight.Normal,
-        fontSize = 14.sp,
-        lineHeight = 22.sp,
+        fontSize = 16.sp,
+        lineHeight = 28.sp,
     ),
     bodyMedium = TextStyle(
         fontWeight = FontWeight.Normal,
@@ -82,8 +82,8 @@ internal val PocketTypography = Typography(
     ),
     labelSmall = TextStyle(
         fontWeight = FontWeight.Medium,
-        fontSize = 11.sp,
-        lineHeight = 16.sp,
+        fontSize = 12.sp,
+        lineHeight = 18.sp,
     ),
 )
 
@@ -100,7 +100,7 @@ internal data class ThreadTypography(
 
 internal fun threadTypography(typography: Typography): ThreadTypography = ThreadTypography(
     heading = typography.titleMedium,
-    body = typography.bodyMedium,
+    body = typography.bodyLarge,
     byline = typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
     supporting = typography.bodySmall,
     action = typography.labelLarge,

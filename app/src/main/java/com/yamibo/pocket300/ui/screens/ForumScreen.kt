@@ -60,6 +60,7 @@ import com.yamibo.pocket300.ui.components.ListFooter
 import com.yamibo.pocket300.ui.components.SectionLabel
 import com.yamibo.pocket300.ui.components.ThreadCard
 import com.yamibo.pocket300.ui.load
+import com.yamibo.pocket300.ui.theme.PocketSpacing
 import kotlinx.coroutines.launch
 
 private data class ForumContent(
@@ -196,7 +197,7 @@ internal fun ForumScreen(
             }
         },
     ) { padding ->
-        LoadContent(state, padding) { content ->
+        LoadContent(state, padding, onRetry = { reload++ }) { content ->
             val page = content.page
             AutoLoadNextPage(
                 listState = listState,
@@ -205,8 +206,8 @@ internal fun ForumScreen(
             )
             LazyColumn(
                 state = listState,
-                contentPadding = PaddingValues(12.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
+                contentPadding = PaddingValues(PocketSpacing.screen),
+                verticalArrangement = Arrangement.spacedBy(PocketSpacing.itemGap),
             ) {
                 if (page.subforums.isNotEmpty()) {
                     item { SectionLabel("子板块") }
@@ -334,7 +335,6 @@ internal fun ForumScreen(
                     }
                     item {
                         ListFooter(
-                            count = content.threads.size,
                             hasNextPage = page.pagination.hasNextPage,
                             isLoadingMore = content.isLoadingMore,
                             onLoadMore = { pageNumber = page.pagination.page + 1 },

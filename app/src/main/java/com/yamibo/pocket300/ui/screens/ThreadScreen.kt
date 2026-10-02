@@ -44,10 +44,10 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -59,8 +59,6 @@ import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.darkColorScheme
-import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -75,7 +73,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.res.stringResource
@@ -120,7 +117,9 @@ import com.yamibo.pocket300.ui.components.PostAuthorAvatar
 import com.yamibo.pocket300.ui.load
 import com.yamibo.pocket300.ui.plainText
 import com.yamibo.pocket300.ui.resolvePostLink
+import com.yamibo.pocket300.ui.theme.PocketSpacing
 import com.yamibo.pocket300.ui.theme.ThreadTypography
+import com.yamibo.pocket300.ui.theme.readerColorScheme
 import com.yamibo.pocket300.ui.theme.rememberThreadTypography
 import com.yamibo.pocket300.ui.viewmodels.PostRatingResult
 import com.yamibo.pocket300.ui.viewmodels.ThreadContent
@@ -522,7 +521,12 @@ internal fun ThreadScreen(
             }
         },
     ) { padding ->
-        LoadContent(state, padding) { content ->
+        LoadContent(
+            state,
+            padding,
+            onRetry = if (offlineOnly) null else ({ viewModel.refresh(); reload++ }),
+            failureMessage = if (offlineOnly) offlineUnavailableMessage else "",
+        ) { content ->
             val page = content.page
             if (!offlineOnly) {
                 AutoLoadNextPage(
@@ -533,8 +537,8 @@ internal fun ThreadScreen(
             }
             LazyColumn(
                 state = listState,
-                contentPadding = PaddingValues(12.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
+                contentPadding = PaddingValues(PocketSpacing.screen),
+                verticalArrangement = Arrangement.spacedBy(PocketSpacing.itemGap),
             ) {
                 item {
                     ThreadHero(
@@ -703,7 +707,6 @@ internal fun ThreadScreen(
                 }
                 item {
                     ListFooter(
-                        count = content.posts.size,
                         hasNextPage = !offlineOnly && page.pagination.hasNextPage,
                         isLoadingMore = content.isLoadingMore,
                         onLoadMore = {
@@ -1447,47 +1450,7 @@ private val ReaderTone.labelResource: Int
 @Composable
 internal fun ReaderTheme(tone: ReaderTone, content: @Composable () -> Unit) {
     val baseColors = MaterialTheme.colorScheme
-    val colors = when (tone) {
-        ReaderTone.SYSTEM -> baseColors
-        ReaderTone.PAPER -> lightColorScheme(
-            primary = Color(0xFF795548),
-            onPrimary = Color.White,
-            primaryContainer = Color(0xFFEADCC8),
-            onPrimaryContainer = Color(0xFF342018),
-            background = Color(0xFFF7F0E3),
-            onBackground = Color(0xFF322C25),
-            surface = Color(0xFFF7F0E3),
-            onSurface = Color(0xFF322C25),
-            surfaceVariant = Color(0xFFE9E0D2),
-            onSurfaceVariant = Color(0xFF655C51),
-        )
-
-        ReaderTone.MINT -> lightColorScheme(
-            primary = Color(0xFF3F6655),
-            onPrimary = Color.White,
-            primaryContainer = Color(0xFFD0E8D8),
-            onPrimaryContainer = Color(0xFF163A2B),
-            background = Color(0xFFEFF6EE),
-            onBackground = Color(0xFF243029),
-            surface = Color(0xFFEFF6EE),
-            onSurface = Color(0xFF243029),
-            surfaceVariant = Color(0xFFDCE9DC),
-            onSurfaceVariant = Color(0xFF526158),
-        )
-
-        ReaderTone.NIGHT -> darkColorScheme(
-            primary = Color(0xFFD6B98C),
-            onPrimary = Color(0xFF402D10),
-            primaryContainer = Color(0xFF59451F),
-            onPrimaryContainer = Color(0xFFF4DCB0),
-            background = Color(0xFF171819),
-            onBackground = Color(0xFFD7D4CE),
-            surface = Color(0xFF171819),
-            onSurface = Color(0xFFD7D4CE),
-            surfaceVariant = Color(0xFF303234),
-            onSurfaceVariant = Color(0xFFB8B6B0),
-        )
-    }
+    val colors = readerColorScheme(tone, baseColors)
     MaterialTheme(colorScheme = colors, typography = MaterialTheme.typography, content = content)
 }
 
@@ -1514,82 +1477,52 @@ private fun PostCard(
             is PostLinkTarget.External -> uriHandler.openUri(target.url)
         }
     }
-    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+    Surface(color = MaterialTheme.colorScheme.surface) {
+        Column(
+            Modifier.padding(horizontal = 4.dp, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(20.dp),
+        ) {
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                PostAuthorAvatar(
+                    author = post.author,
+                    size = 36.dp,
+                    allowRemoteImage = allowRemoteImages,
+                )
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
                 ) {
-                    PostAuthorAvatar(
-                        author = post.author,
-                        size = 40.dp,
-                        allowRemoteImage = allowRemoteImages,
+                    SelectionContainer {
+                        Text(
+                            text = post.author.name,
+                            style = typography.byline,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                    Text(
+                        post.createdAtText,
+                        style = typography.metadata,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
-                    Column(
-                        modifier = Modifier.weight(1f),
-                        verticalArrangement = Arrangement.spacedBy(2.dp),
-                    ) {
-                        SelectionContainer {
-                            Text(
-                                text = post.author.name,
-                                style = typography.byline,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                        }
-                        Text(
-                            post.createdAtText,
-                            style = typography.metadata,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                    Surface(
-                        color = MaterialTheme.colorScheme.primaryContainer,
-                        shape = CircleShape,
-                    ) {
-                        Text(
-                            if (post.isOriginalPost) "楼主" else "${post.number} 楼",
-                            modifier = Modifier.padding(horizontal = 11.dp, vertical = 6.dp),
-                            style = typography.label,
-                            color = MaterialTheme.colorScheme.onPrimaryContainer,
-                        )
-                    }
                 }
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.End,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    if (networkActionsEnabled) {
-                        IconButton(onClick = onComment, enabled = commentEnabled) {
-                            Icon(
-                                Icons.AutoMirrored.Rounded.Comment,
-                                contentDescription = if (post.isOriginalPost) {
-                                    stringResource(R.string.thread_comment_original_post_action)
-                                } else {
-                                    stringResource(R.string.thread_comment_post_action, post.number)
-                                },
-                            )
-                        }
-                        IconButton(onClick = onRate) {
-                            Icon(
-                                Icons.Rounded.Star,
-                                contentDescription = if (post.isOriginalPost) {
-                                    stringResource(R.string.thread_rating_original_post_action)
-                                } else {
-                                    stringResource(R.string.thread_rating_post_action, post.number)
-                                },
-                            )
-                        }
-                    }
-                    IconButton(onClick = onReader) {
-                        Icon(
-                            Icons.AutoMirrored.Rounded.MenuBook,
-                            contentDescription = stringResource(R.string.reader_open),
-                        )
-                    }
+                Text(
+                    if (post.isOriginalPost) stringResource(R.string.reader_original_post)
+                    else stringResource(R.string.reader_floor, post.number),
+                    style = typography.label,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                IconButton(onClick = onReader) {
+                    Icon(
+                        Icons.AutoMirrored.Rounded.MenuBook,
+                        contentDescription = stringResource(R.string.reader_open),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                 }
             }
             PostHtml(
@@ -1601,6 +1534,36 @@ private fun PostCard(
                 localImageUrls = localImageUrls,
                 allowRemoteImages = allowRemoteImages,
             )
+            if (networkActionsEnabled) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    IconButton(onClick = onComment, enabled = commentEnabled) {
+                        Icon(
+                            Icons.AutoMirrored.Rounded.Comment,
+                            contentDescription = if (post.isOriginalPost) {
+                                stringResource(R.string.thread_comment_original_post_action)
+                            } else {
+                                stringResource(R.string.thread_comment_post_action, post.number)
+                            },
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    IconButton(onClick = onRate) {
+                        Icon(
+                            Icons.Rounded.Star,
+                            contentDescription = if (post.isOriginalPost) {
+                                stringResource(R.string.thread_rating_original_post_action)
+                            } else {
+                                stringResource(R.string.thread_rating_post_action, post.number)
+                            },
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+            }
             if (shouldShowRatingsSummary(post.ratingCount)) {
                 Surface(
                     color = MaterialTheme.colorScheme.secondaryContainer,
@@ -1757,8 +1720,8 @@ private fun ThreadHero(
     onOriginalPosterOnlyChange: (Boolean) -> Unit,
 ) {
     val thread = page.thread
-    ElevatedCard(Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    Surface(modifier = Modifier.fillMaxWidth(), color = MaterialTheme.colorScheme.surface) {
+        Column(Modifier.padding(horizontal = 4.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
@@ -1767,9 +1730,7 @@ private fun ThreadHero(
                 SelectionContainer(modifier = Modifier.weight(1f)) {
                     Text(
                         text = thread.subject,
-                        style = typography.heading,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis,
+                        style = MaterialTheme.typography.headlineSmall,
                     )
                 }
                 if (offlineOnly) {
@@ -1824,7 +1785,7 @@ private fun ThreadHero(
                         )
                     }
                     Text(
-                        "${thread.replyCount} 回复 · ${thread.viewCount} 浏览 · 热度 ${thread.heat}",
+                        stringResource(R.string.thread_activity, thread.replyCount, thread.viewCount, thread.heat),
                         style = typography.metadata,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )

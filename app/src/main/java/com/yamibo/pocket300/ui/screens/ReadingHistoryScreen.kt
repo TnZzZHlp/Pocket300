@@ -17,12 +17,9 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Close
-import androidx.compose.material3.Card
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -42,11 +39,12 @@ import com.yamibo.pocket300.ui.EmptyState
 import com.yamibo.pocket300.ui.LoadContent
 import com.yamibo.pocket300.ui.LoadState
 import com.yamibo.pocket300.ui.ScreenScaffold
-import com.yamibo.pocket300.ui.components.LastReadPosition
 import com.yamibo.pocket300.ui.components.LocalSearchField
-import com.yamibo.pocket300.ui.components.ThreadCardTitle
+import com.yamibo.pocket300.ui.components.ThreadCardContent
+import com.yamibo.pocket300.ui.components.ThreadCardSurface
 import com.yamibo.pocket300.ui.components.matchesLocalSearch
 import com.yamibo.pocket300.ui.load
+import com.yamibo.pocket300.ui.theme.PocketSpacing
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -117,7 +115,7 @@ internal fun ReadingHistoryScreen(
                 )
             }
             Box(Modifier.fillMaxWidth().weight(1f)) {
-                LoadContent(state, PaddingValues(0.dp)) { entries ->
+                LoadContent(state, PaddingValues(0.dp), onRetry = { state = LoadState.Loading; reload++ }) { entries ->
                     val filteredEntries = remember(entries, searchQuery) {
                         filterReadingHistoryEntries(entries, searchQuery)
                     }
@@ -128,7 +126,7 @@ internal fun ReadingHistoryScreen(
                     }
                     when {
                         entries.isEmpty() -> {
-                            EmptyState("还没有阅读记录", "打开主题后会自动记录在这里。")
+                            EmptyState(stringResource(R.string.history_empty_title), message = "")
                         }
                         filteredEntries.isEmpty() -> {
                             EmptyState(
@@ -139,8 +137,8 @@ internal fun ReadingHistoryScreen(
                         else -> {
                             LazyColumn(
                                 state = listState,
-                                contentPadding = PaddingValues(16.dp),
-                                verticalArrangement = Arrangement.spacedBy(12.dp),
+                                contentPadding = PaddingValues(PocketSpacing.screen),
+                                verticalArrangement = Arrangement.spacedBy(PocketSpacing.itemGap),
                             ) {
                                 items(filteredEntries, key = { it.threadId }) { entry ->
                                     ReadingHistoryCard(
@@ -179,22 +177,15 @@ private fun ReadingHistoryCard(
     val readAtText = remember(entry.readAt) {
         Instant.ofEpochMilli(entry.readAt).atZone(ZoneId.systemDefault()).format(historyTimeFormatter)
     }
-    Card(onClick = { onClick(entry) }, modifier = modifier.fillMaxWidth()) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            ThreadCardTitle(
-                subject = entry.subject,
-                threadId = entry.threadId,
-                maxLines = 2,
-            )
-            LastReadPosition(entry.lastReadFloor)
-            Text(
-                stringResource(R.string.history_thread_metadata, entry.authorName, readAtText),
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            if (entry.lastPostAtText.isNotBlank()) {
-                Text("最后回复 ${entry.lastPostAtText}", style = MaterialTheme.typography.bodySmall)
-            }
-        }
+    ThreadCardSurface(onClick = { onClick(entry) }, modifier = modifier) {
+        ThreadCardContent(
+            subject = entry.subject,
+            threadId = entry.threadId,
+            metadata = stringResource(R.string.history_thread_metadata, entry.authorName, readAtText),
+            supporting = entry.lastPostAtText.takeIf(String::isNotBlank)?.let {
+                stringResource(R.string.history_last_reply, it)
+            },
+            readingFloor = entry.lastReadFloor,
+        )
     }
 }

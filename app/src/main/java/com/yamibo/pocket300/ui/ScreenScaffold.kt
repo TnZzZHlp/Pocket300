@@ -2,10 +2,13 @@ package com.yamibo.pocket300.ui
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
@@ -13,8 +16,11 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.rounded.ErrorOutline
+import androidx.compose.material.icons.rounded.Inbox
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Settings
+import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -31,12 +37,15 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.yamibo.pocket300.R
 import com.yamibo.pocket300.logging.AppLogger
+import com.yamibo.pocket300.ui.theme.PocketSpacing
 import kotlinx.coroutines.CancellationException
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -65,13 +74,17 @@ internal fun ScreenScaffold(
                     detectTapGestures(onDoubleTap = { onTopBarDoubleClick() })
                 }
             },
-            title = { Text(title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+            title = { Text(title, style = MaterialTheme.typography.titleLarge, maxLines = 1, overflow = TextOverflow.Ellipsis) },
             navigationIcon = {
-                if (onBack != null) IconButton(onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "返回") }
+                if (onBack != null) IconButton(onBack) {
+                    Icon(Icons.AutoMirrored.Rounded.ArrowBack, stringResource(R.string.action_back))
+                }
             },
             actions = {
                 actions()
-                if (onSearch != null) IconButton(onSearch) { Icon(Icons.Rounded.Search, "搜索") }
+                if (onSearch != null) IconButton(onSearch) {
+                    Icon(Icons.Rounded.Search, stringResource(R.string.search_action))
+                }
                 if (onSettings != null) {
                     IconButton(onSettings) {
                         Icon(Icons.Rounded.Settings, stringResource(R.string.settings_title))
@@ -129,11 +142,22 @@ internal fun ScreenScaffold(
 )
 
 @Composable
-internal fun <T> LoadContent(state: LoadState<T>, padding: PaddingValues, content: @Composable (T) -> Unit) {
+internal fun <T> LoadContent(
+    state: LoadState<T>,
+    padding: PaddingValues,
+    onRetry: (() -> Unit)? = null,
+    failureMessage: String = "",
+    content: @Composable (T) -> Unit,
+) {
     Box(Modifier.fillMaxSize().padding(padding)) {
         when (state) {
             LoadState.Loading -> Loading()
-            is LoadState.Failed -> ScrollableEmptyState("加载失败", state.message)
+            is LoadState.Failed -> ScrollableEmptyState(
+                title = stringResource(R.string.load_failed_title),
+                message = failureMessage,
+                icon = Icons.Rounded.ErrorOutline,
+                onRetry = onRetry,
+            )
             is LoadState.Ready -> content(state.value)
         }
     }
@@ -145,22 +169,69 @@ internal fun Loading(modifier: Modifier = Modifier) = Box(modifier.fillMaxSize()
 }
 
 @Composable
-internal fun EmptyState(title: String, message: String, modifier: Modifier = Modifier) = Box(
-    modifier.fillMaxSize().padding(24.dp),
+internal fun EmptyState(
+    title: String,
+    message: String,
+    modifier: Modifier = Modifier,
+    icon: ImageVector = Icons.Rounded.Inbox,
+    onRetry: (() -> Unit)? = null,
+    actionLabel: String = stringResource(R.string.action_retry),
+) = Box(
+    modifier.fillMaxSize().padding(PocketSpacing.section),
     contentAlignment = Alignment.Center,
 ) {
-    Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text(title, style = MaterialTheme.typography.titleLarge)
-        Text(message, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(16.dp),
+    ) {
+        Surface(
+            modifier = Modifier.size(64.dp),
+            shape = MaterialTheme.shapes.large,
+            color = MaterialTheme.colorScheme.surfaceContainerHigh,
+            contentColor = MaterialTheme.colorScheme.primary,
+        ) {
+            Box(contentAlignment = Alignment.Center) {
+                Icon(icon, contentDescription = null, modifier = Modifier.size(28.dp))
+            }
+        }
+        Text(title, style = MaterialTheme.typography.titleLarge, textAlign = TextAlign.Center)
+        if (message.isNotBlank()) {
+            Text(
+                message,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center,
+            )
+        }
+        onRetry?.let {
+            Button(onClick = it, modifier = Modifier.heightIn(min = 48.dp), shape = MaterialTheme.shapes.medium) {
+                Text(actionLabel)
+            }
+        }
     }
 }
 
 @Composable
-internal fun ScrollableEmptyState(title: String, message: String, modifier: Modifier = Modifier) = LazyColumn(
-    modifier.fillMaxSize(),
-) {
-    item {
-        EmptyState(title, message, Modifier.fillParentMaxSize())
+internal fun ScrollableEmptyState(
+    title: String,
+    message: String,
+    modifier: Modifier = Modifier,
+    icon: ImageVector = Icons.Rounded.Inbox,
+    onRetry: (() -> Unit)? = null,
+    actionLabel: String = stringResource(R.string.action_retry),
+) = BoxWithConstraints(modifier.fillMaxSize()) {
+    val minimumHeight = maxHeight
+    LazyColumn(Modifier.fillMaxSize()) {
+        item {
+            EmptyState(
+                title = title,
+                message = message,
+                modifier = Modifier.fillMaxWidth().heightIn(min = minimumHeight),
+                icon = icon,
+                onRetry = onRetry,
+                actionLabel = actionLabel,
+            )
+        }
     }
 }
 
