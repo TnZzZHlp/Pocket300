@@ -4,6 +4,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -17,10 +18,19 @@ class YamiboThreadsApiTest {
         val thread = page.threads.single()
         assertEquals(1000, thread.id)
         assertEquals("alice", thread.author.name)
+        assertEquals(42, thread.author.id)
         assertEquals(2, thread.stickyLevel)
         assertEquals("动画", thread.typeName)
         assertEquals("发布时间", thread.createdAtText)
         assertEquals(4, thread.replyCount)
+    }
+
+    @Test fun toleratesMissingAnonymousAndInvalidAuthorIds() {
+        listOf(null, "0", "-1", "invalid").forEach { id ->
+            val fixture = JSONObject(FIXTURE)
+            fixture.getJSONArray("forum_threadlist").getJSONObject(0).put("authorid", id)
+            assertNull(parseForumThreads(fixture).threads.single().author.id)
+        }
     }
 
     @Test(expected = YamiboApiException::class)

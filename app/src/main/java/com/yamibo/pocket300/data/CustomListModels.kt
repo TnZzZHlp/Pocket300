@@ -42,6 +42,8 @@ data class CustomListThread(
     val replyCount: Int,
     val viewCount: Int,
     val webUrl: String,
+    val authorId: Int? = null,
+    val authorAvatarUrl: String? = null,
 )
 
 internal fun parseCustomListSearchType(value: String): YamiboThreadSearchType =

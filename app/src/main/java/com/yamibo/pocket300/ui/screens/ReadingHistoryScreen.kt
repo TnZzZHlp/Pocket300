@@ -33,6 +33,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.yamibo.pocket300.R
+import com.yamibo.pocket300.api.YamiboPostAuthor
 import com.yamibo.pocket300.data.ReadingHistoryDatabase
 import com.yamibo.pocket300.data.ReadingHistoryEntry
 import com.yamibo.pocket300.ui.EmptyState
@@ -44,7 +45,6 @@ import com.yamibo.pocket300.ui.components.ThreadCardContent
 import com.yamibo.pocket300.ui.components.ThreadCardSurface
 import com.yamibo.pocket300.ui.components.matchesLocalSearch
 import com.yamibo.pocket300.ui.load
-import com.yamibo.pocket300.ui.theme.PocketSpacing
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -137,8 +137,8 @@ internal fun ReadingHistoryScreen(
                         else -> {
                             LazyColumn(
                                 state = listState,
-                                contentPadding = PaddingValues(PocketSpacing.screen),
-                                verticalArrangement = Arrangement.spacedBy(PocketSpacing.itemGap),
+                                contentPadding = PaddingValues(bottom = 16.dp),
+                                verticalArrangement = Arrangement.spacedBy(0.dp),
                             ) {
                                 items(filteredEntries, key = { it.threadId }) { entry ->
                                     ReadingHistoryCard(
@@ -181,7 +181,9 @@ private fun ReadingHistoryCard(
         ThreadCardContent(
             subject = entry.subject,
             threadId = entry.threadId,
-            metadata = stringResource(R.string.history_thread_metadata, entry.authorName, readAtText),
+            author = YamiboPostAuthor(entry.authorAvatarUrl, entry.authorId, entry.authorName),
+            dateText = stringResource(R.string.history_read_at, readAtText),
+            resolveMissingAuthor = true,
             supporting = entry.lastPostAtText.takeIf(String::isNotBlank)?.let {
                 stringResource(R.string.history_last_reply, it)
             },

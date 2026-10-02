@@ -45,6 +45,8 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.yamibo.pocket300.Pocket300Application
 import com.yamibo.pocket300.R
+import com.yamibo.pocket300.api.GetThreadPostsInput
+import com.yamibo.pocket300.data.ThreadAuthorRepository
 import com.yamibo.pocket300.data.ReadingHistoryDatabase
 import com.yamibo.pocket300.data.ReadingHistoryEntry
 import com.yamibo.pocket300.data.download.ThreadDownloadManager
@@ -86,6 +88,11 @@ fun Pocket300App() {
     val context = LocalContext.current
     val themePreferencesStore = remember(context) { AppThemePreferencesStore(context) }
     val historyDatabase = remember(context) { ReadingHistoryDatabase.getInstance(context) }
+    val threadAuthors = remember {
+        ThreadAuthorRepository(loadAuthor = { threadId ->
+            api.posts.getThreadPosts(GetThreadPostsInput(threadId)).thread.author
+        })
+    }
     val downloadManager = remember(context) {
         ThreadDownloadManager.getInstance(context.applicationContext)
     }
@@ -121,6 +128,7 @@ fun Pocket300App() {
 
         CompositionLocalProvider(
             LocalReadingHistory provides readingHistory,
+            LocalThreadAuthors provides threadAuthors,
             LocalDownloadedThreadIds provides completedDownloadThreadIds,
         ) {
         SharedTransitionLayout {

@@ -4,6 +4,9 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Person
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -26,6 +29,7 @@ internal fun PostAuthorAvatar(
     size: Dp,
     modifier: Modifier = Modifier,
     allowRemoteImage: Boolean = true,
+    useInitials: Boolean = true,
 ) {
     Surface(
         modifier = modifier.size(size),
@@ -33,10 +37,19 @@ internal fun PostAuthorAvatar(
         color = MaterialTheme.colorScheme.primaryContainer,
     ) {
         Box(contentAlignment = Alignment.Center) {
-            Text(
-                text = author.name.firstOrNull()?.toString().orEmpty(),
-                color = MaterialTheme.colorScheme.onPrimaryContainer,
-            )
+            if (useInitials) {
+                Text(
+                    text = author.name.firstOrNull()?.toString().orEmpty(),
+                    color = MaterialTheme.colorScheme.onPrimaryContainer,
+                )
+            } else {
+                Icon(
+                    Icons.Rounded.Person,
+                    contentDescription = null,
+                    modifier = Modifier.size(size * 0.65f),
+                    tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                )
+            }
             author.avatarUrl?.takeIf { allowRemoteImage }?.let { avatarUrl ->
                 AsyncImage(
                     model = rememberPostImageRequest(resolveYamiboAvatarUrl(avatarUrl)),
