@@ -155,6 +155,7 @@ internal fun ReaderScreen(
     var completedDownload by remember(threadId) {
         mutableStateOf<DownloadedThread?>(null)
     }
+    var reload by remember(threadId, postId) { mutableIntStateOf(0) }
     var controlsVisible by remember { mutableStateOf(true) }
     var settingsVisible by remember { mutableStateOf(false) }
     var imageSettingsVisible by remember { mutableStateOf(false) }
@@ -202,7 +203,7 @@ internal fun ReaderScreen(
             is LoadState.Failed, LoadState.Loading -> Unit
         }
     }
-    LaunchedEffect(threadId, postId, initialPage, reusableContent, offlineOnly) {
+    LaunchedEffect(threadId, postId, initialPage, reusableContent, offlineOnly, reload) {
         loadReaderContentLocalFirst(
             threadId = threadId,
             postId = postId,
@@ -611,7 +612,11 @@ internal fun ReaderScreen(
                     modifier = Modifier.padding(scaffoldPadding),
                 )
             } else {
-                LoadContent(state, PaddingValues()) { content ->
+                LoadContent(
+                    state,
+                    PaddingValues(),
+                    onRetry = if (offlineOnly) null else ({ reload++ }),
+                ) { content ->
                 val openLink: (String) -> Unit = { url ->
                     when (val target = resolvePostLink(url)) {
                         is PostLinkTarget.Forum -> onForum(target.id)

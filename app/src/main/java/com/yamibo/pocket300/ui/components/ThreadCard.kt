@@ -1,36 +1,20 @@
 package com.yamibo.pocket300.ui.components
 
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.Card
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.unit.dp
+import androidx.compose.ui.res.stringResource
+import com.yamibo.pocket300.R
 import com.yamibo.pocket300.api.YamiboThread
-import com.yamibo.pocket300.ui.LocalReadingHistory
-import com.yamibo.pocket300.ui.dimIfRead
 
 @Composable
 internal fun ThreadCard(thread: YamiboThread, onClick: (YamiboThread) -> Unit, modifier: Modifier = Modifier) {
-    val histories = LocalReadingHistory.current
-    Card(
-        onClick = { onClick(thread) },
-        modifier = modifier.fillMaxWidth().dimIfRead(thread.id, histories),
-    ) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            if (thread.typeName != null) Text(thread.typeName, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
-            ThreadCardTitle(
-                subject = thread.subject,
-                threadId = thread.id,
-                maxLines = 2,
-            )
-            Text("${thread.author.name} · ${thread.createdAtText} · ${thread.replyCount} 回复", style = MaterialTheme.typography.labelMedium)
-            ThreadLastReadPosition(thread.id)
-        }
+    ThreadCardSurface(onClick = { onClick(thread) }, modifier = modifier) {
+        ThreadCardContent(
+            threadId = thread.id,
+            subject = thread.subject,
+            category = thread.typeName,
+            metadata = stringResource(R.string.thread_card_metadata, thread.author.name, thread.createdAtText),
+            activity = stringResource(R.string.thread_card_replies, thread.replyCount),
+        )
     }
 }
-

@@ -7,12 +7,6 @@ import org.junit.Test
 
 class ReadingHistoryUiTest {
     @Test
-    fun weakensThreadsWithReadingHistory() {
-        assertEquals(READ_THREAD_ALPHA, threadAlpha(hasReadingHistory = true), 0f)
-        assertEquals(1f, threadAlpha(hasReadingHistory = false), 0f)
-    }
-
-    @Test
     fun findsLastReadFloorForThreadWithReadingHistory() {
         val histories = mapOf(12 to historyEntry(threadId = 12, lastReadFloor = 8))
 

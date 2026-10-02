@@ -26,7 +26,6 @@ import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Clear
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material3.Button
-import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
@@ -36,6 +35,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -48,7 +48,6 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -57,12 +56,12 @@ import com.yamibo.pocket300.api.YamiboSearchThread
 import com.yamibo.pocket300.api.YamiboThreadSearchType
 import com.yamibo.pocket300.ui.LoadState
 import com.yamibo.pocket300.ui.Loading
-import com.yamibo.pocket300.ui.LocalReadingHistory
 import com.yamibo.pocket300.ui.ScreenScaffold
+import com.yamibo.pocket300.ui.ScrollableEmptyState
+import com.yamibo.pocket300.ui.theme.PocketSpacing
 import com.yamibo.pocket300.ui.components.AutoLoadNextPage
-import com.yamibo.pocket300.ui.components.ThreadCardTitle
-import com.yamibo.pocket300.ui.components.ThreadLastReadPosition
-import com.yamibo.pocket300.ui.dimIfRead
+import com.yamibo.pocket300.ui.components.ThreadCardContent
+import com.yamibo.pocket300.ui.components.ThreadCardSurface
 import com.yamibo.pocket300.ui.viewmodels.SearchContent
 import com.yamibo.pocket300.ui.viewmodels.SearchQueryError
 import com.yamibo.pocket300.ui.viewmodels.SearchViewModel
@@ -109,7 +108,7 @@ internal fun SearchScreen(
                 when (val current = viewModel.state) {
                     null -> SearchMessage(
                         title = stringResource(R.string.search_initial_title),
-                        message = stringResource(R.string.search_initial_message),
+                        message = "",
                     )
                     LoadState.Loading -> Loading()
                     is LoadState.Failed -> SearchMessage(
@@ -239,25 +238,13 @@ private fun SearchMessage(
     actionLabel: String? = null,
     onAction: (() -> Unit)? = null,
 ) {
-    Box(
-        modifier = Modifier.fillMaxSize().padding(24.dp),
-        contentAlignment = Alignment.Center,
-    ) {
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
-            Text(title, style = MaterialTheme.typography.titleLarge)
-            Text(
-                message,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                textAlign = TextAlign.Center,
-            )
-            if (actionLabel != null && onAction != null) {
-                OutlinedButton(onClick = onAction) { Text(actionLabel) }
-            }
-        }
-    }
+    ScrollableEmptyState(
+        title = title,
+        message = message,
+        icon = Icons.Rounded.Search,
+        onRetry = onAction,
+        actionLabel = actionLabel ?: stringResource(R.string.action_retry),
+    )
 }
 
 @OptIn(ExperimentalSharedTransitionApi::class)
@@ -288,7 +275,7 @@ private fun SearchResults(
     LazyColumn(
         state = listState,
         contentPadding = PaddingValues(start = 16.dp, top = 4.dp, end = 16.dp, bottom = 16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
+        verticalArrangement = Arrangement.spacedBy(PocketSpacing.itemGap),
     ) {
         item(key = "search-summary") {
             Row(
@@ -335,17 +322,9 @@ private fun SearchListFooter(content: SearchContent, onLoadMore: () -> Unit) {
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        Text(
-            stringResource(R.string.search_result_count, content.threads.size),
-            style = MaterialTheme.typography.labelMedium,
-        )
         when {
             content.isLoadingMore -> {
                 CircularProgressIndicator(modifier = Modifier.size(24.dp), strokeWidth = 2.dp)
-                Text(
-                    stringResource(R.string.search_loading_more),
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
             }
             content.loadMoreError != null -> {
                 Text(
@@ -358,12 +337,13 @@ private fun SearchListFooter(content: SearchContent, onLoadMore: () -> Unit) {
                 }
             }
             content.page.pagination.hasNextPage -> {
-                OutlinedButton(onClick = onLoadMore) {
-                    Text(stringResource(R.string.search_load_more))
+                TextButton(onClick = onLoadMore) {
+                    Text(stringResource(R.string.list_load_more_hint))
                 }
             }
             else -> Text(
-                stringResource(R.string.search_end),
+                stringResource(R.string.list_end),
+                style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
@@ -376,35 +356,14 @@ private fun SearchThreadCard(
     onClick: (YamiboSearchThread) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val histories = LocalReadingHistory.current
-    Card(
-        onClick = { onClick(thread) },
-        modifier = modifier.fillMaxWidth().dimIfRead(thread.id, histories),
-    ) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text(
-                thread.forum.name,
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.primary,
-            )
-            ThreadCardTitle(
-                subject = thread.subject,
-                threadId = thread.id,
-                maxLines = 2,
-            )
-            Text(
-                stringResource(
-                    R.string.search_thread_metadata,
-                    thread.author.name,
-                    thread.createdAtText,
-                    thread.replyCount,
-                    thread.viewCount,
-                ),
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            ThreadLastReadPosition(thread.id)
-        }
+    ThreadCardSurface(onClick = { onClick(thread) }, modifier = modifier) {
+        ThreadCardContent(
+            threadId = thread.id,
+            subject = thread.subject,
+            category = thread.forum.name,
+            metadata = stringResource(R.string.thread_card_metadata, thread.author.name, thread.createdAtText),
+            activity = stringResource(R.string.thread_card_activity, thread.replyCount, thread.viewCount),
+        )
     }
 }
 

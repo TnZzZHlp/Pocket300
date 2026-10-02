@@ -17,12 +17,9 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Close
-import androidx.compose.material3.Card
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -39,15 +36,14 @@ import com.yamibo.pocket300.api.YamiboFavoriteThread
 import com.yamibo.pocket300.ui.EmptyState
 import com.yamibo.pocket300.ui.LoadContent
 import com.yamibo.pocket300.ui.LoadState
-import com.yamibo.pocket300.ui.LocalReadingHistory
 import com.yamibo.pocket300.ui.ScreenScaffold
 import com.yamibo.pocket300.ui.api
 import com.yamibo.pocket300.ui.components.LocalSearchField
-import com.yamibo.pocket300.ui.components.ThreadCardTitle
-import com.yamibo.pocket300.ui.components.ThreadLastReadPosition
+import com.yamibo.pocket300.ui.components.ThreadCardContent
+import com.yamibo.pocket300.ui.components.ThreadCardSurface
 import com.yamibo.pocket300.ui.components.matchesLocalSearch
-import com.yamibo.pocket300.ui.dimIfRead
 import com.yamibo.pocket300.ui.load
+import com.yamibo.pocket300.ui.theme.PocketSpacing
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalSharedTransitionApi::class)
@@ -57,7 +53,6 @@ internal fun FavoritesScreen(
     animatedVisibilityScope: AnimatedVisibilityScope,
     onThread: (YamiboFavoriteThread) -> Unit,
 ) {
-    val histories = LocalReadingHistory.current
     var reload by remember { mutableStateOf(0) }
     val listState = rememberLazyListState()
     val coroutineScope = rememberCoroutineScope()
@@ -108,7 +103,7 @@ internal fun FavoritesScreen(
                 )
             }
             Box(Modifier.fillMaxWidth().weight(1f)) {
-                LoadContent(state, PaddingValues(0.dp)) { favorites ->
+                LoadContent(state, PaddingValues(0.dp), onRetry = { state = LoadState.Loading; reload++ }) { favorites ->
                     val filteredFavorites = remember(favorites, searchQuery) {
                         filterFavoriteThreads(favorites, searchQuery)
                     }
@@ -119,7 +114,7 @@ internal fun FavoritesScreen(
                     }
                     when {
                         favorites.isEmpty() -> {
-                            EmptyState("还没有收藏", "在主题页面收藏的内容会显示在这里。")
+                            EmptyState(stringResource(R.string.favorites_empty_title), message = "")
                         }
                         filteredFavorites.isEmpty() -> {
                             EmptyState(
@@ -130,32 +125,24 @@ internal fun FavoritesScreen(
                         else -> {
                             LazyColumn(
                                 state = listState,
-                                contentPadding = PaddingValues(12.dp),
-                                verticalArrangement = Arrangement.spacedBy(8.dp),
+                                contentPadding = PaddingValues(PocketSpacing.screen),
+                                verticalArrangement = Arrangement.spacedBy(PocketSpacing.itemGap),
                             ) {
                                 items(filteredFavorites, key = { it.favoriteId }) { favorite ->
-                                    Card(
+                                    ThreadCardSurface(
                                         onClick = { onThread(favorite) },
                                         modifier = with(sharedTransitionScope) {
                                             Modifier.sharedBounds(
                                                 rememberSharedContentState("thread-${favorite.threadId}"),
                                                 animatedVisibilityScope,
                                             )
-                                        }.fillMaxWidth().dimIfRead(favorite.threadId, histories),
+                                        },
                                     ) {
-                                        Column(
-                                            Modifier.padding(16.dp),
-                                            verticalArrangement = Arrangement.spacedBy(8.dp),
-                                        ) {
-                                            ThreadCardTitle(
-                                                subject = favorite.title,
-                                                threadId = favorite.threadId,
-                                            )
-                                            favorite.createdAtText.takeIf(String::isNotBlank)?.let {
-                                                Text(it, style = MaterialTheme.typography.labelMedium)
-                                            }
-                                            ThreadLastReadPosition(favorite.threadId)
-                                        }
+                                        ThreadCardContent(
+                                            subject = favorite.title,
+                                            threadId = favorite.threadId,
+                                            metadata = favorite.createdAtText,
+                                        )
                                     }
                                 }
                             }

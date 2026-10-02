@@ -33,6 +33,7 @@ internal class ForumIndexViewModel : ViewModel() {
     private fun load(showRefreshIndicator: Boolean) {
         loadJob?.cancel()
         val generation = ++refreshGeneration
+        if (state is LoadState.Failed) state = LoadState.Loading
         if (showRefreshIndicator) isRefreshing = true
         loadJob = viewModelScope.launch {
             try {

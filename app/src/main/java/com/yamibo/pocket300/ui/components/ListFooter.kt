@@ -8,7 +8,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -17,7 +17,9 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import com.yamibo.pocket300.R
 import kotlinx.coroutines.flow.distinctUntilChanged
 
 @Composable
@@ -35,7 +37,6 @@ internal fun listFooterState(isLoadingMore: Boolean, hasNextPage: Boolean): List
 
 @Composable
 internal fun ListFooter(
-    count: Int,
     hasNextPage: Boolean,
     isLoadingMore: Boolean,
     onLoadMore: () -> Unit,
@@ -45,17 +46,17 @@ internal fun ListFooter(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        Text("已加载 $count 项", style = MaterialTheme.typography.labelMedium)
         when (listFooterState(isLoadingMore, hasNextPage)) {
             ListFooterState.LOADING -> CircularProgressIndicator(
                 modifier = Modifier.size(24.dp),
                 strokeWidth = 2.dp,
             )
-            ListFooterState.LOAD_MORE -> OutlinedButton(onClick = onLoadMore) {
-                Text("加载下一页")
+            ListFooterState.LOAD_MORE -> TextButton(onClick = onLoadMore) {
+                Text(stringResource(R.string.list_load_more_hint))
             }
             ListFooterState.END -> Text(
-                "已经到底了",
+                stringResource(R.string.list_end),
+                style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }

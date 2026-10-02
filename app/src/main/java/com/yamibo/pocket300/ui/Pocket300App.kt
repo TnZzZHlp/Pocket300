@@ -16,8 +16,10 @@ import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.Forum
 import androidx.compose.material3.Icon
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -132,7 +134,7 @@ fun Pocket300App() {
                   enter = fadeIn(),
                   exit = fadeOut(),
               ) {
-                  NavigationBar {
+                  NavigationBar(containerColor = MaterialTheme.colorScheme.surfaceContainerLow) {
                       tabs.forEach { tab ->
                           NavigationBarItem(
                               selected = route == tab.route,
@@ -145,6 +147,13 @@ fun Pocket300App() {
                               },
                               icon = { Icon(tab.icon, contentDescription = null) },
                               label = { Text(stringResource(tab.label)) },
+                              colors = NavigationBarItemDefaults.colors(
+                                  selectedIconColor = MaterialTheme.colorScheme.primary,
+                                  selectedTextColor = MaterialTheme.colorScheme.primary,
+                                  indicatorColor = MaterialTheme.colorScheme.primaryContainer,
+                                  unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                                  unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                              ),
                           )
                       }
                   }

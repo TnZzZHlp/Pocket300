@@ -3,6 +3,7 @@ package com.yamibo.pocket300.ui.screens
 import androidx.compose.animation.AnimatedVisibilityScope
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionScope
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -43,6 +44,7 @@ import com.yamibo.pocket300.api.YamiboForum
 import com.yamibo.pocket300.api.YamiboForumIndex
 import com.yamibo.pocket300.ui.LoadContent
 import com.yamibo.pocket300.ui.ScreenScaffold
+import com.yamibo.pocket300.ui.theme.PocketSpacing
 import com.yamibo.pocket300.ui.viewmodels.ForumIndexViewModel
 import kotlinx.coroutines.launch
 import java.text.NumberFormat
@@ -69,7 +71,7 @@ internal fun ForumIndexScreen(
         onSearch = onSearch,
         onTopBarDoubleClick = { coroutineScope.launch { listState.animateScrollToItem(0) } },
     ) { padding ->
-        LoadContent(viewModel.state, padding) { index ->
+        LoadContent(viewModel.state, padding, onRetry = { viewModel.refresh() }) { index ->
             ForumIndexContent(
                 index = index,
                 sharedTransitionScope = sharedTransitionScope,
@@ -92,8 +94,8 @@ private fun ForumIndexContent(
 ) {
     LazyColumn(
         state = listState,
-        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
+        contentPadding = PaddingValues(horizontal = PocketSpacing.screen, vertical = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(PocketSpacing.itemGap),
     ) {
         index.categories.forEachIndexed { categoryIndex, category ->
             item(key = "category-${category.id}") {
@@ -151,16 +153,18 @@ private fun ForumCard(
         onClick = { onClick(forum) },
         modifier = modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
+        shape = MaterialTheme.shapes.medium,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
     ) {
         Row(
             modifier = Modifier.padding(14.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Surface(
-                modifier = Modifier.size(44.dp),
-                shape = RoundedCornerShape(14.dp),
-                color = MaterialTheme.colorScheme.secondaryContainer,
-                contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                modifier = Modifier.size(40.dp),
+                shape = RoundedCornerShape(12.dp),
+                color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                contentColor = MaterialTheme.colorScheme.primary,
             ) {
                 Box(contentAlignment = Alignment.Center) {
                     Icon(
@@ -189,13 +193,15 @@ private fun ForumCard(
                         TodayBadge(forum.todayPostCount)
                     }
                 }
-                Text(
-                    text = forum.description.ifBlank { stringResource(R.string.home_no_description) },
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
+                if (forum.description.isNotBlank()) {
+                    Text(
+                        text = forum.description,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
                 Text(
                     text = stringResource(
                         R.string.home_forum_stats,
@@ -219,9 +225,9 @@ private fun ForumCard(
 @Composable
 private fun TodayBadge(count: Int) {
     Surface(
-        shape = RoundedCornerShape(50),
-        color = MaterialTheme.colorScheme.tertiaryContainer,
-        contentColor = MaterialTheme.colorScheme.onTertiaryContainer,
+        shape = MaterialTheme.shapes.small,
+        color = MaterialTheme.colorScheme.primaryContainer,
+        contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
     ) {
         Text(
             text = stringResource(R.string.home_today_badge, formatCount(count)),

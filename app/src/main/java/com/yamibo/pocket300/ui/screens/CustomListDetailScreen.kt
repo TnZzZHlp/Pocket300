@@ -26,7 +26,6 @@ import androidx.compose.material.icons.rounded.Download
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.SelectAll
 import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
@@ -73,9 +72,10 @@ import com.yamibo.pocket300.ui.Loading
 import com.yamibo.pocket300.ui.LocalReadingHistory
 import com.yamibo.pocket300.ui.ScreenScaffold
 import com.yamibo.pocket300.ui.api
-import com.yamibo.pocket300.ui.components.ThreadCardTitle
-import com.yamibo.pocket300.ui.components.ThreadLastReadPosition
-import com.yamibo.pocket300.ui.dimIfRead
+import com.yamibo.pocket300.ui.components.ThreadCardContent
+import com.yamibo.pocket300.ui.components.threadCardBorder
+import com.yamibo.pocket300.ui.components.threadCardColors
+import com.yamibo.pocket300.ui.theme.PocketSpacing
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.collect
@@ -606,8 +606,8 @@ internal fun CustomListDetailScreen(
                             LazyColumn(
                                 state = listState,
                                 modifier = Modifier.weight(1f),
-                                contentPadding = PaddingValues(16.dp),
-                                verticalArrangement = Arrangement.spacedBy(12.dp),
+                                contentPadding = PaddingValues(PocketSpacing.screen),
+                                verticalArrangement = Arrangement.spacedBy(PocketSpacing.itemGap),
                             ) {
                                 items(
                                     displayedThreads,
@@ -730,11 +730,9 @@ private fun CustomListThreadCard(
     onStartSelection: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val histories = LocalReadingHistory.current
     Card(
         modifier = modifier
             .fillMaxWidth()
-            .dimIfRead(thread.threadId, histories)
             .combinedClickable(
                 enabled = interactionEnabled,
                 onClick = {
@@ -744,13 +742,9 @@ private fun CustomListThreadCard(
                     if (selectionMode) onToggleSelection() else onStartSelection()
                 },
             ),
-        colors = if (selected) {
-            CardDefaults.cardColors(
-                containerColor = MaterialTheme.colorScheme.secondaryContainer,
-            )
-        } else {
-            CardDefaults.cardColors()
-        },
+        colors = threadCardColors(selected),
+        border = threadCardBorder(selected),
+        shape = MaterialTheme.shapes.medium,
     ) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
             if (selectionMode) {
@@ -761,38 +755,21 @@ private fun CustomListThreadCard(
                     modifier = Modifier.padding(start = 8.dp, top = 8.dp),
                 )
             }
-            Column(
-                Modifier
+            ThreadCardContent(
+                modifier = Modifier
                     .weight(1f)
                     .padding(
                         start = if (selectionMode) 8.dp else 16.dp,
+                        end = if (selectionMode) 16.dp else 0.dp,
                         top = 16.dp,
                         bottom = 16.dp,
                     ),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                Text(
-                    thread.forumName,
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.primary,
-                )
-                ThreadCardTitle(
-                    subject = thread.subject,
-                    threadId = thread.threadId,
-                    maxLines = 2,
-                )
-                Text(
-                    stringResource(
-                        R.string.custom_list_thread_metadata,
-                        thread.authorName,
-                        thread.createdAtText,
-                        thread.replyCount,
-                        thread.viewCount,
-                    ),
-                    style = MaterialTheme.typography.labelMedium,
-                )
-                ThreadLastReadPosition(thread.threadId)
-            }
+                threadId = thread.threadId,
+                subject = thread.subject,
+                category = thread.forumName,
+                metadata = stringResource(R.string.thread_card_metadata, thread.authorName, thread.createdAtText),
+                activity = stringResource(R.string.thread_card_activity, thread.replyCount, thread.viewCount),
+            )
             if (!selectionMode) {
                 Box(Modifier.padding(4.dp)) {
                     IconButton(onClick = onExclude) {

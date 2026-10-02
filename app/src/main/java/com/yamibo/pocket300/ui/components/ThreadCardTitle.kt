@@ -5,7 +5,6 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.DownloadDone
 import androidx.compose.material3.Icon
@@ -22,7 +21,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.yamibo.pocket300.R
 import com.yamibo.pocket300.ui.LocalDownloadedThreadIds
+import com.yamibo.pocket300.ui.LocalReadingHistory
 import com.yamibo.pocket300.ui.shouldShowDownloadedIndicator
+import com.yamibo.pocket300.ui.theme.threadTitleColor
 
 @Composable
 internal fun ThreadCardTitle(
@@ -40,6 +41,7 @@ internal fun ThreadCardTitle(
             subject,
             modifier = Modifier.weight(1f),
             style = MaterialTheme.typography.titleMedium,
+            color = threadTitleColor(MaterialTheme.colorScheme, threadId in LocalReadingHistory.current),
             maxLines = maxLines,
             overflow = TextOverflow.Ellipsis,
         )
@@ -56,7 +58,7 @@ private fun ThreadDownloadedIndicator(threadId: Int) {
         modifier = Modifier.clearAndSetSemantics {
             contentDescription = description
         },
-        shape = CircleShape,
+        shape = MaterialTheme.shapes.small,
         color = MaterialTheme.colorScheme.primaryContainer,
         contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
     ) {

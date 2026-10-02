@@ -3,9 +3,13 @@ package com.yamibo.pocket300.ui
 import android.text.Html
 import android.text.Spanned
 import android.text.style.ImageSpan
+import android.text.style.QuoteSpan
 import android.text.style.URLSpan
 import android.util.LruCache
 import android.webkit.CookieManager
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -22,7 +26,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
@@ -44,14 +49,16 @@ import com.yamibo.pocket300.data.download.downloadablePostImageUrls
 import com.yamibo.pocket300.data.download.normalizeThreadImageUrl
 import com.yamibo.pocket300.logging.AppLogger
 
-private sealed interface PostHtmlPart {
-    data class Text(val value: String, val url: String? = null) : PostHtmlPart
-    data class Image(val url: String) : PostHtmlPart
+internal sealed interface PostHtmlPart {
+    val quoted: Boolean
+    data class Text(val value: String, val url: String? = null, override val quoted: Boolean = false) : PostHtmlPart
+    data class Image(val url: String, override val quoted: Boolean = false) : PostHtmlPart
 }
 
 private sealed interface PostRenderPart {
-    data class Inline(val parts: List<PostHtmlPart>) : PostRenderPart
-    data class Image(val url: String) : PostRenderPart
+    val quoted: Boolean
+    data class Inline(val parts: List<PostHtmlPart>, override val quoted: Boolean) : PostRenderPart
+    data class Image(val url: String, override val quoted: Boolean) : PostRenderPart
 }
 
 private val postHtmlCache = LruCache<String, List<PostHtmlPart>>(64)
@@ -75,53 +82,81 @@ internal fun PostHtml(
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             var imageNumber = 0
             renderParts.forEach { part ->
-                when (part) {
-                    is PostRenderPart.Inline -> PostInlineHtml(
-                        parts = part.parts,
-                        threadId = threadId,
-                        onLink = onLink,
-                        style = textStyle,
-                        localImageUrls = localImageUrls,
-                        allowRemoteImages = allowRemoteImages,
-                    )
-                    is PostRenderPart.Image -> {
-                        imageNumber++
-                        val url = resolvePostImageSource(
-                            part.url,
-                            localImageUrls,
-                            allowRemoteImages,
+                if (part is PostRenderPart.Image) imageNumber++
+                val partImageNumber = imageNumber
+                PostPartContainer(quoted = part.quoted) {
+                    when (part) {
+                        is PostRenderPart.Inline -> PostInlineHtml(
+                            parts = part.parts,
+                            threadId = threadId,
+                            onLink = onLink,
+                            style = if (part.quoted) {
+                                textStyle.copy(color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            } else {
+                                textStyle
+                            },
+                            localImageUrls = localImageUrls,
+                            allowRemoteImages = allowRemoteImages,
                         )
-                        var failed by remember(url) { mutableStateOf(false) }
-                        if (url == null) {
-                            Text(
-                                stringResource(R.string.reader_offline_image_unavailable),
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        is PostRenderPart.Image -> {
+                            val url = resolvePostImageSource(
+                                part.url,
+                                localImageUrls,
+                                allowRemoteImages,
                             )
-                        } else {
-                            val request = rememberPostImageRequest(url, threadId)
-                            if (failed) {
+                            var failed by remember(url) { mutableStateOf(false) }
+                            if (url == null) {
                                 Text(
-                                    stringResource(R.string.reader_image_load_error),
-                                    color = MaterialTheme.colorScheme.error,
+                                    stringResource(R.string.reader_offline_image_unavailable),
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
                             } else {
-                                AsyncImage(
-                                    model = request,
-                                    contentDescription = stringResource(
-                                        R.string.reader_image_description,
-                                        imageNumber,
-                                        imageCount,
-                                    ),
-                                    contentScale = ContentScale.FillWidth,
-                                    onError = { failed = true },
-                                    modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
-                                )
+                                val request = rememberPostImageRequest(url, threadId)
+                                if (failed) {
+                                    Text(
+                                        stringResource(R.string.reader_image_load_error),
+                                        color = MaterialTheme.colorScheme.error,
+                                    )
+                                } else {
+                                    AsyncImage(
+                                        model = request,
+                                        contentDescription = stringResource(
+                                            R.string.reader_image_description,
+                                            partImageNumber,
+                                            imageCount,
+                                        ),
+                                        contentScale = ContentScale.FillWidth,
+                                        onError = { failed = true },
+                                        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+                                    )
+                                }
                             }
                         }
                     }
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun PostPartContainer(quoted: Boolean, content: @Composable () -> Unit) {
+    if (!quoted) {
+        content()
+        return
+    }
+    val accent = MaterialTheme.colorScheme.primary
+    Box(
+        Modifier
+            .fillMaxWidth()
+            .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+            .drawBehind {
+                val stroke = 2.dp.toPx()
+                drawLine(accent, Offset(stroke / 2, 0f), Offset(stroke / 2, size.height), stroke)
+            }
+            .padding(horizontal = 14.dp, vertical = 12.dp),
+    ) {
+        content()
     }
 }
 
@@ -135,20 +170,21 @@ private fun postHtmlParts(html: String, attachmentUrls: List<String>): List<Post
         .toSet()
     return htmlParts + attachmentUrls
         .filterNot { normalizePostImageUrl(it) in embeddedUrls }
-        .map(PostHtmlPart::Image)
+        .map { PostHtmlPart.Image(it) }
 }
 
 private fun groupPostHtmlParts(parts: List<PostHtmlPart>): List<PostRenderPart> {
     val result = mutableListOf<PostRenderPart>()
     val inline = mutableListOf<PostHtmlPart>()
     fun flushInline() {
-        if (inline.isNotEmpty()) result += PostRenderPart.Inline(inline.toList())
+        if (inline.isNotEmpty()) result += PostRenderPart.Inline(inline.toList(), inline.first().quoted)
         inline.clear()
     }
     parts.forEach { part ->
+        if (inline.isNotEmpty() && inline.first().quoted != part.quoted) flushInline()
         if (part is PostHtmlPart.Image && !isSmileyImage(part.url)) {
             flushInline()
-            result += PostRenderPart.Image(part.url)
+            result += PostRenderPart.Image(part.url, part.quoted)
         } else {
             inline += part
         }
@@ -256,7 +292,7 @@ private fun isSmileyImage(source: String): Boolean = normalizePostImageUrl(sourc
     .startsWith("static/image/smiley/", ignoreCase = true)
 
 @Suppress("DEPRECATION")
-private fun parsePostHtml(html: String): List<PostHtmlPart> {
+internal fun parsePostHtml(html: String): List<PostHtmlPart> {
     val spanned = Html.fromHtml(resolveDiscuzImageSources(html), Html.FROM_HTML_MODE_LEGACY) as Spanned
     val images = spanned.getSpans(0, spanned.length, ImageSpan::class.java)
         .sortedBy(spanned::getSpanStart)
@@ -264,7 +300,9 @@ private fun parsePostHtml(html: String): List<PostHtmlPart> {
     var cursor = 0
     images.forEach { image ->
         addPostText(parts, spanned, cursor, spanned.getSpanStart(image))
-        image.source?.takeIf(String::isNotBlank)?.let { parts += PostHtmlPart.Image(it) }
+        image.source?.takeIf(String::isNotBlank)?.let {
+            parts += PostHtmlPart.Image(it, isQuoted(spanned, spanned.getSpanStart(image), spanned.getSpanEnd(image)))
+        }
         cursor = spanned.getSpanEnd(image)
     }
     addPostText(parts, spanned, cursor, spanned.length)
@@ -305,7 +343,9 @@ private fun addPostText(parts: MutableList<PostHtmlPart>, spanned: Spanned, star
     val boundaries = buildSet {
         add(start)
         add(end)
-        spanned.getSpans(start, end, URLSpan::class.java).forEach { span ->
+        val spans = spanned.getSpans(start, end, URLSpan::class.java).toList() +
+            spanned.getSpans(start, end, QuoteSpan::class.java).toList()
+        spans.forEach { span ->
             add(spanned.getSpanStart(span).coerceIn(start, end))
             add(spanned.getSpanEnd(span).coerceIn(start, end))
         }
@@ -315,11 +355,18 @@ private fun addPostText(parts: MutableList<PostHtmlPart>, spanned: Spanned, star
         if (from == start) text = text.trimStart()
         if (to == end) text = text.trimEnd()
         if (text.isNotEmpty()) {
-            val url = spanned.getSpans(from, to, URLSpan::class.java).firstOrNull()?.url
-            parts += PostHtmlPart.Text(text, url)
+            val url = spanned.getSpans(from, to, URLSpan::class.java).firstOrNull { span ->
+                spanned.getSpanStart(span) < to && spanned.getSpanEnd(span) > from
+            }?.url
+            parts += PostHtmlPart.Text(text, url, isQuoted(spanned, from, to))
         }
     }
 }
+
+private fun isQuoted(spanned: Spanned, start: Int, end: Int): Boolean =
+    spanned.getSpans(start, end, QuoteSpan::class.java).any { span ->
+        spanned.getSpanStart(span) < end && spanned.getSpanEnd(span) > start
+    }
 
 internal fun normalizePostImageUrl(source: String): String {
     val value = source.trim().replace("&amp;", "&")

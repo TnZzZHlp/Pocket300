@@ -1,6 +1,18 @@
 <resources>
     <string name="app_name">Pocket300</string>
-    <string name="home_title">Pocket300</string>
+    <string name="home_title">论坛</string>
+    <string name="action_back">返回</string>
+    <string name="action_retry">重试</string>
+    <string name="load_failed_title">加载失败</string>
+    <string name="list_load_more_hint">下滑下载更多</string>
+    <string name="list_end">没有更多</string>
+    <string name="thread_card_metadata">%1$s · %2$s</string>
+    <string name="thread_card_replies">%1$d 回复</string>
+    <string name="thread_card_activity">%1$d 回复 · %2$d 浏览</string>
+    <string name="thread_activity">%1$d 回复 · %2$d 浏览 · 热度 %3$d</string>
+    <string name="favorites_empty_title">暂无收藏</string>
+    <string name="history_empty_title">暂无阅读记录</string>
+    <string name="history_last_reply">最后回复 %1$s</string>
     <string name="tab_forum">论坛</string>
     <string name="tab_list">列表</string>
     <string name="tab_favorites">收藏</string>
@@ -25,20 +37,15 @@
     <string name="search_type_user_id">用户 ID</string>
     <string name="search_error_empty">请输入搜索内容</string>
     <string name="search_error_user_id">用户 ID 必须是大于 0 的整数</string>
-    <string name="search_initial_title">查找感兴趣的主题</string>
-    <string name="search_initial_message">输入关键词，并选择搜索范围后开始搜索。</string>
+    <string name="search_initial_title">搜索主题</string>
     <string name="search_failed_title">搜索失败</string>
     <string name="search_retry">重试</string>
     <string name="search_empty_title">没有搜索结果</string>
     <string name="search_empty_message">没有找到与“%1$s”相关的主题。</string>
     <string name="search_edit_query">修改搜索内容</string>
     <string name="search_result_summary">“%1$s”的结果</string>
-    <string name="search_result_count">已找到 %1$d 个主题</string>
-    <string name="search_loading_more">正在加载更多…</string>
-    <string name="search_load_more">加载更多</string>
+    <string name="search_result_count">%1$d 个主题</string>
     <string name="search_load_more_retry">重试加载</string>
-    <string name="search_end">已经到底了</string>
-    <string name="search_thread_metadata">%1$s · %2$s · %3$d 回复 · %4$d 浏览</string>
     <string name="custom_list_create">新建列表</string>
     <string name="custom_list_edit">编辑列表</string>
     <string name="custom_list_name">列表名称</string>
@@ -99,7 +106,6 @@
     <string name="custom_list_download_selected_partial">已加入 %1$d 个，跳过 %2$d 个，%3$d 个无法加入下载队列</string>
     <string name="custom_list_exclude_selected">排除所选主题</string>
     <string name="custom_list_bulk_action_failed">批量操作失败</string>
-    <string name="custom_list_thread_metadata">%1$s · %2$s · %3$d 回复 · %4$d 浏览</string>
     <string name="custom_list_exclude_thread">从列表中排除</string>
     <string name="custom_list_clear_exclusions">清除排除记录</string>
     <string name="custom_list_clear_exclusions_hint">清除后，被排除的主题会在下次刷新且仍匹配搜索条件时重新出现。</string>
@@ -174,7 +180,6 @@
     <string name="profile_daily_check_in_done">今日已签到</string>
     <string name="profile_daily_check_in_retry">重试</string>
     <string name="home_forum_count">%1$d 个板块</string>
-    <string name="home_no_description">暂无板块简介</string>
     <string name="home_forum_stats">%1$s 主题  ·  %2$s 帖子</string>
     <string name="home_today_badge">今日 +%1$s</string>
     <string name="home_open_forum">进入%1$s</string>
@@ -248,7 +253,7 @@
     <string name="thread_resume_message">上次看到第 %1$d 楼，是否跳转到该位置？</string>
     <string name="thread_start_from_beginning">从头阅读</string>
     <string name="thread_jump_to_last_read">跳转</string>
-    <string name="thread_last_read_position">上次看到第 %1$d 楼</string>
+    <string name="thread_last_read_position">上次读到第 %1$d 楼</string>
     <string name="thread_poll_title">投票</string>
     <string name="thread_poll_single_choice">单选</string>
     <string name="thread_poll_multiple_choice">最多选 %1$d 项</string>
@@ -323,7 +328,7 @@
     <string name="settings_title">设置</string>
     <string name="settings_app_theme">应用主题</string>
     <string name="settings_theme_system">系统动态配色</string>
-    <string name="settings_theme_beige">米黄</string>
+    <string name="settings_theme_beige">暖纸白</string>
     <string name="settings_theme_violet">紫罗兰</string>
     <string name="settings_theme_blue">海洋蓝</string>
     <string name="settings_theme_green">青翠绿</string>
