@@ -41,6 +41,14 @@ class ThreadScreenTest {
     }
 
     @Test
+    fun showsAuthenticatedThreadActionsOnlyWhenOnlineAndLoggedIn() {
+        assertTrue(shouldShowAuthenticatedThreadActions(offlineOnly = false, isAuthenticated = true))
+        assertFalse(shouldShowAuthenticatedThreadActions(offlineOnly = false, isAuthenticated = false))
+        assertFalse(shouldShowAuthenticatedThreadActions(offlineOnly = true, isAuthenticated = true))
+        assertFalse(shouldShowAuthenticatedThreadActions(offlineOnly = true, isAuthenticated = false))
+    }
+
+    @Test
     fun showsOriginalPosterBadgeOnlyForSubsequentRepliesByThreadAuthor() {
         val originalPost = testPost(postId = 2000, position = 1, isOriginalPost = true)
             .copy(author = testAuthor(id = 42))

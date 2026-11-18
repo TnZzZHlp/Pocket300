@@ -8,9 +8,19 @@ import androidx.core.database.sqlite.transaction
 import com.yamibo.pocket300.api.YamiboSearchThread
 import com.yamibo.pocket300.api.YamiboThreadSearchType
 import com.yamibo.pocket300.logging.AppLogger
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 
 class CustomListDatabase internal constructor(context: Context, databaseName: String = DATABASE_NAME) :
     SQLiteOpenHelper(context, databaseName, null, DATABASE_VERSION) {
+
+    private val _listCount = MutableStateFlow(0)
+    val listCount: StateFlow<Int> = _listCount.asStateFlow()
+
+    init {
+        refreshListCount()
+    }
 
     override fun onConfigure(database: SQLiteDatabase) {
         super.onConfigure(database)
@@ -119,6 +129,7 @@ class CustomListDatabase internal constructor(context: Context, databaseName: St
             put("created_at", now)
         }
         return writableDatabase.insertOrThrow("custom_lists", null, values).also { id ->
+            refreshListCount()
             AppLogger.info(TAG) { "Created custom list $id" }
         }
     }
@@ -159,7 +170,17 @@ class CustomListDatabase internal constructor(context: Context, databaseName: St
 
     fun deleteList(id: Long) {
         writableDatabase.delete("custom_lists", "id = ?", arrayOf(id.toString()))
+        refreshListCount()
         AppLogger.info(TAG) { "Deleted custom list $id" }
+    }
+
+    private fun refreshListCount() {
+        _listCount.value = readableDatabase.rawQuery(
+            "SELECT COUNT(*) FROM custom_lists",
+            null,
+        ).use { cursor ->
+            if (cursor.moveToFirst()) cursor.getInt(0) else 0
+        }
     }
 
     fun getLists(): List<CustomThreadList> = readableDatabase.rawQuery(

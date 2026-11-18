@@ -1,6 +1,7 @@
 package com.yamibo.pocket300.api
 
 import com.yamibo.pocket300.logging.AppLogger
+import kotlinx.coroutines.flow.StateFlow
 import java.net.URI
 
 data class SecurityQuestionOption(val id: Int, val label: String)
@@ -43,6 +44,8 @@ data class YamiboUserProfile(
 )
 
 class YamiboAuthApi(private val client: YamiboClient) {
+    val isAuthenticated: StateFlow<Boolean> get() = client.isAuthenticated
+
     suspend fun login(input: LoginInput): YamiboSession {
         val account = input.account.trim()
         if (account.isEmpty() || input.password.isEmpty()) {
@@ -68,6 +71,7 @@ class YamiboAuthApi(private val client: YamiboClient) {
             ),
         )
         val session = parseSession(response) ?: throwResponseError(response)
+        client.updateAuthenticated(true)
         AppLogger.info(TAG) { "Login completed successfully" }
         return session
     }
@@ -100,6 +104,7 @@ class YamiboAuthApi(private val client: YamiboClient) {
     suspend fun logout() {
         val session = getCurrentSession()
         if (session == null) {
+            client.updateAuthenticated(false)
             AppLogger.debug(TAG) { "Logout skipped because no authenticated session exists" }
             return
         }
@@ -113,6 +118,7 @@ class YamiboAuthApi(private val client: YamiboClient) {
         if (getCurrentSession() != null) {
             throw YamiboApiException(YamiboApiErrorCode.SERVER_ERROR, "退出登录失败")
         }
+        client.updateAuthenticated(false)
         AppLogger.info(TAG) { "Logout completed successfully" }
     }
 

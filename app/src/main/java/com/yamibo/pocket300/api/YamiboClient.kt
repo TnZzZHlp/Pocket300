@@ -3,6 +3,9 @@ package com.yamibo.pocket300.api
 import android.webkit.CookieManager
 import com.yamibo.pocket300.logging.AppLogger
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.withContext
 import okhttp3.Call
 import okhttp3.FormBody
@@ -19,6 +22,12 @@ import java.io.IOException
 import java.util.concurrent.TimeUnit
 
 const val YAMIBO_ORIGIN = "https://bbs.yamibo.com"
+
+internal fun hasDiscuzAuthCookie(cookies: List<Cookie>): Boolean = cookies.any { cookie ->
+    (cookie.name == "auth" || cookie.name.endsWith("_auth")) &&
+        cookie.value.isNotBlank() &&
+        !cookie.value.equals("deleted", ignoreCase = true)
+}
 
 enum class YamiboApiErrorCode { INVALID_RESPONSE, NETWORK_ERROR, SERVER_ERROR }
 
@@ -46,7 +55,7 @@ data class YamiboPageResponse(val html: String, val url: String)
  * lifetime of the client because Discuz authentication is held in HttpOnly cookies.
  */
 class YamiboClient(
-    cookieJar: CookieJar = AndroidCookieJar(),
+    private val cookieJar: CookieJar = AndroidCookieJar(),
     timeoutMillis: Long = 15_000,
     userAgent: String = POCKET300_USER_AGENT,
     private val requestGate: YamiboRequestGate? = null,
@@ -60,6 +69,15 @@ class YamiboClient(
         .followRedirects(true)
         .build(),
 ) {
+    private val _isAuthenticated = MutableStateFlow(
+        runCatching { hasDiscuzAuthCookie(cookieJar.loadForRequest(YAMIBO_ORIGIN.toHttpUrl())) }
+            .getOrDefault(false),
+    )
+    val isAuthenticated: StateFlow<Boolean> = _isAuthenticated.asStateFlow()
+
+    internal fun updateAuthenticated(authenticated: Boolean) {
+        _isAuthenticated.value = authenticated
+    }
 
     suspend fun requestMobileApi(
         parameters: Map<String, String>,
@@ -108,7 +126,11 @@ class YamiboClient(
             error = root.nonBlankStringOrNull("error"),
             version = root.stringOrNull("Version"),
             charset = root.stringOrNull("Charset"),
-        )
+        ).also { response ->
+            if (variables != null && variables.has("member_uid")) {
+                _isAuthenticated.value = parseSession(response) != null
+            }
+        }
     }
 
     suspend fun requestPage(

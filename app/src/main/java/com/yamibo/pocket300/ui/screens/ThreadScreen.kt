@@ -153,12 +153,14 @@ internal fun ThreadScreen(
     offlineOnly: Boolean,
     sharedTransitionScope: SharedTransitionScope,
     animatedVisibilityScope: AnimatedVisibilityScope,
+    isAuthenticated: Boolean = true,
     onBack: () -> Unit,
     onForum: (Int) -> Unit,
     onRatings: (Int, Int) -> Unit,
     onReader: (ReaderContent, Int) -> Unit,
     onThread: (PostLinkTarget.Thread) -> Unit,
 ) {
+    val authActionsEnabled = shouldShowAuthenticatedThreadActions(offlineOnly, isAuthenticated)
     val viewModel: ThreadViewModel = viewModel()
     val context = LocalContext.current
     val downloadRepository = remember(context) { ThreadDownloadManager.getInstance(context) }
@@ -211,6 +213,18 @@ internal fun ThreadScreen(
         derivedStateOf { shouldShowThreadTitle(listState.firstVisibleItemIndex) }
     }
     val coroutineScope = rememberCoroutineScope()
+    LaunchedEffect(authActionsEnabled) {
+        if (!authActionsEnabled) {
+            replyEditorVisible = false
+            if (!commentSubmitting) {
+                commentTargetPostId = 0
+                commentTargetPostNumber = 0
+                commentTargetAuthorName = ""
+                commentTargetIsOriginalPost = false
+            }
+            viewModel.dismissPostRating()
+        }
+    }
     var localProbeCompleted by remember(threadId, offlineOnly) {
         mutableStateOf(false)
     }
@@ -586,7 +600,7 @@ internal fun ThreadScreen(
             }
         },
         floatingActionButton = {
-            loadedContent?.takeUnless { offlineOnly }?.let {
+            loadedContent?.takeIf { authActionsEnabled }?.let {
                 ThreadReplyButton(onClick = { replyEditorVisible = true })
             }
         },
@@ -623,6 +637,7 @@ internal fun ThreadScreen(
                         favoriteBusy = favoriteBusy,
                         originalPosterOnly = originalPosterOnly,
                         offlineOnly = offlineOnly,
+                        showFavoriteAction = authActionsEnabled,
                         typography = threadTypography,
                         onJump = { jumpDialogVisible = true },
                         onFavorite = {
@@ -678,7 +693,7 @@ internal fun ThreadScreen(
                 page.poll?.let { poll ->
                     item(key = "poll", contentType = "poll") {
                         PollCard(
-                            poll = if (offlineOnly) poll.copy(canVote = false) else poll,
+                            poll = if (authActionsEnabled) poll else poll.copy(canVote = false),
                             submitting = pollSubmitting,
                             typography = threadTypography,
                             onVote = { optionIds ->
@@ -732,8 +747,8 @@ internal fun ThreadScreen(
                         typography = threadTypography,
                         onForum = onForum,
                         onRatings = { onRatings(post.threadId, post.id) },
-                        networkActionsEnabled = !offlineOnly,
-                        commentEnabled = !offlineOnly &&
+                        networkActionsEnabled = authActionsEnabled,
+                        commentEnabled = authActionsEnabled &&
                             page.canComment &&
                             !page.thread.isClosed &&
                             !commentSubmitting,
@@ -854,7 +869,7 @@ internal fun ThreadScreen(
             },
         )
     }
-    if (!offlineOnly && replyEditorVisible) {
+    if (authActionsEnabled && replyEditorVisible) {
         ReplyComposerSheet(
             title = stringResource(R.string.thread_reply_title),
             target = loadedThread?.subject.orEmpty(),
@@ -931,7 +946,7 @@ internal fun ThreadScreen(
             },
         )
     }
-    if (!offlineOnly && commentTargetPostId > 0) {
+    if (authActionsEnabled && commentTargetPostId > 0) {
         ReplyComposerSheet(
             title = stringResource(R.string.thread_comment_title),
             target = if (commentTargetIsOriginalPost) {
@@ -1021,7 +1036,7 @@ internal fun ThreadScreen(
             },
         )
     }
-    viewModel.postRatingDialogState?.takeUnless { offlineOnly }?.let { ratingState ->
+    viewModel.postRatingDialogState?.takeIf { authActionsEnabled }?.let { ratingState ->
         PostRatingDialog(
             authorName = ratingState.target.authorName,
             formState = ratingState.formState,
@@ -1043,6 +1058,11 @@ internal fun ThreadScreen(
 
 internal fun shouldShowThreadTitle(firstVisibleItemIndex: Int): Boolean =
     firstVisibleItemIndex > 0
+
+internal fun shouldShowAuthenticatedThreadActions(
+    offlineOnly: Boolean,
+    isAuthenticated: Boolean,
+): Boolean = !offlineOnly && isAuthenticated
 
 internal fun shouldShowRatingsSummary(ratingCount: Int): Boolean =
     ratingCount > 0
@@ -1816,14 +1836,13 @@ private fun PostCard(
                             stringResource(R.string.rating_count, post.ratingCount),
                             style = typography.heading,
                         )
-                        TextButton(
-                            onClick = onRatings,
-                            enabled = networkActionsEnabled,
-                        ) {
-                            Text(
-                                stringResource(R.string.rating_view_all, post.ratingCount),
-                                style = typography.action,
-                            )
+                        if (networkActionsEnabled) {
+                            TextButton(onClick = onRatings) {
+                                Text(
+                                    stringResource(R.string.rating_view_all, post.ratingCount),
+                                    style = typography.action,
+                                )
+                            }
                         }
                     }
                 }
@@ -1969,6 +1988,7 @@ private fun ThreadHero(
     favoriteBusy: Boolean,
     originalPosterOnly: Boolean,
     offlineOnly: Boolean,
+    showFavoriteAction: Boolean = !offlineOnly,
     onJump: () -> Unit,
     onFavorite: () -> Unit,
     onOriginalPosterOnlyChange: (Boolean) -> Unit,
@@ -1994,7 +2014,7 @@ private fun ThreadHero(
                             style = typography.metadata,
                         )
                     }
-                } else {
+                } else if (showFavoriteAction) {
                     IconButton(onClick = onFavorite, enabled = !favoriteBusy) {
                         if (favoriteBusy) {
                             CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
