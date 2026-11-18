@@ -60,6 +60,13 @@ class CustomListThreadDisplayTest {
         )
     }
 
+    @Test
+    fun countsUnreadReadAndAllThreadsIgnoringIdsOutsideList() {
+        val counts = customListFilterCounts(threads, setOf(200, 999))
+        assertEquals(CustomListFilterCounts(unread = 2, read = 1, all = 3), counts)
+        assertEquals(CustomListFilterCounts(unread = 0, read = 0, all = 0), customListFilterCounts(emptyList(), setOf(200)))
+    }
+
     private fun display(
         filter: ThreadReadFilter,
         order: ThreadPublicationOrder,

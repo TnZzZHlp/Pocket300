@@ -11,10 +11,12 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
@@ -23,19 +25,25 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Block
 import androidx.compose.material.icons.rounded.DoneAll
 import androidx.compose.material.icons.rounded.Download
+import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.SelectAll
+import androidx.compose.material.icons.rounded.SwapVert
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilterChip
-import androidx.compose.material3.Icon
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -131,6 +139,7 @@ internal fun CustomListDetailScreen(
     var syncing by remember(listId) { mutableStateOf(false) }
     var progress by remember(listId) { mutableStateOf<CustomListSyncProgress?>(null) }
     var error by remember(listId) { mutableStateOf<String?>(null) }
+    var pendingExcludeThread by remember(listId) { mutableStateOf<CustomListThread?>(null) }
     var refreshMenuExpanded by remember(listId) { mutableStateOf(false) }
     var selectionMode by remember(listId) { mutableStateOf(false) }
     var selectedThreadIds by remember(listId) { mutableStateOf(emptySet<Int>()) }
@@ -406,7 +415,6 @@ internal fun CustomListDetailScreen(
             }
         },
         isRefreshing = syncing,
-        onSettings = if (selectionMode) null else onEdit,
         onTopBarDoubleClick = { scope.launch { listState.animateScrollToItem(0) } },
         actions = {
             if (selectionMode) {
@@ -502,6 +510,15 @@ internal fun CustomListDetailScreen(
                     }
                 }
             } else {
+                IconButton(
+                    enabled = list != null,
+                    onClick = onEdit,
+                ) {
+                    Icon(
+                        Icons.Rounded.Edit,
+                        contentDescription = stringResource(R.string.custom_list_edit),
+                    )
+                }
                 Box {
                     IconButton(
                         enabled = !syncing && list != null,
@@ -555,35 +572,55 @@ internal fun CustomListDetailScreen(
                     .padding(padding)
             ) {
                 if (syncing) {
-                    Row(
-                        Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 16.dp, vertical = 12.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    Surface(
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
+                        modifier = Modifier.fillMaxWidth(),
                     ) {
-                        CircularProgressIndicator(Modifier.padding(4.dp))
-                        Text(
-                            progress?.let {
-                                stringResource(
-                                    R.string.custom_list_sync_progress,
-                                    it.keywordIndex,
-                                    it.keywordCount,
-                                    it.keyword,
-                                    it.page,
-                                    it.totalPages ?: it.page,
+                        Column(Modifier.fillMaxWidth()) {
+                            Row(
+                                Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            ) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(18.dp),
+                                    strokeWidth = 2.dp,
                                 )
-                            } ?: stringResource(R.string.custom_list_sync_starting),
-                            style = MaterialTheme.typography.bodyMedium,
-                        )
+                                Text(
+                                    progress?.let {
+                                        stringResource(
+                                            R.string.custom_list_sync_progress,
+                                            it.keywordIndex,
+                                            it.keywordCount,
+                                            it.keyword,
+                                            it.page,
+                                            it.totalPages ?: it.page,
+                                        )
+                                    } ?: stringResource(R.string.custom_list_sync_starting),
+                                    style = MaterialTheme.typography.bodyMedium,
+                                )
+                            }
+                            LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                        }
                     }
                 }
-                error?.let {
-                    Text(
-                        it,
-                        color = MaterialTheme.colorScheme.error,
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-                    )
+                error?.let { message ->
+                    Surface(
+                        color = MaterialTheme.colorScheme.errorContainer,
+                        shape = MaterialTheme.shapes.medium,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 8.dp),
+                    ) {
+                        Text(
+                            message,
+                            color = MaterialTheme.colorScheme.onErrorContainer,
+                            style = MaterialTheme.typography.bodyMedium,
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                        )
+                    }
                 }
                 if (threads.isEmpty() && !syncing) {
                     EmptyState(
@@ -598,6 +635,7 @@ internal fun CustomListDetailScreen(
                             onReadFilterChange = { readFilter = it },
                             publicationOrder = publicationOrder,
                             onPublicationOrderChange = { publicationOrder = it },
+                            counts = customListFilterCounts(threads, histories.keys),
                         )
                         if (displayedThreads.isEmpty() && !syncing) {
                             EmptyState(
@@ -634,21 +672,7 @@ internal fun CustomListDetailScreen(
                                                 animatedVisibilityScope,
                                             )
                                         },
-                                        onExclude = {
-                                            scope.launch {
-                                                withContext(Dispatchers.IO) {
-                                                    database.excludeThread(listId, thread.threadId)
-                                                }
-                                                threads = threads.filterNot {
-                                                    it.threadId == thread.threadId
-                                                }
-                                                list = list?.copy(
-                                                    threadCount = (list?.threadCount ?: 1)
-                                                        .minus(1).coerceAtLeast(0),
-                                                    excludedCount = (list?.excludedCount ?: 0) + 1,
-                                                )
-                                            }
-                                        },
+                                        onExclude = { pendingExcludeThread = thread },
                                     )
                                 }
                             }
@@ -656,6 +680,50 @@ internal fun CustomListDetailScreen(
                     }
                 }
             }
+        }
+        pendingExcludeThread?.let { target ->
+            AlertDialog(
+                onDismissRequest = { pendingExcludeThread = null },
+                title = { Text(stringResource(R.string.custom_list_exclude_confirm_title)) },
+                text = {
+                    Text(
+                        stringResource(
+                            R.string.custom_list_exclude_confirm_message,
+                            target.subject,
+                        ),
+                    )
+                },
+                confirmButton = {
+                    TextButton(
+                        onClick = {
+                            val targetId = target.threadId
+                            pendingExcludeThread = null
+                            scope.launch {
+                                withContext(Dispatchers.IO) {
+                                    database.excludeThread(listId, targetId)
+                                }
+                                threads = threads.filterNot { it.threadId == targetId }
+                                selectedThreadIds = selectedThreadIds - targetId
+                                list = list?.copy(
+                                    threadCount = (list?.threadCount ?: 1)
+                                        .minus(1).coerceAtLeast(0),
+                                    excludedCount = (list?.excludedCount ?: 0) + 1,
+                                )
+                            }
+                        },
+                    ) {
+                        Text(
+                            stringResource(R.string.custom_list_exclude_confirm_action),
+                            color = MaterialTheme.colorScheme.error,
+                        )
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { pendingExcludeThread = null }) {
+                        Text(stringResource(R.string.custom_list_cancel))
+                    }
+                },
+            )
         }
     }
 }
@@ -668,56 +736,91 @@ private fun CustomListDisplayControls(
     onReadFilterChange: (ThreadReadFilter) -> Unit,
     publicationOrder: ThreadPublicationOrder,
     onPublicationOrderChange: (ThreadPublicationOrder) -> Unit,
+    counts: CustomListFilterCounts,
 ) {
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(top = 12.dp),
-        verticalArrangement = Arrangement.spacedBy(4.dp),
-    ) {
-        Text(
-            stringResource(R.string.custom_list_read_filter),
-            modifier = Modifier.padding(horizontal = 16.dp),
-            style = MaterialTheme.typography.labelLarge,
-        )
-        LazyRow(
-            contentPadding = PaddingValues(horizontal = 16.dp),
+    var orderMenuExpanded by remember { mutableStateOf(false) }
+    val readFilterLabel = stringResource(R.string.custom_list_read_filter)
+    Column(Modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            items(listOf(ThreadReadFilter.UNREAD, ThreadReadFilter.READ, ThreadReadFilter.ALL)) { filter ->
-                FilterChip(
-                    selected = readFilter == filter,
-                    onClick = { onReadFilterChange(filter) },
-                    label = {
-                        Text(stringResource(when (filter) {
-                            ThreadReadFilter.UNREAD -> R.string.custom_list_unread_only
-                            ThreadReadFilter.READ -> R.string.custom_list_read_only
-                            ThreadReadFilter.ALL -> R.string.custom_list_read_all
-                        }))
-                    },
-                )
+            LazyRow(
+                modifier = Modifier
+                    .weight(1f)
+                    .semantics { contentDescription = readFilterLabel },
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                items(listOf(ThreadReadFilter.UNREAD, ThreadReadFilter.READ, ThreadReadFilter.ALL)) { filter ->
+                    FilterChip(
+                        selected = readFilter == filter,
+                        onClick = { onReadFilterChange(filter) },
+                        label = {
+                            val labelText = when (filter) {
+                                ThreadReadFilter.UNREAD -> if (counts.all > 0) {
+                                    stringResource(R.string.custom_list_filter_unread_count, counts.unread)
+                                } else {
+                                    stringResource(R.string.custom_list_unread_only)
+                                }
+                                ThreadReadFilter.READ -> if (counts.all > 0) {
+                                    stringResource(R.string.custom_list_filter_read_count, counts.read)
+                                } else {
+                                    stringResource(R.string.custom_list_read_only)
+                                }
+                                ThreadReadFilter.ALL -> if (counts.all > 0) {
+                                    stringResource(R.string.custom_list_filter_all_count, counts.all)
+                                } else {
+                                    stringResource(R.string.custom_list_read_all)
+                                }
+                            }
+                            Text(labelText)
+                        },
+                    )
+                }
+            }
+            Box {
+                TextButton(onClick = { orderMenuExpanded = true }) {
+                    Icon(
+                        Icons.Rounded.SwapVert,
+                        contentDescription = stringResource(R.string.custom_list_publication_order),
+                        modifier = Modifier.size(18.dp),
+                    )
+                    Spacer(Modifier.width(4.dp))
+                    Text(
+                        stringResource(
+                            if (publicationOrder == ThreadPublicationOrder.NEWEST_FIRST) {
+                                R.string.custom_list_newest_first
+                            } else {
+                                R.string.custom_list_oldest_first
+                            },
+                        ),
+                    )
+                }
+                DropdownMenu(
+                    expanded = orderMenuExpanded,
+                    onDismissRequest = { orderMenuExpanded = false },
+                ) {
+                    DropdownMenuItem(
+                        text = { Text(stringResource(R.string.custom_list_newest_first)) },
+                        onClick = {
+                            orderMenuExpanded = false
+                            onPublicationOrderChange(ThreadPublicationOrder.NEWEST_FIRST)
+                        },
+                    )
+                    DropdownMenuItem(
+                        text = { Text(stringResource(R.string.custom_list_oldest_first)) },
+                        onClick = {
+                            orderMenuExpanded = false
+                            onPublicationOrderChange(ThreadPublicationOrder.OLDEST_FIRST)
+                        },
+                    )
+                }
             }
         }
-        Text(
-            stringResource(R.string.custom_list_publication_order),
-            modifier = Modifier.padding(horizontal = 16.dp),
-            style = MaterialTheme.typography.labelLarge,
-        )
-        LazyRow(
-            contentPadding = PaddingValues(horizontal = 16.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            items(ThreadPublicationOrder.entries) { order ->
-                FilterChip(
-                    selected = publicationOrder == order,
-                    onClick = { onPublicationOrderChange(order) },
-                    label = { Text(stringResource(when (order) {
-                        ThreadPublicationOrder.NEWEST_FIRST -> R.string.custom_list_newest_first
-                        ThreadPublicationOrder.OLDEST_FIRST -> R.string.custom_list_oldest_first
-                    })) },
-                )
-            }
-        }
+        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
     }
 }
 
@@ -763,7 +866,7 @@ private fun CustomListThreadCard(
                     .weight(1f)
                     .padding(
                         start = if (selectionMode) 8.dp else 16.dp,
-                        end = if (selectionMode) 16.dp else 0.dp,
+                        end = 16.dp,
                         top = 14.dp,
                         bottom = 14.dp,
                     ),
@@ -775,18 +878,44 @@ private fun CustomListThreadCard(
                 replyCount = thread.replyCount,
                 viewCount = thread.viewCount,
                 resolveMissingAuthor = true,
-            )
-            if (!selectionMode) {
-                Box(Modifier.padding(4.dp)) {
-                    IconButton(onClick = onExclude) {
-                        Icon(
-                            Icons.Rounded.Block,
-                            contentDescription = stringResource(R.string.custom_list_exclude_thread),
-                        )
+                headerTrailing = if (selectionMode) {
+                    null
+                } else {
+                    {
+                        IconButton(
+                            onClick = onExclude,
+                            modifier = Modifier.size(28.dp),
+                        ) {
+                            Icon(
+                                Icons.Rounded.Block,
+                                contentDescription = stringResource(R.string.custom_list_exclude_thread),
+                                modifier = Modifier.size(18.dp),
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
                     }
-                }
-            }
+                },
+            )
         }
         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
     }
+}
+
+internal data class CustomListFilterCounts(
+    val unread: Int,
+    val read: Int,
+    val all: Int,
+)
+
+internal fun customListFilterCounts(
+    threads: List<CustomListThread>,
+    readThreadIds: Set<Int>,
+): CustomListFilterCounts {
+    val readCount = threads.count { it.threadId in readThreadIds }
+    val allCount = threads.size
+    return CustomListFilterCounts(
+        unread = allCount - readCount,
+        read = readCount,
+        all = allCount,
+    )
 }

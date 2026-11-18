@@ -29,10 +29,12 @@ import androidx.compose.material.icons.rounded.VerticalAlignTop
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -241,70 +243,92 @@ internal fun DownloadsScreen(
                     }
 
                     else -> {
-                        LazyColumn(
-                            state = listState,
-                            contentPadding = PaddingValues(16.dp),
-                            verticalArrangement = Arrangement.spacedBy(12.dp),
-                        ) {
-                            items(
-                                items = visibleItems,
-                                key = { it.key.threadId },
-                            ) { item ->
-                                val completed = item.phase == ThreadDownloadPhase.COMPLETED
-                                val cardModifier = if (completed) {
-                                    with(sharedTransitionScope) {
-                                        Modifier.sharedBounds(
-                                            rememberSharedContentState(
-                                                threadSharedContentKey(item.key.threadId),
-                                            ),
-                                            animatedVisibilityScope,
-                                        )
-                                    }
-                                } else {
-                                    Modifier
-                                }
-                                DownloadCard(
-                                    item = item,
-                                    modifier = cardModifier,
-                                    onOpen = {
-                                        downloadsByKey[item.key]?.let(onOpen)
-                                    },
-                                    onDelete = { pendingDelete = item },
-                                    onPrioritize = if (
-                                        item.phase == ThreadDownloadPhase.QUEUED &&
-                                        item.queuePosition != null &&
-                                        item.queuePosition > 1
-                                    ) {
-                                        {
-                                            coroutineScope.launch {
-                                                repository.prioritize(item.key)
-                                            }
+                        val totalBytes = remember(visibleItems) { totalDownloadedBytes(visibleItems) }
+                        Column(Modifier.fillMaxSize()) {
+                            Surface(
+                                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
+                                modifier = Modifier.fillMaxWidth(),
+                            ) {
+                                Text(
+                                    stringResource(
+                                        R.string.downloads_summary_strip,
+                                        visibleItems.size,
+                                        formatDownloadSize(totalBytes),
+                                    ),
+                                    style = MaterialTheme.typography.labelLarge,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+                                )
+                            }
+                            HorizontalDivider(
+                                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
+                            )
+                            LazyColumn(
+                                state = listState,
+                                modifier = Modifier.weight(1f),
+                                contentPadding = PaddingValues(16.dp),
+                                verticalArrangement = Arrangement.spacedBy(12.dp),
+                            ) {
+                                items(
+                                    items = visibleItems,
+                                    key = { it.key.threadId },
+                                ) { item ->
+                                    val completed = item.phase == ThreadDownloadPhase.COMPLETED
+                                    val cardModifier = if (completed) {
+                                        with(sharedTransitionScope) {
+                                            Modifier.sharedBounds(
+                                                rememberSharedContentState(
+                                                    threadSharedContentKey(item.key.threadId),
+                                                ),
+                                                animatedVisibilityScope,
+                                            )
                                         }
                                     } else {
-                                        null
-                                    },
-                                    onRetry = {
-                                        coroutineScope.launch {
-                                            try {
-                                                if (!repository.retry(item.key)) {
+                                        Modifier
+                                    }
+                                    DownloadCard(
+                                        item = item,
+                                        modifier = cardModifier,
+                                        onOpen = {
+                                            downloadsByKey[item.key]?.let(onOpen)
+                                        },
+                                        onDelete = { pendingDelete = item },
+                                        onPrioritize = if (
+                                            item.phase == ThreadDownloadPhase.QUEUED &&
+                                            item.queuePosition != null &&
+                                            item.queuePosition > 1
+                                        ) {
+                                            {
+                                                coroutineScope.launch {
+                                                    repository.prioritize(item.key)
+                                                }
+                                            }
+                                        } else {
+                                            null
+                                        },
+                                        onRetry = {
+                                            coroutineScope.launch {
+                                                try {
+                                                    if (!repository.retry(item.key)) {
+                                                        Toast.makeText(
+                                                            context,
+                                                            retryFailedMessage,
+                                                            Toast.LENGTH_SHORT,
+                                                        ).show()
+                                                    }
+                                                } catch (error: CancellationException) {
+                                                    throw error
+                                                } catch (_: Exception) {
                                                     Toast.makeText(
                                                         context,
                                                         retryFailedMessage,
                                                         Toast.LENGTH_SHORT,
                                                     ).show()
                                                 }
-                                            } catch (error: CancellationException) {
-                                                throw error
-                                            } catch (_: Exception) {
-                                                Toast.makeText(
-                                                    context,
-                                                    retryFailedMessage,
-                                                    Toast.LENGTH_SHORT,
-                                                ).show()
                                             }
-                                        }
-                                    },
-                                )
+                                        },
+                                    )
+                                }
                             }
                         }
                     }
@@ -613,6 +637,9 @@ private fun downloadStatusText(item: DownloadListItem): String = when (item.phas
     ThreadDownloadPhase.FAILED -> stringResource(R.string.downloads_status_failed)
     ThreadDownloadPhase.COMPLETED -> stringResource(R.string.downloads_status_completed)
 }
+
+internal fun totalDownloadedBytes(items: List<DownloadListItem>): Long =
+    items.sumOf { it.sizeBytes.coerceAtLeast(0L) }
 
 internal fun filterAndSortDownloads(
     downloads: List<DownloadListItem>,

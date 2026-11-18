@@ -4,12 +4,15 @@ import androidx.annotation.StringRes
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -22,10 +25,11 @@ import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.SwapHoriz
 import androidx.compose.material.icons.rounded.ViewDay
 import androidx.compose.material.icons.rounded.WebStories
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -170,6 +174,7 @@ internal fun ImageReaderBottomBar(
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 internal fun ImageReaderSettingsSheet(
     preferences: ImageReaderPreferences,
@@ -187,39 +192,73 @@ internal fun ImageReaderSettingsSheet(
             text = stringResource(R.string.reader_image_settings),
             style = MaterialTheme.typography.titleLarge,
         )
-        Spacer(Modifier.height(20.dp))
+        Spacer(Modifier.height(16.dp))
 
         SettingsSectionTitle(R.string.reader_image_reading_mode)
-        ImageReaderMode.entries.forEach { mode ->
-            SettingsRadioOption(
-                label = stringResource(mode.labelResource),
-                selected = preferences.mode == mode,
-                onClick = { onChange(preferences.copy(mode = mode)) },
-            )
+        FlowRow(
+            modifier = Modifier.padding(top = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            ImageReaderMode.entries.forEach { mode ->
+                FilterChip(
+                    selected = preferences.mode == mode,
+                    onClick = { onChange(preferences.copy(mode = mode)) },
+                    leadingIcon = {
+                        Icon(
+                            mode.icon,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp),
+                        )
+                    },
+                    label = { Text(stringResource(mode.labelResource)) },
+                )
+            }
         }
 
-        Spacer(Modifier.height(16.dp))
+        HorizontalDivider(
+            modifier = Modifier.padding(vertical = 12.dp),
+            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
+        )
         SettingsSectionTitle(R.string.reader_image_scale_type)
-        ImageReaderScaleType.entries.forEach { scaleType ->
-            SettingsRadioOption(
-                label = stringResource(scaleType.labelResource),
-                selected = preferences.scaleType == scaleType,
-                enabled = preferences.mode != ImageReaderMode.WEBTOON,
-                onClick = { onChange(preferences.copy(scaleType = scaleType)) },
-            )
+        FlowRow(
+            modifier = Modifier.padding(top = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            ImageReaderScaleType.entries.forEach { scaleType ->
+                FilterChip(
+                    selected = preferences.scaleType == scaleType,
+                    enabled = preferences.mode != ImageReaderMode.WEBTOON,
+                    onClick = { onChange(preferences.copy(scaleType = scaleType)) },
+                    label = { Text(stringResource(scaleType.labelResource)) },
+                )
+            }
         }
 
-        Spacer(Modifier.height(16.dp))
+        HorizontalDivider(
+            modifier = Modifier.padding(vertical = 12.dp),
+            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
+        )
         SettingsSectionTitle(R.string.reader_image_background)
-        ImageReaderBackground.entries.forEach { background ->
-            SettingsRadioOption(
-                label = stringResource(background.labelResource),
-                selected = preferences.background == background,
-                onClick = { onChange(preferences.copy(background = background)) },
-            )
+        FlowRow(
+            modifier = Modifier.padding(top = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            ImageReaderBackground.entries.forEach { background ->
+                FilterChip(
+                    selected = preferences.background == background,
+                    onClick = { onChange(preferences.copy(background = background)) },
+                    label = { Text(stringResource(background.labelResource)) },
+                )
+            }
         }
 
-        Spacer(Modifier.height(16.dp))
+        HorizontalDivider(
+            modifier = Modifier.padding(vertical = 12.dp),
+            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
+        )
         SettingsSwitchOption(
             label = stringResource(R.string.reader_image_tap_navigation),
             supportingText = stringResource(R.string.reader_image_tap_navigation_summary),
@@ -251,33 +290,6 @@ private fun SettingsSectionTitle(@StringRes label: Int) {
         color = MaterialTheme.colorScheme.primary,
         style = MaterialTheme.typography.titleSmall,
     )
-}
-
-@Composable
-private fun SettingsRadioOption(
-    label: String,
-    selected: Boolean,
-    enabled: Boolean = true,
-    onClick: () -> Unit,
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(enabled = enabled, onClick = onClick)
-            .padding(vertical = 6.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        RadioButton(selected = selected, onClick = onClick, enabled = enabled)
-        Text(
-            text = label,
-            color = if (enabled) {
-                MaterialTheme.colorScheme.onSurface
-            } else {
-                MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
-            },
-            modifier = Modifier.padding(start = 8.dp),
-        )
-    }
 }
 
 @Composable

@@ -10,23 +10,31 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.automirrored.rounded.MenuBook
+import androidx.compose.material.icons.rounded.ChevronLeft
+import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material.icons.rounded.Download
 import androidx.compose.material.icons.rounded.DownloadDone
 import androidx.compose.material.icons.rounded.Image
@@ -78,6 +86,7 @@ import com.yamibo.pocket300.api.GetThreadPostsInput
 import com.yamibo.pocket300.api.YamiboPost
 import com.yamibo.pocket300.api.YamiboThreadDetails
 import com.yamibo.pocket300.data.CustomListDatabase
+import com.yamibo.pocket300.data.ReadingHistoryDatabase
 import com.yamibo.pocket300.data.download.DownloadedThread
 import com.yamibo.pocket300.data.download.ThreadDownloadKey
 import com.yamibo.pocket300.data.download.ThreadDownloadPhase
@@ -92,6 +101,7 @@ import com.yamibo.pocket300.ui.ReaderPreferences
 import com.yamibo.pocket300.ui.ReaderPreferencesStore
 import com.yamibo.pocket300.ui.ReaderMode
 import com.yamibo.pocket300.ui.api
+import com.yamibo.pocket300.ui.components.PostAuthorAvatar
 import com.yamibo.pocket300.ui.load
 import com.yamibo.pocket300.ui.postImageUrls
 import com.yamibo.pocket300.ui.reader.ImageReader
@@ -119,6 +129,40 @@ internal data class ReaderContent(
     val source: ReaderContentSource = ReaderContentSource.NETWORK,
 )
 
+internal sealed interface AdjacentFloorTarget {
+    data class PostInMemory(val post: YamiboPost, val page: Int) : AdjacentFloorTarget
+    data class PageBoundary(val targetPage: Int, val selectFirst: Boolean) : AdjacentFloorTarget
+}
+
+internal fun resolveAdjacentReaderFloor(
+    posts: List<YamiboPost>,
+    currentPostId: Int,
+    currentPage: Int,
+    hasNextPage: Boolean,
+    forward: Boolean,
+): AdjacentFloorTarget? {
+    if (posts.isEmpty()) return null
+    val currentIndex = posts.indexOfFirst { it.id == currentPostId }
+    if (currentIndex < 0) return null
+    return if (forward) {
+        if (currentIndex + 1 < posts.size) {
+            AdjacentFloorTarget.PostInMemory(posts[currentIndex + 1], currentPage)
+        } else if (hasNextPage) {
+            AdjacentFloorTarget.PageBoundary(targetPage = currentPage + 1, selectFirst = true)
+        } else {
+            null
+        }
+    } else {
+        if (currentIndex - 1 >= 0) {
+            AdjacentFloorTarget.PostInMemory(posts[currentIndex - 1], currentPage)
+        } else if (currentPage > 1) {
+            AdjacentFloorTarget.PageBoundary(targetPage = currentPage - 1, selectFirst = false)
+        } else {
+            null
+        }
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun ReaderScreen(
@@ -133,6 +177,7 @@ internal fun ReaderScreen(
 ) {
     val context = LocalContext.current
     val customListDatabase = remember(context) { CustomListDatabase.getInstance(context) }
+    val historyDatabase = remember(context) { ReadingHistoryDatabase.getInstance(context) }
     val downloadRepository = remember(context) { ThreadDownloadManager.getInstance(context) }
     val downloadStatuses by downloadRepository.statuses.collectAsState()
     val downloadKey = remember(threadId) { ThreadDownloadKey(threadId) }
@@ -141,29 +186,40 @@ internal fun ReaderScreen(
     val imagePreferencesStore = remember(context) { ImageReaderPreferencesStore(context) }
     var preferences by remember { mutableStateOf(preferencesStore.load()) }
     var imagePreferences by remember { mutableStateOf(imagePreferencesStore.load()) }
-    val reusableContent = initialContent?.takeUnless {
-        needsReaderContentLoad(it.thread.id, it.post.id, threadId, postId)
+    var activePostId by remember(threadId, postId) { mutableIntStateOf(postId) }
+    var activePage by remember(threadId, postId, initialPage) {
+        mutableIntStateOf(initialPage.coerceAtLeast(1))
+    }
+    var activeInitialContent by remember(threadId, postId, initialContent) {
+        mutableStateOf(initialContent)
+    }
+    var cachedPagePosts by remember(threadId) { mutableStateOf<List<YamiboPost>>(emptyList()) }
+    var cachedPageNumber by remember(threadId) { mutableIntStateOf(initialPage.coerceAtLeast(1)) }
+    var cachedHasNextPage by remember(threadId) { mutableStateOf(false) }
+    var switchingFloor by remember(threadId) { mutableStateOf(false) }
+    var reload by remember(threadId, postId) { mutableIntStateOf(0) }
+    var lastHandledReload by remember(threadId, postId) { mutableIntStateOf(-1) }
+    val reusableContent = activeInitialContent?.takeUnless {
+        needsReaderContentLoad(it.thread.id, it.post.id, threadId, activePostId)
     }
     var state: LoadState<ReaderContent> by remember(
         threadId,
-        postId,
-        reusableContent,
+        activePostId,
         offlineOnly,
     ) {
-        mutableStateOf(LoadState.Loading)
+        mutableStateOf(reusableContent?.let { LoadState.Ready(it) } ?: LoadState.Loading)
     }
     var completedDownload by remember(threadId) {
         mutableStateOf<DownloadedThread?>(null)
     }
-    var reload by remember(threadId, postId) { mutableIntStateOf(0) }
     var controlsVisible by remember { mutableStateOf(true) }
     var settingsVisible by remember { mutableStateOf(false) }
     var imageSettingsVisible by remember { mutableStateOf(false) }
     var deleteDownloadVisible by remember { mutableStateOf(false) }
     var autoDeleteAttempted by remember(threadId) { mutableStateOf(false) }
-    var imageReadingCompleted by remember(threadId, postId) { mutableStateOf(false) }
+    var imageReadingCompleted by remember(threadId, activePostId) { mutableStateOf(false) }
     var readerMode by remember(threadId, postId) { mutableStateOf(preferencesStore.loadMode()) }
-    var imageIndex by remember(threadId, postId) { mutableIntStateOf(0) }
+    var imageIndex by remember(threadId, activePostId) { mutableIntStateOf(0) }
     val scrollState = rememberScrollState()
     val coroutineScope = rememberCoroutineScope()
     val uriHandler = LocalUriHandler.current
@@ -203,10 +259,10 @@ internal fun ReaderScreen(
             is LoadState.Failed, LoadState.Loading -> Unit
         }
     }
-    LaunchedEffect(threadId, postId, initialPage, reusableContent, offlineOnly, reload) {
+    LaunchedEffect(threadId, activePostId, initialContent, offlineOnly, reload) {
         loadReaderContentLocalFirst(
             threadId = threadId,
-            postId = postId,
+            postId = activePostId,
             initialContent = reusableContent,
             offlineOnly = offlineOnly,
             offlineUnavailableMessage = offlineUnavailableMessage,
@@ -214,23 +270,40 @@ internal fun ReaderScreen(
                 downloadRepository.awaitInitialized()
                 downloadRepository.statuses.value[downloadKey]?.completed
                     .also { completedDownload = it }
-                    ?.toReaderContent(postId)
+                    ?.toReaderContent(activePostId)
             },
             loadNetwork = {
-                var page = api.posts.getThreadPosts(
-                    GetThreadPostsInput(threadId, initialPage.coerceAtLeast(1)),
-                )
-                var post = page.posts.firstOrNull { it.id == postId }
-                if (post == null) {
-                    val resolvedPage = api.posts.findPostPage(threadId, postId)
-                        ?: error(postNotFoundMessage)
-                    page = api.posts.getThreadPosts(GetThreadPostsInput(threadId, resolvedPage))
-                    post = page.posts.firstOrNull { it.id == postId }
+                val cachedPost = cachedPagePosts.firstOrNull { it.id == activePostId }
+                val cachedThread = activeInitialContent?.thread?.takeIf { it.id == threadId }
+                    ?: (state as? LoadState.Ready)?.value?.thread?.takeIf { it.id == threadId }
+                if (
+                    reload == lastHandledReload &&
+                    cachedPageNumber == activePage &&
+                    cachedPost != null &&
+                    cachedThread != null
+                ) {
+                    ReaderContent(thread = cachedThread, post = cachedPost)
+                } else {
+                    var page = api.posts.getThreadPosts(
+                        GetThreadPostsInput(threadId, activePage),
+                    )
+                    var post = page.posts.firstOrNull { it.id == activePostId }
+                    if (post == null) {
+                        val resolvedPage = api.posts.findPostPage(threadId, activePostId)
+                            ?: error(postNotFoundMessage)
+                        page = api.posts.getThreadPosts(GetThreadPostsInput(threadId, resolvedPage))
+                        post = page.posts.firstOrNull { it.id == activePostId }
+                    }
+                    lastHandledReload = reload
+                    cachedPageNumber = page.pagination.page
+                    cachedPagePosts = page.posts
+                    cachedHasNextPage = page.pagination.hasNextPage
+                    activePage = page.pagination.page
+                    ReaderContent(
+                        thread = page.thread,
+                        post = post ?: error(postNotFoundMessage),
+                    )
                 }
-                ReaderContent(
-                    thread = page.thread,
-                    post = post ?: error(postNotFoundMessage),
-                )
             },
             onState = { state = it },
         )
@@ -238,7 +311,7 @@ internal fun ReaderScreen(
     val readyContent = (state as? LoadState.Ready)?.value
     LaunchedEffect(completedDownload, readyContent) {
         val current = readyContent ?: return@LaunchedEffect
-        val downloaded = completedDownload?.toReaderContent(postId)
+        val downloaded = completedDownload?.toReaderContent(activePostId)
         val reconciled = reconcileReaderDownloadedContent(
             current = current,
             downloaded = downloaded,
@@ -246,6 +319,13 @@ internal fun ReaderScreen(
             offlineUnavailableMessage = offlineUnavailableMessage,
         )
         if (reconciled != state) state = reconciled
+    }
+    LaunchedEffect(readyContent?.thread?.id, readyContent?.post?.id) {
+        val current = readyContent ?: return@LaunchedEffect
+        scrollState.scrollTo(0)
+        withContext(Dispatchers.IO) {
+            historyDatabase.record(current.thread, current.post.number)
+        }
     }
     val readerAttachmentUrls = remember(readyContent) {
         readyContent?.post?.attachments?.filter { it.isImage }?.map { it.url }.orEmpty()
@@ -295,6 +375,101 @@ internal fun ReaderScreen(
         }
     }
 
+    val navigationPosts: List<YamiboPost>?
+    val navigationPage: Int
+    val navigationHasNext: Boolean
+    if (readyContent?.source == ReaderContentSource.DOWNLOAD && completedDownload != null) {
+        navigationPosts = completedDownload!!.snapshot.posts
+        navigationPage = 1
+        navigationHasNext = false
+    } else if (readyContent != null && cachedPagePosts.any { it.id == readyContent.post.id }) {
+        navigationPosts = cachedPagePosts
+        navigationPage = activePage
+        navigationHasNext = cachedHasNextPage
+    } else {
+        navigationPosts = null
+        navigationPage = activePage
+        navigationHasNext = false
+    }
+    val previousFloorTarget = if (readyContent != null && navigationPosts != null) {
+        resolveAdjacentReaderFloor(
+            posts = navigationPosts,
+            currentPostId = readyContent.post.id,
+            currentPage = navigationPage,
+            hasNextPage = navigationHasNext,
+            forward = false,
+        )
+    } else {
+        null
+    }
+    val nextFloorTarget = if (readyContent != null && navigationPosts != null) {
+        resolveAdjacentReaderFloor(
+            posts = navigationPosts,
+            currentPostId = readyContent.post.id,
+            currentPage = navigationPage,
+            hasNextPage = navigationHasNext,
+            forward = true,
+        )
+    } else {
+        null
+    }
+
+    fun navigateToFloor(target: AdjacentFloorTarget) {
+        val current = readyContent ?: return
+        if (switchingFloor) return
+        when (target) {
+            is AdjacentFloorTarget.PostInMemory -> {
+                val updated = current.copy(post = target.post)
+                activePage = target.page
+                activeInitialContent = updated
+                activePostId = target.post.id
+                state = LoadState.Ready(updated)
+            }
+
+            is AdjacentFloorTarget.PageBoundary -> {
+                coroutineScope.launch {
+                    switchingFloor = true
+                    try {
+                        val fetched = api.posts.getThreadPosts(
+                            GetThreadPostsInput(threadId, target.targetPage),
+                        )
+                        val selectedPost = if (target.selectFirst) {
+                            fetched.posts.firstOrNull()
+                        } else {
+                            fetched.posts.lastOrNull()
+                        }
+                        if (selectedPost == null) {
+                            Toast.makeText(context, postNotFoundMessage, Toast.LENGTH_SHORT).show()
+                            return@launch
+                        }
+                        val updated = ReaderContent(
+                            thread = fetched.thread,
+                            post = selectedPost,
+                            localImageUrls = completedDownload?.localImageUris.orEmpty(),
+                        )
+                        cachedPageNumber = fetched.pagination.page
+                        cachedPagePosts = fetched.posts
+                        cachedHasNextPage = fetched.pagination.hasNextPage
+                        activePage = fetched.pagination.page
+                        activeInitialContent = updated
+                        activePostId = selectedPost.id
+                        state = LoadState.Ready(updated)
+                    } catch (error: CancellationException) {
+                        throw error
+                    } catch (error: Exception) {
+                        Toast.makeText(
+                            context,
+                            error.message?.takeIf(String::isNotBlank) ?: postNotFoundMessage,
+                            Toast.LENGTH_SHORT,
+                        ).show()
+                    } finally {
+                        switchingFloor = false
+                    }
+                }
+            }
+        }
+    }
+
     val updatePreferences: (ReaderPreferences) -> Unit = {
         preferences = it
         preferencesStore.save(it)
@@ -306,13 +481,18 @@ internal fun ReaderScreen(
     ReaderTheme(preferences.tone) {
         val statusBarPadding = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
         val navigationBarPadding = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+        val effectiveImageMode = readerMode == ReaderMode.IMAGES && readerImages.isNotEmpty()
         val contentTopPadding by animateDpAsState(
             targetValue = statusBarPadding + if (controlsVisible) 64.dp else 0.dp,
             animationSpec = tween(260),
             label = "reader-content-top-padding",
         )
         val contentBottomPadding by animateDpAsState(
-            targetValue = navigationBarPadding + if (controlsVisible) 52.dp else 0.dp,
+            targetValue = navigationBarPadding + if (controlsVisible) {
+                if (effectiveImageMode) 52.dp else 88.dp
+            } else {
+                0.dp
+            },
             animationSpec = tween(260),
             label = "reader-content-bottom-padding",
         )
@@ -388,174 +568,181 @@ internal fun ReaderScreen(
                         shrinkTowards = Alignment.Top,
                     ),
                 ) {
-                    TopAppBar(
-                        modifier = Modifier.pointerInput(Unit) {
-                            detectTapGestures(onDoubleTap = {
-                                coroutineScope.launch {
-                                    scrollState.animateScrollTo(0)
-                                }
-                            })
-                        },
-                        title = {
-                            val content = (state as? LoadState.Ready)?.value
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            ) {
-                                if (content?.source == ReaderContentSource.DOWNLOAD) {
-                                    Icon(
-                                        Icons.Rounded.OfflinePin,
-                                        contentDescription = stringResource(R.string.reader_offline),
-                                        modifier = Modifier.size(20.dp),
+                    Column(Modifier.fillMaxWidth()) {
+                        TopAppBar(
+                            modifier = Modifier.pointerInput(Unit) {
+                                detectTapGestures(onDoubleTap = {
+                                    coroutineScope.launch {
+                                        scrollState.animateScrollTo(0)
+                                    }
+                                })
+                            },
+                            title = {
+                                val content = (state as? LoadState.Ready)?.value
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                ) {
+                                    if (content?.source == ReaderContentSource.DOWNLOAD) {
+                                        Icon(
+                                            Icons.Rounded.OfflinePin,
+                                            contentDescription = stringResource(R.string.reader_offline),
+                                            modifier = Modifier.size(20.dp),
+                                        )
+                                    }
+                                    Text(
+                                        content?.thread?.subject
+                                            ?: stringResource(R.string.reader_default_title),
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
                                     )
                                 }
-                                Text(
-                                    content?.thread?.subject
-                                        ?: stringResource(R.string.reader_default_title),
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                )
-                            }
-                        },
-                        navigationIcon = {
-                            IconButton(onClick = onBack) {
-                                Icon(Icons.AutoMirrored.Rounded.ArrowBack, stringResource(R.string.reader_back))
-                            }
-                        },
-                        actions = {
-                            val content = (state as? LoadState.Ready)?.value
-                            val downloadProgressDescription = downloadStatus
-                                ?.takeIf {
-                                    it.phase == ThreadDownloadPhase.QUEUED ||
-                                        it.phase == ThreadDownloadPhase.FETCHING_PAGES ||
-                                        it.phase == ThreadDownloadPhase.DOWNLOADING_IMAGES
+                            },
+                            navigationIcon = {
+                                IconButton(onClick = onBack) {
+                                    Icon(Icons.AutoMirrored.Rounded.ArrowBack, stringResource(R.string.reader_back))
                                 }
-                                ?.let {
-                                    when (it.phase) {
-                                        ThreadDownloadPhase.FETCHING_PAGES -> stringResource(
-                                            R.string.thread_download_pages_progress,
-                                            it.progress.completedPages,
-                                            it.progress.totalPages,
-                                        )
-                                        ThreadDownloadPhase.DOWNLOADING_IMAGES ->
-                                            if (it.progress.totalImages > 0) {
-                                                stringResource(
-                                                    R.string.reader_download_progress,
-                                                    it.progress.completedImages,
-                                                    it.progress.totalImages,
-                                                )
-                                            } else {
-                                                stringResource(R.string.reader_download_saving)
-                                            }
-                                        else -> stringResource(R.string.reader_download_saving)
+                            },
+                            actions = {
+                                val content = (state as? LoadState.Ready)?.value
+                                val downloadProgressDescription = downloadStatus
+                                    ?.takeIf {
+                                        it.phase == ThreadDownloadPhase.QUEUED ||
+                                            it.phase == ThreadDownloadPhase.FETCHING_PAGES ||
+                                            it.phase == ThreadDownloadPhase.DOWNLOADING_IMAGES
                                     }
-                                }
-                            if (content != null) {
-                                when (downloadStatus?.phase) {
-                                    ThreadDownloadPhase.QUEUED,
-                                    ThreadDownloadPhase.FETCHING_PAGES,
-                                    ThreadDownloadPhase.DOWNLOADING_IMAGES,
-                                    -> IconButton(onClick = {}, enabled = false) {
-                                        CircularProgressIndicator(
-                                            modifier = Modifier
-                                                .size(22.dp)
-                                                .semantics {
-                                                    contentDescription =
-                                                        requireNotNull(downloadProgressDescription)
-                                                },
-                                            strokeWidth = 2.dp,
-                                        )
-                                    }
-
-                                    ThreadDownloadPhase.COMPLETED -> IconButton(
-                                        onClick = { deleteDownloadVisible = true },
-                                    ) {
-                                        Icon(
-                                            Icons.Rounded.DownloadDone,
-                                            stringResource(R.string.reader_remove_download),
-                                        )
-                                    }
-
-                                    ThreadDownloadPhase.FAILED,
-                                    null,
-                                    -> IconButton(
-                                        onClick = {
-                                            coroutineScope.launch {
-                                                try {
-                                                    val queued = if (
-                                                        downloadStatus?.phase ==
-                                                        ThreadDownloadPhase.FAILED
-                                                    ) {
-                                                        downloadRepository.retry(downloadKey)
-                                                    } else {
-                                                        false
-                                                    }
-                                                    if (!queued) {
-                                                        downloadRepository.enqueue(
-                                                            ThreadDownloadRequest.create(
-                                                                thread = content.thread,
-                                                            ),
-                                                        )
-                                                    }
-                                                    Toast.makeText(
-                                                        context,
-                                                        downloadStartedMessage,
-                                                        Toast.LENGTH_SHORT,
-                                                    ).show()
-                                                } catch (error: CancellationException) {
-                                                    throw error
-                                                } catch (_: Exception) {
-                                                    Toast.makeText(
-                                                        context,
-                                                        downloadFailedMessage,
-                                                        Toast.LENGTH_SHORT,
-                                                    ).show()
+                                    ?.let {
+                                        when (it.phase) {
+                                            ThreadDownloadPhase.FETCHING_PAGES -> stringResource(
+                                                R.string.thread_download_pages_progress,
+                                                it.progress.completedPages,
+                                                it.progress.totalPages,
+                                            )
+                                            ThreadDownloadPhase.DOWNLOADING_IMAGES ->
+                                                if (it.progress.totalImages > 0) {
+                                                    stringResource(
+                                                        R.string.reader_download_progress,
+                                                        it.progress.completedImages,
+                                                        it.progress.totalImages,
+                                                    )
+                                                } else {
+                                                    stringResource(R.string.reader_download_saving)
                                                 }
-                                            }
-                                        },
-                                    ) {
-                                        Icon(
-                                            Icons.Rounded.Download,
-                                            stringResource(R.string.reader_download_post),
-                                        )
+                                            else -> stringResource(R.string.reader_download_saving)
+                                        }
+                                    }
+                                if (content != null) {
+                                    when (downloadStatus?.phase) {
+                                        ThreadDownloadPhase.QUEUED,
+                                        ThreadDownloadPhase.FETCHING_PAGES,
+                                        ThreadDownloadPhase.DOWNLOADING_IMAGES,
+                                        -> IconButton(onClick = {}, enabled = false) {
+                                            CircularProgressIndicator(
+                                                modifier = Modifier
+                                                    .size(22.dp)
+                                                    .semantics {
+                                                        contentDescription =
+                                                            requireNotNull(downloadProgressDescription)
+                                                    },
+                                                strokeWidth = 2.dp,
+                                            )
+                                        }
+
+                                        ThreadDownloadPhase.COMPLETED -> IconButton(
+                                            onClick = { deleteDownloadVisible = true },
+                                        ) {
+                                            Icon(
+                                                Icons.Rounded.DownloadDone,
+                                                stringResource(R.string.reader_remove_download),
+                                            )
+                                        }
+
+                                        ThreadDownloadPhase.FAILED,
+                                        null,
+                                        -> IconButton(
+                                            onClick = {
+                                                coroutineScope.launch {
+                                                    try {
+                                                        val queued = if (
+                                                            downloadStatus?.phase ==
+                                                            ThreadDownloadPhase.FAILED
+                                                        ) {
+                                                            downloadRepository.retry(downloadKey)
+                                                        } else {
+                                                            false
+                                                        }
+                                                        if (!queued) {
+                                                            downloadRepository.enqueue(
+                                                                ThreadDownloadRequest.create(
+                                                                    thread = content.thread,
+                                                                ),
+                                                            )
+                                                        }
+                                                        Toast.makeText(
+                                                            context,
+                                                            downloadStartedMessage,
+                                                            Toast.LENGTH_SHORT,
+                                                        ).show()
+                                                    } catch (error: CancellationException) {
+                                                        throw error
+                                                    } catch (_: Exception) {
+                                                        Toast.makeText(
+                                                            context,
+                                                            downloadFailedMessage,
+                                                            Toast.LENGTH_SHORT,
+                                                        ).show()
+                                                    }
+                                                }
+                                            },
+                                        ) {
+                                            Icon(
+                                                Icons.Rounded.Download,
+                                                stringResource(R.string.reader_download_post),
+                                            )
+                                        }
                                     }
                                 }
-                            }
-                            val effectiveMode = if (readerImages.isNotEmpty()) readerMode else ReaderMode.TEXT
-                            if (readerImages.isNotEmpty()) {
-                                IconButton(onClick = {
-                                    val updatedMode = if (effectiveMode == ReaderMode.TEXT) {
-                                        ReaderMode.IMAGES
-                                    } else {
-                                        ReaderMode.TEXT
-                                    }
-                                    readerMode = updatedMode
-                                    preferencesStore.saveMode(updatedMode)
-                                }) {
-                                    if (effectiveMode == ReaderMode.TEXT) {
-                                        Icon(Icons.Rounded.Image, stringResource(R.string.reader_image_mode))
-                                    } else {
-                                        Icon(
-                                            Icons.AutoMirrored.Rounded.MenuBook,
-                                            stringResource(R.string.reader_text_mode),
-                                        )
+                                val effectiveMode = if (readerImages.isNotEmpty()) readerMode else ReaderMode.TEXT
+                                if (readerImages.isNotEmpty()) {
+                                    IconButton(onClick = {
+                                        val updatedMode = if (effectiveMode == ReaderMode.TEXT) {
+                                            ReaderMode.IMAGES
+                                        } else {
+                                            ReaderMode.TEXT
+                                        }
+                                        readerMode = updatedMode
+                                        preferencesStore.saveMode(updatedMode)
+                                    }) {
+                                        if (effectiveMode == ReaderMode.TEXT) {
+                                            Icon(Icons.Rounded.Image, stringResource(R.string.reader_image_mode))
+                                        } else {
+                                            Icon(
+                                                Icons.AutoMirrored.Rounded.MenuBook,
+                                                stringResource(R.string.reader_text_mode),
+                                            )
+                                        }
                                     }
                                 }
-                            }
-                            IconButton(
-                                onClick = {
-                                    if (effectiveMode == ReaderMode.TEXT) {
-                                        settingsVisible = true
-                                    } else {
-                                        imageSettingsVisible = true
-                                    }
-                                },
-                            ) {
-                                Icon(Icons.Rounded.Settings, stringResource(R.string.reader_settings))
-                            }
-                        },
-                        colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background),
-                    )
+                                IconButton(
+                                    onClick = {
+                                        if (effectiveMode == ReaderMode.TEXT) {
+                                            settingsVisible = true
+                                        } else {
+                                            imageSettingsVisible = true
+                                        }
+                                    },
+                                ) {
+                                    Icon(Icons.Rounded.Settings, stringResource(R.string.reader_settings))
+                                }
+                            },
+                            colors = TopAppBarDefaults.topAppBarColors(
+                                containerColor = MaterialTheme.colorScheme.background,
+                            ),
+                        )
+                        HorizontalDivider(
+                            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
+                        )
+                    }
                 }
             },
             bottomBar = {
@@ -584,21 +771,77 @@ internal fun ReaderScreen(
                             )
                         } else {
                             Column(
-                                Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 10.dp),
-                                verticalArrangement = Arrangement.spacedBy(6.dp),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .navigationBarsPadding(),
                             ) {
-                                val progress = if (scrollState.maxValue == 0) 0f
-                                else scrollState.value.toFloat() / scrollState.maxValue
-                                LinearProgressIndicator(
-                                    progress = { progress.coerceIn(0f, 1f) },
-                                    modifier = Modifier.fillMaxWidth(),
+                                HorizontalDivider(
+                                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
                                 )
-                                Text(
-                                    stringResource(R.string.reader_scroll_progress, (progress * 100).toInt()),
-                                    modifier = Modifier.align(Alignment.End),
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                                ) {
+                                    val progress = if (scrollState.maxValue == 0) 0f
+                                    else scrollState.value.toFloat() / scrollState.maxValue
+                                    LinearProgressIndicator(
+                                        progress = { progress.coerceIn(0f, 1f) },
+                                        modifier = Modifier.fillMaxWidth(),
+                                    )
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                    ) {
+                                        TextButton(
+                                            enabled = !switchingFloor && previousFloorTarget != null,
+                                            onClick = {
+                                                previousFloorTarget?.let(::navigateToFloor)
+                                            },
+                                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
+                                        ) {
+                                            Icon(
+                                                Icons.Rounded.ChevronLeft,
+                                                contentDescription = null,
+                                                modifier = Modifier.size(18.dp),
+                                            )
+                                            Spacer(Modifier.width(4.dp))
+                                            Text(stringResource(R.string.reader_previous_floor))
+                                        }
+                                        if (switchingFloor) {
+                                            CircularProgressIndicator(
+                                                modifier = Modifier.size(16.dp),
+                                                strokeWidth = 2.dp,
+                                            )
+                                        } else {
+                                            Text(
+                                                stringResource(
+                                                    R.string.reader_scroll_progress,
+                                                    (progress * 100).toInt(),
+                                                ),
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            )
+                                        }
+                                        TextButton(
+                                            enabled = !switchingFloor && nextFloorTarget != null,
+                                            onClick = {
+                                                nextFloorTarget?.let(::navigateToFloor)
+                                            },
+                                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
+                                        ) {
+                                            Text(stringResource(R.string.reader_next_floor))
+                                            Spacer(Modifier.width(4.dp))
+                                            Icon(
+                                                Icons.Rounded.ChevronRight,
+                                                contentDescription = null,
+                                                modifier = Modifier.size(18.dp),
+                                            )
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
@@ -617,69 +860,138 @@ internal fun ReaderScreen(
                     PaddingValues(),
                     onRetry = if (offlineOnly) null else ({ reload++ }),
                 ) { content ->
-                val openLink: (String) -> Unit = { url ->
-                    when (val target = resolvePostLink(url)) {
-                        is PostLinkTarget.Forum -> onForum(target.id)
-                        is PostLinkTarget.Thread -> onThread(target)
-                        is PostLinkTarget.External -> uriHandler.openUri(target.url)
-                    }
-                }
-                if (readerMode == ReaderMode.IMAGES && readerImages.isNotEmpty()) {
-                    ImageReader(
-                        images = readerImages,
-                        threadId = content.post.threadId,
-                        currentPage = imageIndex,
-                        preferences = imagePreferences,
-                        controlsVisible = controlsVisible,
-                        onCurrentPageChange = { imageIndex = it },
-                        onToggleControls = { controlsVisible = !controlsVisible },
-                        onImageReadingComplete = { imageReadingCompleted = true },
-                    )
-                } else {
-                    Column(
-                        Modifier
-                            .fillMaxSize()
-                            .consumeWindowInsets(scaffoldPadding)
-                            .padding(top = contentTopPadding, bottom = contentBottomPadding)
-                            .verticalScroll(scrollState)
-                            .pointerInput(Unit) { detectTapGestures { controlsVisible = !controlsVisible } }
-                            .padding(horizontal = 22.dp, vertical = 28.dp),
-                        verticalArrangement = Arrangement.spacedBy(18.dp),
-                    ) {
-                        Text(
-                            content.thread.subject,
-                            style = MaterialTheme.typography.headlineMedium,
-                            fontWeight = FontWeight.Bold,
-                        )
-                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                            Text(content.post.author.name, fontWeight = FontWeight.SemiBold)
-                            Text(
-                                if (content.post.isOriginalPost) stringResource(R.string.reader_original_post)
-                                else stringResource(R.string.reader_floor, content.post.number),
-                                color = MaterialTheme.colorScheme.primary,
-                            )
+                    val openLink: (String) -> Unit = { url ->
+                        when (val target = resolvePostLink(url)) {
+                            is PostLinkTarget.Forum -> onForum(target.id)
+                            is PostLinkTarget.Thread -> onThread(target)
+                            is PostLinkTarget.External -> uriHandler.openUri(target.url)
                         }
-                        Text(
-                            content.post.createdAtText,
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                        HorizontalDivider()
-                        PostHtml(
-                            html = content.post.html,
+                    }
+                    if (readerMode == ReaderMode.IMAGES && readerImages.isNotEmpty()) {
+                        ImageReader(
+                            images = readerImages,
                             threadId = content.post.threadId,
-                            attachmentUrls = readerAttachmentUrls,
-                            onLink = openLink,
-                            textStyle = MaterialTheme.typography.bodyLarge.copy(
-                                fontSize = preferences.fontSizeSp.sp,
-                                lineHeight = (preferences.fontSizeSp * preferences.lineHeightMultiplier).sp,
-                            ),
-                            localImageUrls = content.localImageUrls,
-                            allowRemoteImages = content.source != ReaderContentSource.DOWNLOAD,
+                            currentPage = imageIndex,
+                            preferences = imagePreferences,
+                            controlsVisible = controlsVisible,
+                            onCurrentPageChange = { imageIndex = it },
+                            onToggleControls = { controlsVisible = !controlsVisible },
+                            onImageReadingComplete = { imageReadingCompleted = true },
                         )
+                    } else {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .consumeWindowInsets(scaffoldPadding)
+                                .verticalScroll(scrollState)
+                                .pointerInput(Unit) {
+                                    detectTapGestures { controlsVisible = !controlsVisible }
+                                }
+                                .padding(top = contentTopPadding, bottom = contentBottomPadding),
+                            contentAlignment = Alignment.TopCenter,
+                        ) {
+                            Column(
+                                modifier = Modifier
+                                    .widthIn(max = 720.dp)
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 22.dp, vertical = 28.dp),
+                                verticalArrangement = Arrangement.spacedBy(18.dp),
+                            ) {
+                                Text(
+                                    content.thread.subject,
+                                    style = MaterialTheme.typography.headlineMedium,
+                                    fontWeight = FontWeight.Bold,
+                                )
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                ) {
+                                    PostAuthorAvatar(
+                                        author = content.post.author,
+                                        size = 36.dp,
+                                        allowRemoteImage = content.source != ReaderContentSource.DOWNLOAD,
+                                    )
+                                    Column(
+                                        modifier = Modifier.weight(1f),
+                                        verticalArrangement = Arrangement.spacedBy(2.dp),
+                                    ) {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                        ) {
+                                            Text(
+                                                content.post.author.name,
+                                                style = MaterialTheme.typography.titleSmall,
+                                                fontWeight = FontWeight.SemiBold,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis,
+                                            )
+                                            if (
+                                                shouldShowOriginalPosterBadge(
+                                                    content.post,
+                                                    content.thread.author.id,
+                                                )
+                                            ) {
+                                                Surface(
+                                                    shape = CircleShape,
+                                                    color = MaterialTheme.colorScheme.primaryContainer,
+                                                    contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                                                ) {
+                                                    Text(
+                                                        text = stringResource(R.string.thread_author_badge_op),
+                                                        style = MaterialTheme.typography.labelSmall,
+                                                        modifier = Modifier.padding(
+                                                            horizontal = 6.dp,
+                                                            vertical = 2.dp,
+                                                        ),
+                                                    )
+                                                }
+                                            }
+                                        }
+                                        Text(
+                                            content.post.createdAtText,
+                                            style = MaterialTheme.typography.labelMedium,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        )
+                                    }
+                                    Surface(
+                                        shape = MaterialTheme.shapes.small,
+                                        color = MaterialTheme.colorScheme.secondaryContainer,
+                                        contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                                    ) {
+                                        Text(
+                                            if (content.post.isOriginalPost) {
+                                                stringResource(R.string.reader_original_post)
+                                            } else {
+                                                stringResource(R.string.reader_floor, content.post.number)
+                                            },
+                                            style = MaterialTheme.typography.labelMedium,
+                                            fontWeight = FontWeight.SemiBold,
+                                            modifier = Modifier.padding(
+                                                horizontal = 10.dp,
+                                                vertical = 4.dp,
+                                            ),
+                                        )
+                                    }
+                                }
+                                HorizontalDivider()
+                                PostHtml(
+                                    html = content.post.html,
+                                    threadId = content.post.threadId,
+                                    attachmentUrls = readerAttachmentUrls,
+                                    onLink = openLink,
+                                    textStyle = MaterialTheme.typography.bodyLarge.copy(
+                                        fontSize = preferences.fontSizeSp.sp,
+                                        lineHeight = (preferences.fontSizeSp * preferences.lineHeightMultiplier).sp,
+                                    ),
+                                    localImageUrls = content.localImageUrls,
+                                    allowRemoteImages = content.source != ReaderContentSource.DOWNLOAD,
+                                )
+                            }
+                        }
                     }
                 }
-            }
             }
         }
     }

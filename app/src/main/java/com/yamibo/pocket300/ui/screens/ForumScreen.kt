@@ -12,7 +12,6 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
@@ -23,19 +22,20 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.ExpandLess
 import androidx.compose.material.icons.rounded.ExpandMore
+import androidx.compose.material.icons.rounded.Forum
 import androidx.compose.material.icons.rounded.PushPin
 import androidx.compose.material3.AssistChip
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.Surface
-import androidx.compose.material3.TextButton
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -54,6 +54,7 @@ import com.yamibo.pocket300.api.GetForumThreadsInput
 import com.yamibo.pocket300.api.YamiboForumThreadSort
 import com.yamibo.pocket300.api.YamiboForumThreadsPage
 import com.yamibo.pocket300.api.YamiboThread
+import com.yamibo.pocket300.ui.EmptyState
 import com.yamibo.pocket300.ui.LoadContent
 import com.yamibo.pocket300.ui.LoadState
 import com.yamibo.pocket300.ui.ScreenScaffold
@@ -200,6 +201,13 @@ internal fun ForumScreen(
                             items(page.subforums, key = { it.id }) { subforum ->
                                 AssistChip(
                                     onClick = { onForum(subforum.id) },
+                                    leadingIcon = {
+                                        Icon(
+                                            Icons.Rounded.Forum,
+                                            contentDescription = null,
+                                            modifier = Modifier.size(16.dp),
+                                        )
+                                    },
                                     label = { Text(stringResource(R.string.forum_subforum_summary, subforum.name, subforum.threadCount)) },
                                 )
                             }
@@ -207,144 +215,173 @@ internal fun ForumScreen(
                     }
                 }
                 item(key = "thread-filters") {
-                    Row(
-                        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        LazyRow(
-                            modifier = Modifier.weight(1f),
-                            contentPadding = PaddingValues(start = 16.dp, end = 8.dp),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    Column(Modifier.fillMaxWidth()) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            item {
-                                FilterChip(
-                                    selected = selectedTypeId == null,
-                                    onClick = { selectedTypeId = null; pageNumber = 1 },
-                                    label = { Text(stringResource(R.string.forum_filter_all)) },
-                                )
+                            LazyRow(
+                                modifier = Modifier.weight(1f),
+                                contentPadding = PaddingValues(start = 16.dp, end = 8.dp),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            ) {
+                                item {
+                                    FilterChip(
+                                        selected = selectedTypeId == null,
+                                        onClick = { selectedTypeId = null; pageNumber = 1 },
+                                        label = { Text(stringResource(R.string.forum_filter_all)) },
+                                    )
+                                }
+                                items(page.threadTypes, key = { it.id }) { type ->
+                                    FilterChip(
+                                        selected = selectedTypeId == type.id,
+                                        onClick = { selectedTypeId = type.id; pageNumber = 1 },
+                                        label = { Text(type.name) },
+                                    )
+                                }
                             }
-                            items(page.threadTypes, key = { it.id }) { type ->
-                                FilterChip(
-                                    selected = selectedTypeId == type.id,
-                                    onClick = { selectedTypeId = type.id; pageNumber = 1 },
-                                    label = { Text(type.name) },
+                            Box(Modifier.padding(end = 8.dp)) {
+                                TextButton(onClick = { sortMenuExpanded = true }) {
+                                    Text(stringResource(forumSortLabel(sort)), style = MaterialTheme.typography.labelMedium)
+                                    Icon(Icons.Rounded.ExpandMore, contentDescription = stringResource(R.string.forum_sort), modifier = Modifier.size(16.dp))
+                                }
+                                ForumSortMenu(
+                                    expanded = sortMenuExpanded,
+                                    sort = sort,
+                                    onDismiss = { sortMenuExpanded = false },
+                                    onSort = {
+                                        sort = it
+                                        pageNumber = 1
+                                        sortMenuExpanded = false
+                                    },
                                 )
                             }
                         }
-                        Box(Modifier.padding(end = 8.dp)) {
-                            TextButton(onClick = { sortMenuExpanded = true }) {
-                                Text(stringResource(forumSortLabel(sort)), style = MaterialTheme.typography.labelMedium)
-                                Icon(Icons.Rounded.ExpandMore, contentDescription = stringResource(R.string.forum_sort), modifier = Modifier.size(16.dp))
-                            }
-                            ForumSortMenu(
-                                expanded = sortMenuExpanded,
-                                sort = sort,
-                                onDismiss = { sortMenuExpanded = false },
-                                onSort = {
-                                    sort = it
-                                    pageNumber = 1
-                                    sortMenuExpanded = false
-                                },
-                            )
+                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                        AnimatedVisibility(visible = refreshingThreads) {
+                            LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
                         }
                     }
                 }
-                if (refreshingThreads) {
-                    item {
-                        Box(
-                            Modifier
+                threadLoadError?.let { message ->
+                    item(key = "thread-load-error") {
+                        Surface(
+                            color = MaterialTheme.colorScheme.errorContainer,
+                            shape = MaterialTheme.shapes.medium,
+                            modifier = Modifier
                                 .fillMaxWidth()
-                                .height(120.dp),
-                            contentAlignment = Alignment.Center,
-                        ) { CircularProgressIndicator() }
-                    }
-                } else {
-                    threadLoadError?.let { message ->
-                        item {
-                            Text(
-                                message,
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(20.dp),
-                                color = MaterialTheme.colorScheme.error,
-                            )
+                                .padding(horizontal = 16.dp, vertical = 8.dp),
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            ) {
+                                Text(
+                                    message,
+                                    color = MaterialTheme.colorScheme.onErrorContainer,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    modifier = Modifier.weight(1f),
+                                )
+                                TextButton(onClick = { refreshingThreads = true; pageNumber = 1; reload++ }) {
+                                    Text(stringResource(R.string.action_retry))
+                                }
+                            }
                         }
                     }
-                    val (stickyThreads, regularThreads) = content.threads.partition {
-                        isStickyThread(it.stickyLevel)
-                    }
-                    if (stickyThreads.isNotEmpty()) {
-                        item(key = "sticky-threads", contentType = "sticky-threads") {
-                            Column(
+                }
+                val (stickyThreads, regularThreads) = content.threads.partition {
+                    isStickyThread(it.stickyLevel)
+                }
+                if (stickyThreads.isNotEmpty()) {
+                    item(key = "sticky-threads", contentType = "sticky-threads") {
+                        Column(
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Surface(
+                                onClick = { stickyThreadsExpanded = !stickyThreadsExpanded },
                                 modifier = Modifier.fillMaxWidth(),
+                                shape = RectangleShape,
+                                color = MaterialTheme.colorScheme.surfaceContainerHigh,
                             ) {
-                                Surface(
-                                    onClick = { stickyThreadsExpanded = !stickyThreadsExpanded },
-                                    modifier = Modifier.fillMaxWidth(),
-                                    shape = RectangleShape,
-                                    color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically,
                                 ) {
                                     Row(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .padding(horizontal = 16.dp, vertical = 12.dp),
-                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
                                         verticalAlignment = Alignment.CenterVertically,
                                     ) {
-                                        Row(
-                                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                            verticalAlignment = Alignment.CenterVertically,
-                                        ) {
-                                            Icon(Icons.Rounded.PushPin, contentDescription = null, modifier = Modifier.size(16.dp))
-                                            Text(
-                                                stringResource(R.string.forum_sticky_threads, stickyThreads.size),
-                                                style = MaterialTheme.typography.labelLarge,
-                                            )
-                                        }
-                                        Icon(
-                                            imageVector = if (stickyThreadsExpanded) {
-                                                Icons.Rounded.ExpandLess
-                                            } else {
-                                                Icons.Rounded.ExpandMore
-                                            },
-                                            contentDescription = stringResource(
-                                                if (stickyThreadsExpanded) {
-                                                    R.string.forum_collapse_sticky_threads
-                                                } else {
-                                                    R.string.forum_expand_sticky_threads
-                                                }
-                                            ),
+                                        Icon(Icons.Rounded.PushPin, contentDescription = null, modifier = Modifier.size(16.dp))
+                                        Text(
+                                            stringResource(R.string.forum_sticky_threads, stickyThreads.size),
+                                            style = MaterialTheme.typography.labelLarge,
                                         )
                                     }
+                                    Icon(
+                                        imageVector = if (stickyThreadsExpanded) {
+                                            Icons.Rounded.ExpandLess
+                                        } else {
+                                            Icons.Rounded.ExpandMore
+                                        },
+                                        contentDescription = stringResource(
+                                            if (stickyThreadsExpanded) {
+                                                R.string.forum_collapse_sticky_threads
+                                            } else {
+                                                R.string.forum_expand_sticky_threads
+                                            }
+                                        ),
+                                    )
                                 }
-                                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-                                AnimatedVisibility(
-                                    visible = stickyThreadsExpanded,
-                                    enter = expandVertically(expandFrom = Alignment.Top),
-                                    exit = shrinkVertically(shrinkTowards = Alignment.Top),
-                                ) {
-                                    Column {
-                                        stickyThreads.forEach { thread ->
-                                            ForumThreadCard(
-                                                thread = thread,
-                                                onThread = onThread,
-                                                sharedTransitionScope = sharedTransitionScope,
-                                                animatedVisibilityScope = animatedVisibilityScope,
-                                            )
-                                        }
+                            }
+                            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                            AnimatedVisibility(
+                                visible = stickyThreadsExpanded,
+                                enter = expandVertically(expandFrom = Alignment.Top),
+                                exit = shrinkVertically(shrinkTowards = Alignment.Top),
+                            ) {
+                                Column {
+                                    stickyThreads.forEach { thread ->
+                                        ForumThreadCard(
+                                            thread = thread,
+                                            onThread = onThread,
+                                            sharedTransitionScope = sharedTransitionScope,
+                                            animatedVisibilityScope = animatedVisibilityScope,
+                                        )
                                     }
                                 }
                             }
                         }
                     }
-                    items(regularThreads, key = { it.id }, contentType = { "thread" }) { thread ->
-                        ForumThreadCard(
-                            thread = thread,
-                            onThread = onThread,
-                            sharedTransitionScope = sharedTransitionScope,
-                            animatedVisibilityScope = animatedVisibilityScope,
+                }
+                if (
+                    stickyThreads.isEmpty() &&
+                    regularThreads.isEmpty() &&
+                    !refreshingThreads &&
+                    threadLoadError == null
+                ) {
+                    item(key = "empty-threads") {
+                        EmptyState(
+                            title = stringResource(R.string.forum_empty_threads_title),
+                            message = stringResource(R.string.forum_empty_threads_message),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 48.dp),
                         )
                     }
+                }
+                items(regularThreads, key = { it.id }, contentType = { "thread" }) { thread ->
+                    ForumThreadCard(
+                        thread = thread,
+                        onThread = onThread,
+                        sharedTransitionScope = sharedTransitionScope,
+                        animatedVisibilityScope = animatedVisibilityScope,
+                    )
+                }
+                if (stickyThreads.isNotEmpty() || regularThreads.isNotEmpty()) {
                     item {
                         ListFooter(
                             hasNextPage = page.pagination.hasNextPage,
