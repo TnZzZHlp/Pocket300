@@ -33,7 +33,7 @@ fun versionCodeFrom(versionName: String): Int {
 }
 
 val releaseKeystorePath = providers.environmentVariable("RELEASE_KEYSTORE_PATH").orNull
-val appVersionName = providers.gradleProperty("versionName").orNull ?: "1.3.0"
+val appVersionName = providers.gradleProperty("versionName").orNull ?: "1.5.0"
 val appVersionCode = providers.gradleProperty("versionCode").orNull?.toInt()
     ?: versionCodeFrom(appVersionName)
 
