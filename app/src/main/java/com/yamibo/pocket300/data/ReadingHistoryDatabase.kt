@@ -127,6 +127,12 @@ class ReadingHistoryDatabase internal constructor(context: Context, databaseName
         AppLogger.info(TAG) { "Removed thread $threadId from reading history" }
     }
 
+    fun clearAll() {
+        writableDatabase.delete("reading_history", null, null)
+        refreshEntries()
+        AppLogger.info(TAG) { "Cleared all reading history entries" }
+    }
+
     fun getAll(): List<ReadingHistoryEntry> = readableDatabase.query(
         "reading_history",
         COLUMNS,

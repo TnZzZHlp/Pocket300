@@ -11,7 +11,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
@@ -22,20 +22,24 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.ArrowForward
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Clear
 import androidx.compose.material.icons.rounded.Search
-import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.VerticalDivider
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -46,6 +50,8 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
@@ -97,6 +103,7 @@ internal fun SearchScreen(
             SearchForm(
                 query = viewModel.query,
                 searchType = viewModel.searchType,
+                isForumScoped = viewModel.isForumScoped,
                 queryError = viewModel.queryError,
                 focusRequester = focusRequester,
                 onQueryChange = viewModel::updateQuery,
@@ -139,6 +146,7 @@ internal fun SearchScreen(
 private fun SearchForm(
     query: String,
     searchType: YamiboThreadSearchType,
+    isForumScoped: Boolean,
     queryError: SearchQueryError?,
     focusRequester: FocusRequester,
     onQueryChange: (String) -> Unit,
@@ -146,31 +154,43 @@ private fun SearchForm(
     onSearchTypeChange: (YamiboThreadSearchType) -> Unit,
     onSubmit: () -> Unit,
 ) {
-    Column(
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.Top,
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
+    val searchTypeDescription = stringResource(R.string.search_type_label)
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Column(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             OutlinedTextField(
                 value = query,
                 onValueChange = onQueryChange,
                 modifier = Modifier
-                    .weight(1f)
+                    .fillMaxWidth()
                     .focusRequester(focusRequester)
                     .testTag(SEARCH_QUERY_FIELD_TEST_TAG),
                 label = { Text(stringResource(R.string.search_input_label)) },
                 placeholder = { Text(stringResource(R.string.search_input_placeholder)) },
                 leadingIcon = { Icon(Icons.Rounded.Search, contentDescription = null) },
                 trailingIcon = {
-                    if (query.isNotEmpty()) {
-                        IconButton(onClick = onClear) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.padding(end = 6.dp),
+                    ) {
+                        if (query.isNotEmpty()) {
+                            IconButton(onClick = onClear) {
+                                Icon(
+                                    Icons.Rounded.Clear,
+                                    contentDescription = stringResource(R.string.search_clear),
+                                )
+                            }
+                        }
+                        FilledTonalIconButton(
+                            onClick = onSubmit,
+                            modifier = Modifier.size(36.dp),
+                        ) {
                             Icon(
-                                Icons.Rounded.Clear,
-                                contentDescription = stringResource(R.string.search_clear),
+                                Icons.AutoMirrored.Rounded.ArrowForward,
+                                contentDescription = stringResource(R.string.search_action),
+                                modifier = Modifier.size(18.dp),
                             )
                         }
                     }
@@ -199,35 +219,46 @@ private fun SearchForm(
                 keyboardActions = KeyboardActions(onSearch = { onSubmit() }),
                 singleLine = true,
             )
-            Button(
-                onClick = onSubmit,
-                modifier = Modifier.padding(top = 8.dp).heightIn(min = 56.dp),
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState())
+                    .semantics { contentDescription = searchTypeDescription },
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                Text(stringResource(R.string.search_action))
-            }
-        }
-        Text(
-            stringResource(R.string.search_type_label),
-            style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        Row(
-            modifier = Modifier.horizontalScroll(rememberScrollState()),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            YamiboThreadSearchType.entries.forEach { type ->
-                FilterChip(
-                    selected = searchType == type,
-                    onClick = { onSearchTypeChange(type) },
-                    label = { Text(stringResource(type.labelResource())) },
-                    leadingIcon = if (searchType == type) {
-                        { Icon(Icons.Rounded.Check, contentDescription = null) }
-                    } else {
-                        null
-                    },
+                Surface(
+                    shape = MaterialTheme.shapes.small,
+                    color = MaterialTheme.colorScheme.secondaryContainer,
+                    contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                ) {
+                    Text(
+                        text = stringResource(
+                            if (isForumScoped) R.string.search_scope_forum else R.string.search_scope_site,
+                        ),
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                        style = MaterialTheme.typography.labelMedium,
+                    )
+                }
+                VerticalDivider(
+                    modifier = Modifier.height(20.dp),
+                    color = MaterialTheme.colorScheme.outlineVariant,
                 )
+                YamiboThreadSearchType.entries.forEach { type ->
+                    FilterChip(
+                        selected = searchType == type,
+                        onClick = { onSearchTypeChange(type) },
+                        label = { Text(stringResource(type.labelResource())) },
+                        leadingIcon = if (searchType == type) {
+                            { Icon(Icons.Rounded.Check, contentDescription = null) }
+                        } else {
+                            null
+                        },
+                    )
+                }
             }
         }
+        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
     }
 }
 

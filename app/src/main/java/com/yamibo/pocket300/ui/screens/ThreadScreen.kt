@@ -21,6 +21,8 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -38,6 +40,7 @@ import androidx.compose.material.icons.rounded.Remove
 import androidx.compose.material.icons.rounded.RemoveDone
 import androidx.compose.material.icons.rounded.Star
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Badge
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -52,6 +55,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedIconButton
 import androidx.compose.material3.RadioButton
@@ -79,7 +83,13 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.yamibo.pocket300.R
@@ -196,6 +206,7 @@ internal fun ThreadScreen(
     var lastVisibleFloor by rememberSaveable(threadId) {
         mutableIntStateOf(initialFloor.coerceAtLeast(1))
     }
+    var jumpDialogVisible by rememberSaveable(threadId) { mutableStateOf(false) }
     val showThreadTitle by remember {
         derivedStateOf { shouldShowThreadTitle(listState.firstVisibleItemIndex) }
     }
@@ -285,8 +296,25 @@ internal fun ThreadScreen(
     val loadedContent = (state as? LoadState.Ready)?.value
     val loadedThread = loadedContent?.page?.thread
     val isRead = threadId in readingHistory
+    val currentDisplayPage by remember(loadedContent, listState) {
+        derivedStateOf {
+            val content = loadedContent ?: return@derivedStateOf 1
+            val pageSize = content.page.pagination.pageSize.coerceAtLeast(1)
+            val totalPages = content.page.pagination.totalPages.coerceAtLeast(1)
+            val visiblePostIds = listState.layoutInfo.visibleItemsInfo.mapNotNull { it.key as? Int }.toSet()
+            val firstVisiblePost = content.posts.firstOrNull { it.id in visiblePostIds }
+            if (firstVisiblePost != null) {
+                (((firstVisiblePost.position - 1).coerceAtLeast(0) / pageSize) + 1).coerceIn(1, totalPages)
+            } else {
+                content.page.pagination.page.coerceIn(1, totalPages)
+            }
+        }
+    }
     val markedReadMessage = stringResource(R.string.thread_marked_read)
     val markedUnreadMessage = stringResource(R.string.thread_marked_unread)
+    val favoritedMessage = stringResource(R.string.thread_favorited_toast)
+    val unfavoritedMessage = stringResource(R.string.thread_unfavorited_toast)
+    val favoriteMissingErrorMessage = stringResource(R.string.thread_favorite_missing_error)
     val pollSubmittedMessage = stringResource(R.string.thread_poll_submitted)
     val replySubmittedMessage = stringResource(R.string.thread_reply_submitted)
     val replyPendingModerationMessage =
@@ -321,31 +349,54 @@ internal fun ThreadScreen(
     LaunchedEffect(loadedContent, targetFloor, targetPostId, restoredFloor) {
         val content = loadedContent ?: return@LaunchedEffect
         if (restoredFloor) return@LaunchedEffect
-        val postIndex = content.posts.indexOfFirst {
-            if (targetPostId > 0) it.id == targetPostId else it.number == targetFloor
-        }
-        if (postIndex >= 0) {
-            val headerCount = 1 + if (content.page.poll == null) 0 else 1
-            listState.scrollToItem(headerCount + postIndex)
-            restoredFloor = true
-        } else if (targetPostId <= 0 && pageNumber == 1) {
-            pageNumber = ((targetFloor - 1) / content.page.pagination.pageSize) + 1
-        } else if (offlineOnly) {
-            restoredFloor = true
-        } else {
-            when (val resolved = load { api.posts.findPostPage(threadId, targetPostId) }) {
-                is LoadState.Ready -> {
-                    val resolvedPage = resolved.value
-                    if (resolvedPage != null && resolvedPage != pageNumber) {
-                        pageNumber = resolvedPage
-                    } else {
-                        restoredFloor = true
+        val headerCount = 1 + if (content.page.poll == null) 0 else 1
+        if (targetPostId > 0) {
+            val postIndex = content.posts.indexOfFirst { it.id == targetPostId }
+            if (postIndex >= 0) {
+                listState.scrollToItem(headerCount + postIndex)
+                restoredFloor = true
+            } else if (offlineOnly) {
+                restoredFloor = true
+            } else {
+                when (val resolved = load { api.posts.findPostPage(threadId, targetPostId) }) {
+                    is LoadState.Ready -> {
+                        val resolvedPage = resolved.value
+                        if (resolvedPage != null && resolvedPage != pageNumber) {
+                            viewModel.preparePageJump()
+                            pageNumber = resolvedPage
+                        } else {
+                            restoredFloor = true
+                        }
                     }
-                }
 
-                is LoadState.Failed -> restoredFloor = true
-                LoadState.Loading -> Unit
+                    is LoadState.Failed -> restoredFloor = true
+                    LoadState.Loading -> Unit
+                }
             }
+        } else if (targetFloor > 0) {
+            val exactIndex = content.posts.indexOfFirst { it.number == targetFloor }
+            if (exactIndex >= 0) {
+                listState.scrollToItem(headerCount + exactIndex)
+                restoredFloor = true
+            } else {
+                val expectedPage = targetPageForFloor(
+                    floor = targetFloor,
+                    pageSize = content.page.pagination.pageSize,
+                    totalPages = content.page.pagination.totalPages,
+                )
+                if (!offlineOnly && content.page.pagination.page != expectedPage && pageNumber != expectedPage) {
+                    viewModel.preparePageJump()
+                    pageNumber = expectedPage
+                } else {
+                    val fallbackIndex = resolveFloorScrollIndex(content.posts, targetFloor)
+                    if (fallbackIndex != null) {
+                        listState.scrollToItem(headerCount + fallbackIndex)
+                    }
+                    restoredFloor = true
+                }
+            }
+        } else {
+            restoredFloor = true
         }
     }
     LaunchedEffect(loadedThread?.id, loadedThread?.subject) {
@@ -394,6 +445,23 @@ internal fun ThreadScreen(
         isRefreshing = !offlineOnly && viewModel.isRefreshing,
         onTopBarDoubleClick = { coroutineScope.launch { listState.animateScrollToItem(0) } },
         actions = {
+            loadedContent?.let { content ->
+                if (content.page.pagination.totalPages > 1 || content.posts.size > 1) {
+                    TextButton(
+                        onClick = { jumpDialogVisible = true },
+                        contentPadding = PaddingValues(horizontal = 8.dp),
+                    ) {
+                        Text(
+                            text = stringResource(
+                                R.string.thread_page_indicator,
+                                currentDisplayPage,
+                                content.page.pagination.totalPages.coerceAtLeast(1),
+                            ),
+                            style = MaterialTheme.typography.labelLarge,
+                        )
+                    }
+                }
+            }
             loadedThread?.let { thread ->
                 if (offlineOnly) {
                     Icon(
@@ -539,17 +607,24 @@ internal fun ThreadScreen(
             }
             LazyColumn(
                 state = listState,
-                contentPadding = PaddingValues(PocketSpacing.screen),
+                contentPadding = PaddingValues(
+                    start = PocketSpacing.screen,
+                    top = 8.dp,
+                    end = PocketSpacing.screen,
+                    bottom = 88.dp,
+                ),
                 verticalArrangement = Arrangement.spacedBy(PocketSpacing.itemGap),
             ) {
                 item {
                     ThreadHero(
                         page = page,
+                        canJump = page.pagination.totalPages > 1 || content.posts.size > 5,
                         isFavorited = isFavorited,
                         favoriteBusy = favoriteBusy,
                         originalPosterOnly = originalPosterOnly,
                         offlineOnly = offlineOnly,
                         typography = threadTypography,
+                        onJump = { jumpDialogVisible = true },
                         onFavorite = {
                             if (!favoriteBusy) {
                                 favoriteBusy = true
@@ -562,7 +637,7 @@ internal fun ThreadScreen(
                                                 ?: api.favorites.getFavoriteThreads()
                                                     .firstOrNull { it.threadId == threadId }
                                                     ?.favoriteId
-                                                ?: error("未找到收藏记录，请刷新后重试")
+                                                ?: error(favoriteMissingErrorMessage)
                                             api.favorites.removeThread(id)
                                         }
                                     } else {
@@ -574,7 +649,7 @@ internal fun ThreadScreen(
                                             if (wasFavorited) favoriteId = null
                                             Toast.makeText(
                                                 context,
-                                                if (wasFavorited) "已取消收藏" else "已收藏",
+                                                if (wasFavorited) unfavoritedMessage else favoritedMessage,
                                                 Toast.LENGTH_SHORT,
                                             ).show()
                                         }
@@ -653,6 +728,7 @@ internal fun ThreadScreen(
                 items(content.posts, key = { it.id }, contentType = { "post" }) { post ->
                     PostCard(
                         post = post,
+                        threadAuthorId = page.thread.author.id,
                         typography = threadTypography,
                         onForum = onForum,
                         onRatings = { onRatings(post.threadId, post.id) },
@@ -691,7 +767,11 @@ internal fun ThreadScreen(
                                     targetFloor = 0
                                     targetPostId = target.postId
                                     restoredFloor = false
-                                    pageNumber = target.page?.coerceAtLeast(1) ?: 1
+                                    val nextPage = target.page?.coerceAtLeast(1) ?: 1
+                                    if (nextPage != pageNumber) {
+                                        viewModel.preparePageJump()
+                                        pageNumber = nextPage
+                                    }
                                 } else {
                                     targetFloor = 0
                                     targetPostId = 0
@@ -717,6 +797,62 @@ internal fun ThreadScreen(
                 }
             }
         }
+    }
+    if (jumpDialogVisible && loadedContent != null) {
+        val pagination = loadedContent.page.pagination
+        val totalPages = pagination.totalPages.coerceAtLeast(1)
+        val maxFloor = maxOf(
+            loadedContent.page.thread.replyCount + 1,
+            pagination.totalPosts,
+            loadedContent.posts.maxOfOrNull { it.number } ?: 1,
+        )
+        ThreadJumpDialog(
+            currentPage = currentDisplayPage,
+            totalPages = totalPages,
+            currentFloor = lastVisibleFloor.coerceIn(1, maxFloor),
+            maxFloor = maxFloor,
+            allowPageJump = !offlineOnly && totalPages > 1,
+            onDismiss = { jumpDialogVisible = false },
+            onJumpToPage = { targetPage ->
+                jumpDialogVisible = false
+                val headerCount = 1 + if (loadedContent.page.poll == null) 0 else 1
+                val pageSize = pagination.pageSize.coerceAtLeast(1)
+                val loadedPostIndex = loadedContent.posts.indexOfFirst {
+                    (((it.position - 1).coerceAtLeast(0) / pageSize) + 1) == targetPage
+                }
+                if (loadedPostIndex >= 0) {
+                    coroutineScope.launch {
+                        listState.scrollToItem(if (targetPage == 1) 0 else headerCount + loadedPostIndex)
+                    }
+                } else {
+                    targetFloor = 0
+                    targetPostId = 0
+                    restoredFloor = true
+                    viewModel.preparePageJump()
+                    if (pageNumber == targetPage) reload++ else pageNumber = targetPage
+                    coroutineScope.launch { listState.scrollToItem(0) }
+                }
+            },
+            onJumpToFloor = { chosenFloor ->
+                jumpDialogVisible = false
+                targetPostId = 0
+                targetFloor = chosenFloor
+                restoredFloor = false
+                val expectedPage = targetPageForFloor(
+                    floor = chosenFloor,
+                    pageSize = pagination.pageSize,
+                    totalPages = totalPages,
+                )
+                if (!offlineOnly &&
+                    loadedContent.posts.none { it.number == chosenFloor } &&
+                    expectedPage != pagination.page &&
+                    expectedPage == pageNumber
+                ) {
+                    viewModel.preparePageJump()
+                    reload++
+                }
+            },
+        )
     }
     if (!offlineOnly && replyEditorVisible) {
         ReplyComposerSheet(
@@ -910,6 +1046,176 @@ internal fun shouldShowThreadTitle(firstVisibleItemIndex: Int): Boolean =
 
 internal fun shouldShowRatingsSummary(ratingCount: Int): Boolean =
     ratingCount > 0
+
+internal fun shouldShowOriginalPosterBadge(post: YamiboPost, threadAuthorId: Int?): Boolean =
+    !post.isOriginalPost && threadAuthorId != null && post.author.id == threadAuthorId
+
+internal fun targetPageForFloor(floor: Int, pageSize: Int, totalPages: Int): Int =
+    (((floor.coerceAtLeast(1) - 1) / pageSize.coerceAtLeast(1)) + 1)
+        .coerceIn(1, totalPages.coerceAtLeast(1))
+
+internal fun resolveFloorScrollIndex(posts: List<YamiboPost>, targetFloor: Int): Int? =
+    posts.indexOfFirst { it.number == targetFloor }.takeIf { it >= 0 }
+        ?: posts.indexOfFirst { it.number >= targetFloor }.takeIf { it >= 0 }
+        ?: posts.lastIndex.takeIf { it >= 0 }
+
+internal fun parseJumpTarget(input: String, maxAllowed: Int): Int? =
+    if (maxAllowed < 1) null else input.trim().toIntOrNull()?.takeIf { it in 1..maxAllowed }
+
+private enum class ThreadJumpMode { PAGE, FLOOR }
+
+@Composable
+private fun ThreadJumpDialog(
+    currentPage: Int,
+    totalPages: Int,
+    currentFloor: Int,
+    maxFloor: Int,
+    allowPageJump: Boolean,
+    onDismiss: () -> Unit,
+    onJumpToPage: (Int) -> Unit,
+    onJumpToFloor: (Int) -> Unit,
+) {
+    var mode by remember(allowPageJump) {
+        mutableStateOf(if (allowPageJump) ThreadJumpMode.PAGE else ThreadJumpMode.FLOOR)
+    }
+    var input by remember(mode, currentPage, currentFloor) {
+        mutableStateOf(
+            (if (mode == ThreadJumpMode.PAGE) currentPage else currentFloor).toString(),
+        )
+    }
+    val maxAllowed = if (mode == ThreadJumpMode.PAGE) totalPages.coerceAtLeast(1) else maxFloor.coerceAtLeast(1)
+    val parsedTarget = parseJumpTarget(input, maxAllowed)
+    val hasError = input.isNotBlank() && parsedTarget == null
+
+    fun confirmJump() {
+        val target = parsedTarget ?: return
+        if (mode == ThreadJumpMode.PAGE) onJumpToPage(target) else onJumpToFloor(target)
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.thread_jump_title)) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                if (allowPageJump) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        FilterChip(
+                            selected = mode == ThreadJumpMode.PAGE,
+                            onClick = { mode = ThreadJumpMode.PAGE },
+                            label = { Text(stringResource(R.string.thread_jump_mode_page)) },
+                        )
+                        FilterChip(
+                            selected = mode == ThreadJumpMode.FLOOR,
+                            onClick = { mode = ThreadJumpMode.FLOOR },
+                            label = { Text(stringResource(R.string.thread_jump_mode_floor)) },
+                        )
+                    }
+                }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    OutlinedButton(
+                        onClick = {
+                            if (mode == ThreadJumpMode.PAGE) onJumpToPage(1) else onJumpToFloor(1)
+                        },
+                        modifier = Modifier.weight(1f),
+                    ) {
+                        Text(
+                            stringResource(
+                                if (mode == ThreadJumpMode.PAGE) {
+                                    R.string.thread_jump_first_page
+                                } else {
+                                    R.string.thread_jump_first_floor
+                                },
+                            ),
+                        )
+                    }
+                    OutlinedButton(
+                        onClick = {
+                            if (mode == ThreadJumpMode.PAGE) {
+                                onJumpToPage(maxAllowed)
+                            } else {
+                                onJumpToFloor(maxAllowed)
+                            }
+                        },
+                        modifier = Modifier.weight(1f),
+                    ) {
+                        Text(
+                            stringResource(
+                                if (mode == ThreadJumpMode.PAGE) {
+                                    R.string.thread_jump_last_page
+                                } else {
+                                    R.string.thread_jump_last_floor
+                                },
+                            ),
+                        )
+                    }
+                }
+                OutlinedTextField(
+                    value = input,
+                    onValueChange = { proposed ->
+                        if (proposed.length <= 6 && proposed.all(Char::isDigit)) {
+                            input = proposed
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = {
+                        Text(
+                            stringResource(
+                                if (mode == ThreadJumpMode.PAGE) {
+                                    R.string.thread_jump_page_label
+                                } else {
+                                    R.string.thread_jump_floor_label
+                                },
+                            ),
+                        )
+                    },
+                    isError = hasError,
+                    supportingText = {
+                        Text(
+                            when {
+                                hasError && mode == ThreadJumpMode.PAGE -> stringResource(
+                                    R.string.thread_jump_invalid_page,
+                                    maxAllowed,
+                                )
+                                hasError -> stringResource(
+                                    R.string.thread_jump_invalid_floor,
+                                    maxAllowed,
+                                )
+                                mode == ThreadJumpMode.PAGE -> stringResource(
+                                    R.string.thread_jump_page_range,
+                                    maxAllowed,
+                                    currentPage,
+                                )
+                                else -> stringResource(
+                                    R.string.thread_jump_floor_range,
+                                    maxAllowed,
+                                )
+                            },
+                        )
+                    },
+                    keyboardOptions = KeyboardOptions(
+                        keyboardType = KeyboardType.Number,
+                        imeAction = ImeAction.Go,
+                    ),
+                    keyboardActions = KeyboardActions(onGo = { confirmJump() }),
+                    singleLine = true,
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = ::confirmJump, enabled = parsedTarget != null) {
+                Text(stringResource(R.string.thread_jump_confirm))
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text(stringResource(R.string.thread_reply_cancel))
+            }
+        },
+    )
+}
 
 internal fun postRatingScoreChoices(option: YamiboPostRatingOption): List<Int> {
     if (option.remainingToday <= 0) return emptyList()
@@ -1237,6 +1543,21 @@ internal fun ReaderSettingsSheet(
         verticalArrangement = Arrangement.spacedBy(20.dp),
     ) {
         Text(stringResource(R.string.reader_settings), style = MaterialTheme.typography.titleLarge)
+        ReaderSettingsControls(preferences = preferences, onChange = onChange)
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+internal fun ReaderSettingsControls(
+    preferences: ReaderPreferences,
+    onChange: (ReaderPreferences) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Column(
+        modifier = modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(20.dp),
+    ) {
         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Text(
                 stringResource(R.string.reader_font_size),
@@ -1338,6 +1659,7 @@ internal fun ReaderTheme(tone: ReaderTone, content: @Composable () -> Unit) {
 @Composable
 private fun PostCard(
     post: YamiboPost,
+    threadAuthorId: Int?,
     typography: ThreadTypography,
     onForum: (Int) -> Unit,
     onRatings: () -> Unit,
@@ -1361,7 +1683,7 @@ private fun PostCard(
     Surface(color = MaterialTheme.colorScheme.surface) {
         Column(
             Modifier.padding(horizontal = 4.dp, vertical = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(20.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
             Row(
@@ -1378,13 +1700,31 @@ private fun PostCard(
                     modifier = Modifier.weight(1f),
                     verticalArrangement = Arrangement.spacedBy(4.dp),
                 ) {
-                    SelectionContainer {
-                        Text(
-                            text = post.author.name,
-                            style = typography.byline,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        SelectionContainer(modifier = Modifier.weight(1f, fill = false)) {
+                            Text(
+                                text = post.author.name,
+                                style = typography.byline,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                        if (shouldShowOriginalPosterBadge(post, threadAuthorId)) {
+                            Surface(
+                                shape = CircleShape,
+                                color = MaterialTheme.colorScheme.primaryContainer,
+                                contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                            ) {
+                                Text(
+                                    text = stringResource(R.string.thread_author_badge_op),
+                                    style = typography.metadata,
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                )
+                            }
+                        }
                     }
                     Text(
                         post.createdAtText,
@@ -1416,32 +1756,47 @@ private fun PostCard(
                 allowRemoteImages = allowRemoteImages,
             )
             if (networkActionsEnabled) {
+                val commentDescription = if (post.isOriginalPost) {
+                    stringResource(R.string.thread_comment_original_post_action)
+                } else {
+                    stringResource(R.string.thread_comment_post_action, post.number)
+                }
+                val rateDescription = if (post.isOriginalPost) {
+                    stringResource(R.string.thread_rating_original_post_action)
+                } else {
+                    stringResource(R.string.thread_rating_post_action, post.number)
+                }
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.End,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    IconButton(onClick = onComment, enabled = commentEnabled) {
+                    TextButton(
+                        onClick = onComment,
+                        enabled = commentEnabled,
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                        modifier = Modifier.semantics { contentDescription = commentDescription },
+                    ) {
                         Icon(
                             Icons.AutoMirrored.Rounded.Comment,
-                            contentDescription = if (post.isOriginalPost) {
-                                stringResource(R.string.thread_comment_original_post_action)
-                            } else {
-                                stringResource(R.string.thread_comment_post_action, post.number)
-                            },
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            contentDescription = null,
+                            modifier = Modifier.size(16.dp),
                         )
+                        Spacer(Modifier.width(4.dp))
+                        Text(stringResource(R.string.thread_action_comment), style = typography.action)
                     }
-                    IconButton(onClick = onRate) {
+                    TextButton(
+                        onClick = onRate,
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                        modifier = Modifier.semantics { contentDescription = rateDescription },
+                    ) {
                         Icon(
                             Icons.Rounded.Star,
-                            contentDescription = if (post.isOriginalPost) {
-                                stringResource(R.string.thread_rating_original_post_action)
-                            } else {
-                                stringResource(R.string.thread_rating_post_action, post.number)
-                            },
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            contentDescription = null,
+                            modifier = Modifier.size(16.dp),
                         )
+                        Spacer(Modifier.width(4.dp))
+                        Text(stringResource(R.string.thread_action_rate), style = typography.action)
                     }
                 }
             }
@@ -1476,15 +1831,31 @@ private fun PostCard(
             if (post.comments.isNotEmpty()) {
                 Surface(
                     color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                    shape = MaterialTheme.shapes.medium
+                    shape = MaterialTheme.shapes.medium,
                 ) {
                     Column(
-                        Modifier.padding(12.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                        Modifier.fillMaxWidth().padding(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp),
                     ) {
+                        Text(
+                            text = stringResource(R.string.thread_comments_heading),
+                            style = typography.label,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
                         post.comments.forEach { comment ->
                             Text(
-                                "${comment.author.name}：${plainText(comment.message)}",
+                                text = buildAnnotatedString {
+                                    withStyle(
+                                        SpanStyle(
+                                            fontWeight = FontWeight.SemiBold,
+                                            color = MaterialTheme.colorScheme.primary,
+                                        ),
+                                    ) {
+                                        append(comment.author.name)
+                                        append("：")
+                                    }
+                                    append(plainText(comment.message))
+                                },
                                 style = typography.supporting,
                             )
                         }
@@ -1592,11 +1963,13 @@ internal fun DownloadedThread.toThreadContent(authorId: Int? = null): ThreadCont
 @Composable
 private fun ThreadHero(
     page: YamiboThreadPostsPage,
+    canJump: Boolean,
     typography: ThreadTypography,
     isFavorited: Boolean,
     favoriteBusy: Boolean,
     originalPosterOnly: Boolean,
     offlineOnly: Boolean,
+    onJump: () -> Unit,
     onFavorite: () -> Unit,
     onOriginalPosterOnlyChange: (Boolean) -> Unit,
 ) {
@@ -1675,6 +2048,7 @@ private fun ThreadHero(
             FlowRow(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalArrangement = Arrangement.spacedBy(4.dp),
+                itemVerticalAlignment = Alignment.CenterVertically,
             ) {
                 if (!offlineOnly) {
                     FilterChip(
@@ -1689,11 +2063,31 @@ private fun ThreadHero(
                         enabled = thread.author.id != null,
                     )
                 }
-                if (thread.isClosed) Badge { Text("已关闭", style = typography.metadata) }
-                if (thread.price > 0) Badge {
-                    Text("${thread.price} 积分", style = typography.metadata)
+                if (canJump) {
+                    AssistChip(
+                        onClick = onJump,
+                        label = {
+                            Text(
+                                stringResource(R.string.thread_jump_action),
+                                style = typography.action,
+                            )
+                        },
+                    )
                 }
-                if (thread.hasAttachment) Badge { Text("附件", style = typography.metadata) }
+                if (thread.isClosed) {
+                    Badge { Text(stringResource(R.string.thread_status_closed), style = typography.metadata) }
+                }
+                if (thread.price > 0) {
+                    Badge {
+                        Text(
+                            stringResource(R.string.thread_status_price, thread.price),
+                            style = typography.metadata,
+                        )
+                    }
+                }
+                if (thread.hasAttachment) {
+                    Badge { Text(stringResource(R.string.thread_status_attachment), style = typography.metadata) }
+                }
             }
         }
     }

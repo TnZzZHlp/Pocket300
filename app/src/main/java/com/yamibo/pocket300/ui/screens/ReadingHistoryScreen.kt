@@ -12,16 +12,23 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.DeleteSweep
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -37,17 +44,13 @@ import com.yamibo.pocket300.api.YamiboPostAuthor
 import com.yamibo.pocket300.data.ReadingHistoryDatabase
 import com.yamibo.pocket300.data.ReadingHistoryEntry
 import com.yamibo.pocket300.ui.EmptyState
-import com.yamibo.pocket300.ui.LoadContent
-import com.yamibo.pocket300.ui.LoadState
 import com.yamibo.pocket300.ui.ScreenScaffold
 import com.yamibo.pocket300.ui.components.LocalSearchField
 import com.yamibo.pocket300.ui.components.ThreadCardContent
 import com.yamibo.pocket300.ui.components.ThreadCardSurface
 import com.yamibo.pocket300.ui.components.matchesLocalSearch
-import com.yamibo.pocket300.ui.load
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -64,13 +67,15 @@ internal fun ReadingHistoryScreen(
 ) {
     val context = LocalContext.current
     val database = remember(context) { ReadingHistoryDatabase.getInstance(context) }
-    var reload by remember { mutableStateOf(0) }
+    val entriesMap by database.entries.collectAsState()
+    val entries = remember(entriesMap) {
+        entriesMap.values.sortedByDescending(ReadingHistoryEntry::readAt)
+    }
     val listState = rememberLazyListState()
     val coroutineScope = rememberCoroutineScope()
-    var refreshing by remember { mutableStateOf(false) }
     var searchActive by rememberSaveable { mutableStateOf(false) }
     var searchQuery by rememberSaveable { mutableStateOf("") }
-    var state: LoadState<List<ReadingHistoryEntry>> by remember { mutableStateOf(LoadState.Loading) }
+    var clearAllPending by remember { mutableStateOf(false) }
 
     fun closeSearch() {
         searchActive = false
@@ -79,20 +84,13 @@ internal fun ReadingHistoryScreen(
 
     BackHandler(enabled = searchActive, onBack = ::closeSearch)
 
-    LaunchedEffect(reload) {
-        try {
-            state = load { withContext(Dispatchers.IO) { database.getAll() } }
-        } finally {
-            refreshing = false
-        }
-    }
     ScreenScaffold(
-        "阅读历史",
+        stringResource(R.string.profile_reading_history),
         onBack = if (searchActive) ::closeSearch else onBack,
-        onRefresh = { refreshing = true; reload++ },
-        isRefreshing = refreshing,
-        onSearch = if (searchActive) null else {
+        onSearch = if (!searchActive && entries.isNotEmpty()) {
             { searchActive = true }
+        } else {
+            null
         },
         onTopBarDoubleClick = { coroutineScope.launch { listState.animateScrollToItem(0) } },
         actions = {
@@ -101,6 +99,13 @@ internal fun ReadingHistoryScreen(
                     Icon(
                         Icons.Rounded.Close,
                         contentDescription = stringResource(R.string.search_close),
+                    )
+                }
+            } else if (entries.isNotEmpty()) {
+                IconButton(onClick = { clearAllPending = true }) {
+                    Icon(
+                        Icons.Rounded.DeleteSweep,
+                        contentDescription = stringResource(R.string.history_clear_all),
                     )
                 }
             }
@@ -115,49 +120,80 @@ internal fun ReadingHistoryScreen(
                 )
             }
             Box(Modifier.fillMaxWidth().weight(1f)) {
-                LoadContent(state, PaddingValues(0.dp), onRetry = { state = LoadState.Loading; reload++ }) { entries ->
-                    val filteredEntries = remember(entries, searchQuery) {
-                        filterReadingHistoryEntries(entries, searchQuery)
+                val filteredEntries = remember(entries, searchQuery) {
+                    filterReadingHistoryEntries(entries, searchQuery)
+                }
+                LaunchedEffect(searchQuery) {
+                    if (searchQuery.isNotBlank() && filteredEntries.isNotEmpty()) {
+                        listState.scrollToItem(0)
                     }
-                    LaunchedEffect(searchQuery) {
-                        if (searchQuery.isNotBlank() && filteredEntries.isNotEmpty()) {
-                            listState.scrollToItem(0)
-                        }
+                }
+                when {
+                    entries.isEmpty() -> {
+                        EmptyState(stringResource(R.string.history_empty_title), message = "")
                     }
-                    when {
-                        entries.isEmpty() -> {
-                            EmptyState(stringResource(R.string.history_empty_title), message = "")
-                        }
-                        filteredEntries.isEmpty() -> {
-                            EmptyState(
-                                stringResource(R.string.history_search_empty_title),
-                                stringResource(R.string.history_search_empty_message, searchQuery.trim()),
-                            )
-                        }
-                        else -> {
-                            LazyColumn(
-                                state = listState,
-                                contentPadding = PaddingValues(bottom = 16.dp),
-                                verticalArrangement = Arrangement.spacedBy(0.dp),
-                            ) {
-                                items(filteredEntries, key = { it.threadId }) { entry ->
-                                    ReadingHistoryCard(
-                                        entry = entry,
-                                        onClick = onThread,
-                                        modifier = with(sharedTransitionScope) {
-                                            Modifier.sharedBounds(
-                                                rememberSharedContentState("thread-${entry.threadId}"),
-                                                animatedVisibilityScope,
-                                            )
-                                        },
-                                    )
-                                }
+                    filteredEntries.isEmpty() -> {
+                        EmptyState(
+                            stringResource(R.string.history_search_empty_title),
+                            stringResource(R.string.history_search_empty_message, searchQuery.trim()),
+                        )
+                    }
+                    else -> {
+                        LazyColumn(
+                            state = listState,
+                            contentPadding = PaddingValues(bottom = 16.dp),
+                            verticalArrangement = Arrangement.spacedBy(0.dp),
+                        ) {
+                            items(filteredEntries, key = { it.threadId }) { entry ->
+                                ReadingHistoryCard(
+                                    entry = entry,
+                                    onClick = onThread,
+                                    onDelete = { target ->
+                                        coroutineScope.launch(Dispatchers.IO) {
+                                            database.remove(target.threadId)
+                                        }
+                                    },
+                                    modifier = with(sharedTransitionScope) {
+                                        Modifier.sharedBounds(
+                                            rememberSharedContentState("thread-${entry.threadId}"),
+                                            animatedVisibilityScope,
+                                        )
+                                    },
+                                )
                             }
                         }
                     }
                 }
             }
         }
+    }
+
+    if (clearAllPending) {
+        AlertDialog(
+            onDismissRequest = { clearAllPending = false },
+            title = { Text(stringResource(R.string.history_clear_all_title)) },
+            text = {
+                Text(stringResource(R.string.history_clear_all_message, entries.size))
+            },
+            dismissButton = {
+                TextButton(onClick = { clearAllPending = false }) {
+                    Text(stringResource(R.string.logs_cancel))
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        clearAllPending = false
+                        closeSearch()
+                        coroutineScope.launch(Dispatchers.IO) {
+                            database.clearAll()
+                        }
+                    },
+                ) {
+                    Text(stringResource(R.string.history_clear_confirm))
+                }
+            },
+        )
     }
 }
 
@@ -172,6 +208,7 @@ internal fun filterReadingHistoryEntries(
 private fun ReadingHistoryCard(
     entry: ReadingHistoryEntry,
     onClick: (ReadingHistoryEntry) -> Unit,
+    onDelete: (ReadingHistoryEntry) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val readAtText = remember(entry.readAt) {
@@ -188,6 +225,19 @@ private fun ReadingHistoryCard(
                 stringResource(R.string.history_last_reply, it)
             },
             readingFloor = entry.lastReadFloor,
+            headerTrailing = {
+                IconButton(
+                    onClick = { onDelete(entry) },
+                    modifier = Modifier.size(32.dp),
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.Close,
+                        contentDescription = stringResource(R.string.history_delete_item),
+                        modifier = Modifier.size(18.dp),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            },
         )
     }
 }

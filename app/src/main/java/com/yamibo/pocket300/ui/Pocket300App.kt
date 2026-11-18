@@ -6,6 +6,7 @@ import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionLayout
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
@@ -14,6 +15,7 @@ import androidx.compose.material.icons.automirrored.rounded.List
 import androidx.compose.material.icons.rounded.AccountCircle
 import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.Forum
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
@@ -111,6 +113,10 @@ fun Pocket300App() {
     PocketTheme(colorTheme = colorTheme) {
         val navController = rememberNavController()
         var authStateVersion by rememberSaveable { mutableIntStateOf(0) }
+        var homeScrollToTop by rememberSaveable { mutableIntStateOf(0) }
+        var listScrollToTop by rememberSaveable { mutableIntStateOf(0) }
+        var favoritesScrollToTop by rememberSaveable { mutableIntStateOf(0) }
+        var profileScrollToTop by rememberSaveable { mutableIntStateOf(0) }
         var readerContent by remember { mutableStateOf<ReaderContent?>(null) }
         val entry by navController.currentBackStackEntryAsState()
         val route = entry?.destination?.route.orEmpty()
@@ -142,27 +148,39 @@ fun Pocket300App() {
                   enter = fadeIn(),
                   exit = fadeOut(),
               ) {
-                  NavigationBar(containerColor = MaterialTheme.colorScheme.surfaceContainerLow) {
-                      tabs.forEach { tab ->
-                          NavigationBarItem(
-                              selected = route == tab.route,
-                              onClick = {
-                                  navController.navigate(tab.route) {
-                                      popUpTo("home") { saveState = true }
-                                      launchSingleTop = true
-                                      restoreState = true
-                                  }
-                              },
-                              icon = { Icon(tab.icon, contentDescription = null) },
-                              label = { Text(stringResource(tab.label)) },
-                              colors = NavigationBarItemDefaults.colors(
-                                  selectedIconColor = MaterialTheme.colorScheme.primary,
-                                  selectedTextColor = MaterialTheme.colorScheme.primary,
-                                  indicatorColor = MaterialTheme.colorScheme.primaryContainer,
-                                  unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                                  unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                              ),
-                          )
+                  Column {
+                      HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                      NavigationBar(containerColor = MaterialTheme.colorScheme.surfaceContainerLow) {
+                          tabs.forEach { tab ->
+                              NavigationBarItem(
+                                  selected = route == tab.route,
+                                  onClick = {
+                                      if (shouldScrollTabToTopOnClick(route, tab.route)) {
+                                          when (tab.route) {
+                                              "home" -> homeScrollToTop++
+                                              "list" -> listScrollToTop++
+                                              "favorites" -> favoritesScrollToTop++
+                                              "profile" -> profileScrollToTop++
+                                          }
+                                      } else {
+                                          navController.navigate(tab.route) {
+                                              popUpTo("home") { saveState = true }
+                                              launchSingleTop = true
+                                              restoreState = true
+                                          }
+                                      }
+                                  },
+                                  icon = { Icon(tab.icon, contentDescription = null) },
+                                  label = { Text(stringResource(tab.label)) },
+                                  colors = NavigationBarItemDefaults.colors(
+                                      selectedIconColor = MaterialTheme.colorScheme.primary,
+                                      selectedTextColor = MaterialTheme.colorScheme.primary,
+                                      indicatorColor = MaterialTheme.colorScheme.primaryContainer,
+                                      unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                                      unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                                  ),
+                              )
+                          }
                       }
                   }
               }
@@ -185,6 +203,7 @@ fun Pocket300App() {
                     sharedTransitionScope = sharedTransitionScope,
                     animatedVisibilityScope = this,
                     authStateVersion = authStateVersion,
+                    scrollToTopTrigger = homeScrollToTop,
                     onForum = { navController.navigate("forum/${it.id}") },
                     onSearch = { navController.navigate("search") },
                 )
@@ -193,6 +212,8 @@ fun Pocket300App() {
                 FavoritesScreen(
                     sharedTransitionScope = sharedTransitionScope,
                     animatedVisibilityScope = this,
+                    authStateVersion = authStateVersion,
+                    scrollToTopTrigger = favoritesScrollToTop,
                     onThread = {
                         openThread(
                             it.threadId,
@@ -205,6 +226,7 @@ fun Pocket300App() {
                 ListScreen(
                     sharedTransitionScope = sharedTransitionScope,
                     animatedVisibilityScope = this,
+                    scrollToTopTrigger = listScrollToTop,
                     onCreate = { navController.navigate("custom-list/new") },
                     onOpen = { navController.navigate("custom-list/$it") },
                 )
@@ -269,6 +291,7 @@ fun Pocket300App() {
             }
             composable("profile") {
                 ProfileScreen(
+                    scrollToTopTrigger = profileScrollToTop,
                     onAuthStateChanged = { authStateVersion++ },
                     onDownloads = { navController.navigate("downloads") },
                     onHistory = { navController.navigate("history") },

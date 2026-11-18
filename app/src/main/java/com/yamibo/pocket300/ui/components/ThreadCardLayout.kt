@@ -87,6 +87,7 @@ internal fun ThreadCardContent(
     supporting: String? = null,
     readingFloor: Int? = lastReadFloor(threadId, LocalReadingHistory.current),
     resolveMissingAuthor: Boolean = false,
+    headerTrailing: (@Composable () -> Unit)? = null,
 ) {
     val resolvedAuthor = rememberThreadAuthor(threadId, author, resolveMissingAuthor)
     Column(modifier, verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -138,6 +139,7 @@ internal fun ThreadCardContent(
                     )
                 }
             }
+            headerTrailing?.invoke()
         }
         ThreadCardTitle(
             subject = subject,

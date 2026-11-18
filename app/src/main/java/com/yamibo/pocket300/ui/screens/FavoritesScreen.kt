@@ -52,6 +52,8 @@ import kotlinx.coroutines.launch
 internal fun FavoritesScreen(
     sharedTransitionScope: SharedTransitionScope,
     animatedVisibilityScope: AnimatedVisibilityScope,
+    authStateVersion: Int = 0,
+    scrollToTopTrigger: Int = 0,
     onThread: (YamiboFavoriteThread) -> Unit,
 ) {
     var reload by remember { mutableStateOf(0) }
@@ -69,6 +71,12 @@ internal fun FavoritesScreen(
 
     BackHandler(enabled = searchActive, onBack = ::closeSearch)
 
+    LaunchedEffect(authStateVersion) {
+        if (authStateVersion > 0) reload++
+    }
+    LaunchedEffect(scrollToTopTrigger) {
+        if (scrollToTopTrigger > 0) listState.animateScrollToItem(0)
+    }
     LaunchedEffect(reload) {
         try {
             state = load { api.favorites.getFavoriteThreads() }
@@ -77,7 +85,7 @@ internal fun FavoritesScreen(
         }
     }
     ScreenScaffold(
-        "收藏",
+        stringResource(R.string.favorites_title),
         onRefresh = { refreshing = true; reload++ },
         isRefreshing = refreshing,
         onSearch = if (searchActive) null else {

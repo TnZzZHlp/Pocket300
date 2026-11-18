@@ -81,17 +81,22 @@ internal class ThreadViewModel : ViewModel() {
     private val pendingPostUpdates = mutableMapOf<Int, YamiboPost>()
     private var postRatingFormGeneration = 0
     private var requestGeneration = 0
+    private var replaceOnNextLoad = false
 
     fun loadPosts(input: GetThreadPostsInput) {
         if (!requestTracker.shouldLoad(input)) return
         loadJob?.cancel()
         val generation = ++requestGeneration
+        val replaceExisting = replaceOnNextLoad.also { replaceOnNextLoad = false }
         val previous = (state as? LoadState.Ready)?.value
-        val refreshing = isRefreshing
-        if (input.page == 1) {
+        val refreshing = isRefreshing || replaceExisting
+        if (replaceExisting && previous != null) {
+            isRefreshing = true
+        }
+        if (input.page == 1 && !replaceExisting) {
             if (!refreshing || previous == null) state = LoadState.Loading
         } else if (previous != null) {
-            state = LoadState.Ready(previous.copy(isLoadingMore = true))
+            state = LoadState.Ready(previous.copy(isLoadingMore = !replaceExisting))
         }
         loadJob = viewModelScope.launch {
             try {
@@ -102,6 +107,7 @@ internal class ThreadViewModel : ViewModel() {
                             existing = latest?.posts ?: previous?.posts.orEmpty(),
                             loaded = result.value.posts,
                             page = input.page,
+                            replaceExisting = replaceExisting,
                         )
                         LoadState.Ready(
                             ThreadContent(
@@ -122,6 +128,11 @@ internal class ThreadViewModel : ViewModel() {
                 if (generation == requestGeneration) isRefreshing = false
             }
         }
+    }
+
+    fun preparePageJump() {
+        replaceOnNextLoad = true
+        invalidate()
     }
 
     fun refresh() {
@@ -444,9 +455,10 @@ internal fun mergeThreadPosts(
     existing: List<YamiboPost>,
     loaded: List<YamiboPost>,
     page: Int,
+    replaceExisting: Boolean = false,
 ): List<YamiboPost> {
     require(page > 0) { "page must be a positive integer" }
-    return if (page == 1) loaded else (existing + loaded).distinctBy { it.id }
+    return if (page == 1 || replaceExisting) loaded else (existing + loaded).distinctBy { it.id }
 }
 
 internal fun retainThreadContentAfterLoadFailure(
