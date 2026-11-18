@@ -2,6 +2,7 @@ package com.yamibo.pocket300.ui.screens
 
 import android.widget.Toast
 import androidx.compose.animation.AnimatedVisibilityScope
+import androidx.compose.animation.EnterExitState
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionScope
 import androidx.compose.foundation.layout.Arrangement
@@ -138,6 +139,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlin.time.Duration.Companion.milliseconds
@@ -302,11 +304,29 @@ internal fun ThreadScreen(
             ),
         )
     }
-    val state = resolveThreadDisplayState(
+    var entranceFinished by rememberSaveable(threadId) { mutableStateOf(false) }
+    val visibilityTransition = animatedVisibilityScope.transition
+    LaunchedEffect(threadId, visibilityTransition, sharedTransitionScope) {
+        if (!entranceFinished) {
+            snapshotFlow {
+                visibilityTransition.currentState == EnterExitState.Visible &&
+                    visibilityTransition.targetState == EnterExitState.Visible &&
+                    !visibilityTransition.isRunning &&
+                    !sharedTransitionScope.isTransitionActive
+            }.first { it }
+            entranceFinished = true
+        }
+    }
+    val resolvedState = resolveThreadDisplayState(
         offlineOnly = offlineOnly,
         localState = localState,
         networkState = viewModel.state,
     )
+    val state = if (!entranceFinished && resolvedState is LoadState.Ready) {
+        LoadState.Loading
+    } else {
+        resolvedState
+    }
     val loadedContent = (state as? LoadState.Ready)?.value
     val loadedThread = loadedContent?.page?.thread
     val isRead = threadId in readingHistory
