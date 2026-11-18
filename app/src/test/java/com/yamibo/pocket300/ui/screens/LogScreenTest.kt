@@ -54,4 +54,18 @@ class LogScreenTest {
 
         assertEquals(1, formatLogEntry(entry).lines().size)
     }
+
+    @Test
+    fun filtersLogEntriesByLevelAndQueryInReverseChronologicalOrder() {
+        val entries = listOf(
+            AppLogEntry(1, 100L, LogLevel.INFO, "Network", "Request succeeded", null),
+            AppLogEntry(2, 200L, LogLevel.ERROR, "Reader", "Decode failed", "java.io.IOException: EOF"),
+            AppLogEntry(3, 300L, LogLevel.WARN, "Reader", "Slow response", null),
+            AppLogEntry(4, 400L, LogLevel.ERROR, "Auth", "Token expired", null),
+        )
+
+        assertEquals(listOf(4L, 2L), filterLogEntries(entries, LogLevel.ERROR, "").map(AppLogEntry::id))
+        assertEquals(listOf(3L, 2L), filterLogEntries(entries, null, "reader").map(AppLogEntry::id))
+        assertEquals(listOf(2L), filterLogEntries(entries, LogLevel.ERROR, "ioexception").map(AppLogEntry::id))
+    }
 }

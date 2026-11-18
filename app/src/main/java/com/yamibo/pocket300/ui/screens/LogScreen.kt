@@ -2,6 +2,8 @@ package com.yamibo.pocket300.ui.screens
 
 import android.content.Context
 import android.content.Intent
+import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -14,14 +16,18 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.DeleteSweep
 import androidx.compose.material.icons.rounded.Share
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Card
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -29,10 +35,13 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -40,6 +49,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.yamibo.pocket300.R
 import com.yamibo.pocket300.logging.APP_LOG_CAPACITY
@@ -48,6 +59,11 @@ import com.yamibo.pocket300.logging.AppLogger
 import com.yamibo.pocket300.logging.LogLevel
 import com.yamibo.pocket300.ui.EmptyState
 import com.yamibo.pocket300.ui.ScreenScaffold
+import com.yamibo.pocket300.ui.components.LocalSearchField
+import com.yamibo.pocket300.ui.components.matchesLocalSearch
+import com.yamibo.pocket300.ui.theme.pocketCardBorder
+import com.yamibo.pocket300.ui.theme.pocketCardColors
+import kotlinx.coroutines.launch
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -64,29 +80,57 @@ internal fun LogScreen(
 ) {
     val context = LocalContext.current
     val entries by AppLogger.entries.collectAsState()
-    var selectedLevel by remember { mutableStateOf<LogLevel?>(null) }
+    var selectedLevel by rememberSaveable { mutableStateOf<LogLevel?>(null) }
+    var searchActive by rememberSaveable { mutableStateOf(false) }
+    var searchQuery by rememberSaveable { mutableStateOf("") }
     var showClearConfirmation by remember { mutableStateOf(false) }
-    val filteredEntries = remember(entries, selectedLevel) {
-        entries
-            .asReversed()
-            .filter { selectedLevel == null || it.level == selectedLevel }
+    val listState = rememberLazyListState()
+    val coroutineScope = rememberCoroutineScope()
+    val filteredEntries = remember(entries, selectedLevel, searchQuery) {
+        filterLogEntries(entries, selectedLevel, searchQuery)
+    }
+
+    fun closeSearch() {
+        searchActive = false
+        searchQuery = ""
+    }
+
+    BackHandler(enabled = searchActive, onBack = ::closeSearch)
+
+    LaunchedEffect(searchQuery, selectedLevel) {
+        if (filteredEntries.isNotEmpty()) {
+            listState.scrollToItem(0)
+        }
     }
 
     ScreenScaffold(
         title = stringResource(R.string.logs_title),
         onBack = onBack,
+        onSearch = if (searchActive) null else {
+            { searchActive = true }
+        },
+        onTopBarDoubleClick = { coroutineScope.launch { listState.animateScrollToItem(0) } },
         actions = {
-            IconButton(
-                onClick = { shareLogs(context, entries) },
-                enabled = entries.isNotEmpty(),
-            ) {
-                Icon(Icons.Rounded.Share, stringResource(R.string.logs_share))
-            }
-            IconButton(
-                onClick = { showClearConfirmation = true },
-                enabled = entries.isNotEmpty(),
-            ) {
-                Icon(Icons.Rounded.DeleteSweep, stringResource(R.string.logs_clear))
+            if (searchActive) {
+                IconButton(onClick = ::closeSearch) {
+                    Icon(
+                        Icons.Rounded.Close,
+                        contentDescription = stringResource(R.string.search_close),
+                    )
+                }
+            } else {
+                IconButton(
+                    onClick = { shareLogs(context, entries) },
+                    enabled = entries.isNotEmpty(),
+                ) {
+                    Icon(Icons.Rounded.Share, stringResource(R.string.logs_share))
+                }
+                IconButton(
+                    onClick = { showClearConfirmation = true },
+                    enabled = entries.isNotEmpty(),
+                ) {
+                    Icon(Icons.Rounded.DeleteSweep, stringResource(R.string.logs_clear))
+                }
             }
         },
     ) { padding ->
@@ -102,6 +146,13 @@ internal fun LogScreen(
                     .fillMaxWidth()
                     .fillMaxHeight(),
             ) {
+                AnimatedVisibility(searchActive) {
+                    LocalSearchField(
+                        query = searchQuery,
+                        label = stringResource(R.string.logs_search_label),
+                        onQueryChange = { searchQuery = it },
+                    )
+                }
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -132,6 +183,9 @@ internal fun LogScreen(
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+                HorizontalDivider(
+                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
+                )
                 if (filteredEntries.isEmpty()) {
                     EmptyState(
                         title = stringResource(
@@ -146,6 +200,7 @@ internal fun LogScreen(
                     )
                 } else {
                     LazyColumn(
+                        state = listState,
                         modifier = Modifier
                             .fillMaxWidth()
                             .weight(1f),
@@ -185,6 +240,17 @@ internal fun LogScreen(
     }
 }
 
+internal fun filterLogEntries(
+    entries: List<AppLogEntry>,
+    selectedLevel: LogLevel?,
+    query: String,
+): List<AppLogEntry> = entries
+    .asReversed()
+    .filter { entry ->
+        (selectedLevel == null || entry.level == selectedLevel) &&
+            matchesLocalSearch(query, entry.component, entry.message, entry.stackTrace.orEmpty())
+    }
+
 @Composable
 private fun LogLevelFilterChip(
     label: String,
@@ -200,37 +266,47 @@ private fun LogLevelFilterChip(
 
 @Composable
 private fun LogEntryCard(entry: AppLogEntry) {
-    Surface(
+    Card(
         modifier = Modifier.fillMaxWidth(),
         shape = MaterialTheme.shapes.medium,
-        tonalElevation = 1.dp,
+        colors = pocketCardColors(),
+        border = pocketCardBorder(),
     ) {
         SelectionContainer {
             Column(
-                modifier = Modifier.padding(12.dp),
-                verticalArrangement = Arrangement.spacedBy(6.dp),
+                modifier = Modifier.padding(14.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Text(
-                        text = logTimestampFormatter.format(Instant.ofEpochMilli(entry.timestampMillis)),
-                        style = MaterialTheme.typography.labelSmall,
-                        fontFamily = FontFamily.Monospace,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    Text(
-                        text = entry.level.name,
-                        style = MaterialTheme.typography.labelMedium,
-                        color = entry.level.color,
-                    )
+                    Surface(
+                        color = entry.level.color.copy(alpha = 0.14f),
+                        shape = MaterialTheme.shapes.small,
+                    ) {
+                        Text(
+                            text = entry.level.name,
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.SemiBold,
+                            color = entry.level.color,
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                        )
+                    }
                     Text(
                         text = "[${entry.component}]",
                         modifier = Modifier.weight(1f),
                         style = MaterialTheme.typography.labelMedium,
                         fontFamily = FontFamily.Monospace,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Text(
+                        text = logTimestampFormatter.format(Instant.ofEpochMilli(entry.timestampMillis)),
+                        style = MaterialTheme.typography.labelSmall,
+                        fontFamily = FontFamily.Monospace,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
                 Text(
@@ -238,7 +314,10 @@ private fun LogEntryCard(entry: AppLogEntry) {
                     style = MaterialTheme.typography.bodyMedium,
                     fontFamily = FontFamily.Monospace,
                 )
-                if (entry.stackTrace != null) {
+                if (!entry.stackTrace.isNullOrBlank()) {
+                    HorizontalDivider(
+                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
+                    )
                     Text(
                         text = entry.stackTrace,
                         style = MaterialTheme.typography.bodySmall,

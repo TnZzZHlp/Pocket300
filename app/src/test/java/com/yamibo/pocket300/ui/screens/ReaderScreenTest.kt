@@ -388,6 +388,54 @@ class ReaderScreenTest {
         assertNull(downloaded.toReaderContent(postId = 9999))
     }
 
+    @Test
+    fun resolvesInMemoryAdjacentFloorsWithinCurrentPage() {
+        val basePost = readerContent().post
+        val first = basePost.copy(id = 10, number = 1, position = 1)
+        val second = basePost.copy(id = 20, number = 2, position = 2)
+        val third = basePost.copy(id = 30, number = 3, position = 3)
+        val posts = listOf(first, second, third)
+
+        assertEquals(
+            AdjacentFloorTarget.PostInMemory(second, page = 2),
+            resolveAdjacentReaderFloor(posts, currentPostId = 10, currentPage = 2, hasNextPage = false, forward = true),
+        )
+        assertEquals(
+            AdjacentFloorTarget.PostInMemory(first, page = 2),
+            resolveAdjacentReaderFloor(posts, currentPostId = 20, currentPage = 2, hasNextPage = false, forward = false),
+        )
+    }
+
+    @Test
+    fun stopsAtFirstAndLastFloorWhenNoAdjacentPagesExist() {
+        val basePost = readerContent().post
+        val first = basePost.copy(id = 10, number = 1, position = 1)
+        val last = basePost.copy(id = 20, number = 2, position = 2)
+        val posts = listOf(first, last)
+
+        assertNull(resolveAdjacentReaderFloor(posts, currentPostId = 10, currentPage = 1, hasNextPage = false, forward = false))
+        assertNull(resolveAdjacentReaderFloor(posts, currentPostId = 20, currentPage = 1, hasNextPage = false, forward = true))
+        assertNull(resolveAdjacentReaderFloor(emptyList(), currentPostId = 10, currentPage = 1, hasNextPage = true, forward = true))
+        assertNull(resolveAdjacentReaderFloor(posts, currentPostId = 999, currentPage = 1, hasNextPage = true, forward = true))
+    }
+
+    @Test
+    fun requestsAdjacentPageBoundariesAtPageEdges() {
+        val basePost = readerContent().post
+        val first = basePost.copy(id = 10, number = 21, position = 21)
+        val last = basePost.copy(id = 20, number = 40, position = 40)
+        val posts = listOf(first, last)
+
+        assertEquals(
+            AdjacentFloorTarget.PageBoundary(targetPage = 1, selectFirst = false),
+            resolveAdjacentReaderFloor(posts, currentPostId = 10, currentPage = 2, hasNextPage = true, forward = false),
+        )
+        assertEquals(
+            AdjacentFloorTarget.PageBoundary(targetPage = 3, selectFirst = true),
+            resolveAdjacentReaderFloor(posts, currentPostId = 20, currentPage = 2, hasNextPage = true, forward = true),
+        )
+    }
+
     private fun readerContent(
         source: ReaderContentSource = ReaderContentSource.NETWORK,
         localImages: Map<String, String> = emptyMap(),

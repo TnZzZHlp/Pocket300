@@ -140,6 +140,18 @@ class DownloadsScreenTest {
         assertEquals(ThreadDownloadPhase.FETCHING_PAGES, item.phase)
     }
 
+    @Test
+    fun totalsDownloadedBytesAcrossItemsAndClampsNegatives() {
+        val items = listOf(
+            downloadItem(1, "One", "A", downloadedAt = 1L, sizeBytes = 1_024L),
+            downloadItem(2, "Two", "B", downloadedAt = 2L, sizeBytes = -50L),
+            downloadItem(3, "Three", "C", downloadedAt = 3L, sizeBytes = 2_048L),
+        )
+
+        assertEquals(3_072L, totalDownloadedBytes(items))
+        assertEquals(0L, totalDownloadedBytes(emptyList()))
+    }
+
     private fun downloadItem(
         threadId: Int,
         subject: String,
@@ -147,6 +159,7 @@ class DownloadsScreenTest {
         downloadedAt: Long,
         postCount: Int = 1,
         imageCount: Int = 0,
+        sizeBytes: Long = 1,
         phase: ThreadDownloadPhase = ThreadDownloadPhase.COMPLETED,
     ) = DownloadListItem(
         key = ThreadDownloadKey(threadId),
@@ -157,7 +170,7 @@ class DownloadsScreenTest {
         completedPages = 0,
         totalPages = 0,
         completedImages = 0,
-        sizeBytes = 1,
+        sizeBytes = sizeBytes,
         downloadedAt = downloadedAt,
         phase = phase,
     )
