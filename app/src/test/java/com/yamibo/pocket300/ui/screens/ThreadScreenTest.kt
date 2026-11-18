@@ -16,6 +16,7 @@ import com.yamibo.pocket300.ui.viewmodels.ThreadContent
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -37,6 +38,54 @@ class ThreadScreenTest {
         assertFalse(shouldShowRatingsSummary(ratingCount = 0))
         assertTrue(shouldShowRatingsSummary(ratingCount = 1))
         assertTrue(shouldShowRatingsSummary(ratingCount = 4))
+    }
+
+    @Test
+    fun showsOriginalPosterBadgeOnlyForSubsequentRepliesByThreadAuthor() {
+        val originalPost = testPost(postId = 2000, position = 1, isOriginalPost = true)
+            .copy(author = testAuthor(id = 42))
+        val opReply = testPost(postId = 2001, position = 2, isOriginalPost = false)
+            .copy(author = testAuthor(id = 42))
+        val otherReply = testPost(postId = 2002, position = 3, isOriginalPost = false)
+            .copy(author = testAuthor(id = 99))
+
+        assertFalse(shouldShowOriginalPosterBadge(originalPost, threadAuthorId = 42))
+        assertTrue(shouldShowOriginalPosterBadge(opReply, threadAuthorId = 42))
+        assertFalse(shouldShowOriginalPosterBadge(otherReply, threadAuthorId = 42))
+        assertFalse(shouldShowOriginalPosterBadge(opReply, threadAuthorId = null))
+    }
+
+    @Test
+    fun mapsFloorToPageAndClampsWithinTotalPages() {
+        assertEquals(1, targetPageForFloor(floor = 1, pageSize = 20, totalPages = 5))
+        assertEquals(1, targetPageForFloor(floor = 20, pageSize = 20, totalPages = 5))
+        assertEquals(2, targetPageForFloor(floor = 21, pageSize = 20, totalPages = 5))
+        assertEquals(5, targetPageForFloor(floor = 250, pageSize = 20, totalPages = 5))
+    }
+
+    @Test
+    fun resolvesExactOrFallbackFloorScrollIndex() {
+        val posts = listOf(
+            testPost(postId = 1, position = 1).copy(number = 10),
+            testPost(postId = 2, position = 2).copy(number = 12),
+            testPost(postId = 3, position = 3).copy(number = 14),
+        )
+
+        assertEquals(1, resolveFloorScrollIndex(posts, targetFloor = 12))
+        assertEquals(1, resolveFloorScrollIndex(posts, targetFloor = 11))
+        assertEquals(2, resolveFloorScrollIndex(posts, targetFloor = 99))
+        assertNull(resolveFloorScrollIndex(emptyList(), targetFloor = 1))
+    }
+
+    @Test
+    fun parsesJumpTargetOnlyWithinPositiveBounds() {
+        assertEquals(3, parseJumpTarget(" 3 ", maxAllowed = 10))
+        assertNull(parseJumpTarget("", maxAllowed = 10))
+        assertNull(parseJumpTarget("0", maxAllowed = 10))
+        assertNull(parseJumpTarget("-2", maxAllowed = 10))
+        assertNull(parseJumpTarget("11", maxAllowed = 10))
+        assertNull(parseJumpTarget("abc", maxAllowed = 10))
+        assertNull(parseJumpTarget("1", maxAllowed = 0))
     }
 
     @Test

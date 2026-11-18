@@ -1,6 +1,7 @@
 package com.yamibo.pocket300.ui.screens
 
 import androidx.annotation.StringRes
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -25,13 +26,12 @@ import androidx.compose.material.icons.rounded.CalendarMonth
 import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.DownloadForOffline
 import androidx.compose.material.icons.rounded.History
-import androidx.compose.material.icons.rounded.Refresh
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuAnchorType
 import androidx.compose.material3.ExposedDropdownMenuBox
@@ -43,9 +43,11 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -76,34 +78,64 @@ import com.yamibo.pocket300.api.YamiboUserProfile
 import com.yamibo.pocket300.ui.EmptyState
 import com.yamibo.pocket300.ui.LoadState
 import com.yamibo.pocket300.ui.Loading
+import com.yamibo.pocket300.ui.LocalDownloadedThreadIds
+import com.yamibo.pocket300.ui.LocalReadingHistory
 import com.yamibo.pocket300.ui.ScreenScaffold
 import com.yamibo.pocket300.ui.api
 import com.yamibo.pocket300.ui.components.SectionLabel
 import com.yamibo.pocket300.ui.load
-import kotlinx.coroutines.launch
+import com.yamibo.pocket300.ui.theme.pocketCardBorder
+import com.yamibo.pocket300.ui.theme.pocketCardColors
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun ProfileScreen(
+    scrollToTopTrigger: Int = 0,
     onAuthStateChanged: () -> Unit,
     onDownloads: () -> Unit,
     onHistory: () -> Unit,
     onSettings: () -> Unit,
 ) {
     var sessionState: LoadState<YamiboSession?> by remember { mutableStateOf(LoadState.Loading) }
+    var sessionReload by remember { mutableIntStateOf(0) }
+    var summaryRefreshToken by remember { mutableIntStateOf(0) }
+    var isRefreshing by remember { mutableStateOf(false) }
     val listState = rememberLazyListState()
     val coroutineScope = rememberCoroutineScope()
-    LaunchedEffect(Unit) { sessionState = load { api.auth.getCurrentSession() } }
+    val downloadCount = LocalDownloadedThreadIds.current.size
+    val historyCount = LocalReadingHistory.current.size
+    val isLoggedIn = (sessionState as? LoadState.Ready)?.value != null
+
+    LaunchedEffect(sessionReload) {
+        sessionState = load { api.auth.getCurrentSession() }
+    }
+    LaunchedEffect(scrollToTopTrigger) {
+        if (scrollToTopTrigger > 0) listState.animateScrollToItem(0)
+    }
 
     ScreenScaffold(
-        "我的",
+        stringResource(R.string.profile_title),
+        onRefresh = if (isLoggedIn) {
+            {
+                isRefreshing = true
+                summaryRefreshToken++
+            }
+        } else {
+            null
+        },
+        isRefreshing = isRefreshing,
         onSettings = onSettings,
         onTopBarDoubleClick = { coroutineScope.launch { listState.animateScrollToItem(0) } },
     ) { padding ->
         when (val current = sessionState) {
             LoadState.Loading -> ProfileLocalActionsPanel(
                 modifier = Modifier.padding(padding),
+                downloadCount = downloadCount,
+                historyCount = historyCount,
                 onDownloads = onDownloads,
                 onHistory = onHistory,
             ) {
@@ -112,17 +144,30 @@ internal fun ProfileScreen(
 
             is LoadState.Failed -> ProfileLocalActionsPanel(
                 modifier = Modifier.padding(padding),
+                downloadCount = downloadCount,
+                historyCount = historyCount,
                 onDownloads = onDownloads,
                 onHistory = onHistory,
             ) {
                 EmptyState(
                     stringResource(R.string.profile_auth_status_unavailable),
                     current.message,
+                    onRetry = {
+                        sessionState = LoadState.Loading
+                        sessionReload++
+                    },
                 )
             }
 
             is LoadState.Ready -> if (current.value == null) {
-                LoginPanel(Modifier.padding(padding), onDownloads, onHistory, listState) {
+                LoginPanel(
+                    modifier = Modifier.padding(padding),
+                    downloadCount = downloadCount,
+                    historyCount = historyCount,
+                    onDownloads = onDownloads,
+                    onHistory = onHistory,
+                    listState = listState,
+                ) {
                     sessionState = LoadState.Ready(it)
                     onAuthStateChanged()
                 }
@@ -130,9 +175,14 @@ internal fun ProfileScreen(
                 ProfileSummary(
                     session = current.value,
                     modifier = Modifier.padding(padding),
+                    downloadCount = downloadCount,
+                    historyCount = historyCount,
+                    refreshToken = summaryRefreshToken,
+                    onRefreshFinished = { isRefreshing = false },
                     onDownloads = onDownloads,
                     onHistory = onHistory,
                     onLoggedOut = {
+                        isRefreshing = false
                         sessionState = LoadState.Ready(null)
                         onAuthStateChanged()
                     },
@@ -143,10 +193,11 @@ internal fun ProfileScreen(
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun ProfileLocalActionsPanel(
     modifier: Modifier,
+    downloadCount: Int,
+    historyCount: Int,
     onDownloads: () -> Unit,
     onHistory: () -> Unit,
     content: @Composable () -> Unit,
@@ -158,8 +209,12 @@ private fun ProfileLocalActionsPanel(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        ProfileDownloadsItem(onDownloads)
-        ProfileHistoryItem(onHistory)
+        ProfileLocalLibraryCard(
+            downloadCount = downloadCount,
+            historyCount = historyCount,
+            onDownloads = onDownloads,
+            onHistory = onHistory,
+        )
         Box(Modifier.fillMaxWidth().weight(1f)) {
             content()
         }
@@ -170,6 +225,8 @@ private fun ProfileLocalActionsPanel(
 @Composable
 private fun LoginPanel(
     modifier: Modifier,
+    downloadCount: Int,
+    historyCount: Int,
     onDownloads: () -> Unit,
     onHistory: () -> Unit,
     listState: LazyListState,
@@ -226,29 +283,31 @@ private fun LoginPanel(
                 }
                 Spacer(Modifier.height(14.dp))
                 Text(
-                    "登录百合会",
+                    stringResource(R.string.profile_login_heading),
                     style = MaterialTheme.typography.headlineSmall,
                     fontWeight = FontWeight.SemiBold
                 )
                 Spacer(Modifier.height(6.dp))
                 Text(
-                    "连接账号后查看个人信息、私信和收藏内容。",
+                    stringResource(R.string.profile_login_subtitle),
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     style = MaterialTheme.typography.bodyMedium,
                 )
             }
         }
         item {
-            ElevatedCard(
+            Card(
                 Modifier
                     .fillMaxWidth()
                     .widthIn(max = 560.dp),
-                shape = RoundedCornerShape(24.dp)
+                shape = MaterialTheme.shapes.extraLarge,
+                colors = pocketCardColors(),
+                border = pocketCardBorder(),
             ) {
                 Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
                     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         Text(
-                            "账号登录",
+                            stringResource(R.string.profile_account_login),
                             style = MaterialTheme.typography.titleLarge,
                             fontWeight = FontWeight.SemiBold
                         )
@@ -256,14 +315,14 @@ private fun LoginPanel(
                     OutlinedTextField(
                         account,
                         { account = it },
-                        label = { Text("账号") },
+                        label = { Text(stringResource(R.string.profile_account_label)) },
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth()
                     )
                     OutlinedTextField(
                         password,
                         { password = it },
-                        label = { Text("密码") },
+                        label = { Text(stringResource(R.string.profile_password_label)) },
                         singleLine = true,
                         visualTransformation = PasswordVisualTransformation(),
                         modifier = Modifier.fillMaxWidth(),
@@ -275,7 +334,7 @@ private fun LoginPanel(
                             value = questions.firstOrNull { it.id == selectedQuestion }?.label.orEmpty(),
                             onValueChange = {},
                             readOnly = true,
-                            label = { Text("安全提问") },
+                            label = { Text(stringResource(R.string.profile_security_question_label)) },
                             trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded) },
                             modifier = Modifier
                                 .menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable)
@@ -298,10 +357,9 @@ private fun LoginPanel(
                     }
                     if (selectedQuestion != 0) {
                         OutlinedTextField(
-
                             answer,
                             { answer = it },
-                            label = { Text("安全提问答案") },
+                            label = { Text(stringResource(R.string.profile_security_answer_label)) },
                             visualTransformation = PasswordVisualTransformation(),
                             modifier = Modifier.fillMaxWidth(),
                         )
@@ -317,13 +375,24 @@ private fun LoginPanel(
                             CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
                             Spacer(Modifier.size(10.dp))
                         }
-                        Text(if (submitting) "正在登录…" else "登录")
+                        Text(
+                            stringResource(
+                                if (submitting) R.string.profile_logging_in
+                                else R.string.profile_login_action,
+                            ),
+                        )
                     }
                 }
             }
         }
-        item { ProfileDownloadsItem(onDownloads) }
-        item { ProfileHistoryItem(onHistory) }
+        item {
+            ProfileLocalLibraryCard(
+                downloadCount = downloadCount,
+                historyCount = historyCount,
+                onDownloads = onDownloads,
+                onHistory = onHistory,
+            )
+        }
     }
     if (submitting) LaunchedEffect(account, password, selectedQuestion, answer) {
         when (val result =
@@ -340,32 +409,51 @@ private fun LoginPanel(
 private fun ProfileSummary(
     session: YamiboSession,
     modifier: Modifier,
+    downloadCount: Int,
+    historyCount: Int,
+    refreshToken: Int,
+    onRefreshFinished: () -> Unit,
     onDownloads: () -> Unit,
     onHistory: () -> Unit,
     onLoggedOut: () -> Unit,
     listState: LazyListState,
 ) {
-    var reload by remember { mutableStateOf(0) }
     var profile: LoadState<YamiboUserProfile> by remember { mutableStateOf(LoadState.Loading) }
-    var checkInReload by remember { mutableStateOf(0) }
+    var checkInReload by remember { mutableIntStateOf(0) }
     var checkIn: LoadState<YamiboDailyCheckInStatus> by remember {
         mutableStateOf(LoadState.Loading)
     }
     var checkingIn by remember { mutableStateOf(false) }
+    var logoutConfirmVisible by rememberSaveable { mutableStateOf(false) }
     var loggingOut by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
-    LaunchedEffect(session.uid, reload) { profile = load { api.auth.getUserProfile(session.uid) } }
+    val logoutFailedMessage = stringResource(R.string.profile_logout_failed)
+
+    LaunchedEffect(session.uid, refreshToken) {
+        try {
+            coroutineScope {
+                val profileDeferred = async { load { api.auth.getUserProfile(session.uid) } }
+                val checkInDeferred = async { load { api.dailyCheckIn.getStatus() } }
+                profile = profileDeferred.await()
+                checkIn = checkInDeferred.await()
+            }
+        } finally {
+            onRefreshFinished()
+        }
+    }
     LaunchedEffect(session.uid, checkInReload) {
-        checkIn = LoadState.Loading
-        checkIn = load { api.dailyCheckIn.getStatus() }
+        if (checkInReload > 0) {
+            checkIn = LoadState.Loading
+            checkIn = load { api.dailyCheckIn.getStatus() }
+        }
     }
 
     LazyColumn(
         state = listState,
         modifier = modifier.fillMaxSize(),
-        contentPadding = PaddingValues(horizontal = 20.dp, vertical = 16.dp),
+        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 16.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(20.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
         item {
             val loadedProfile = (profile as? LoadState.Ready)?.value
@@ -373,10 +461,11 @@ private fun ProfileSummary(
                 modifier = Modifier
                     .fillMaxWidth()
                     .widthIn(max = 720.dp),
-                shape = RoundedCornerShape(28.dp),
+                shape = RoundedCornerShape(24.dp),
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
+                border = pocketCardBorder(),
             ) {
-                Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(18.dp)) {
+                Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(16.dp),
@@ -425,46 +514,41 @@ private fun ProfileSummary(
                         }
                     }
                     Surface(
-                        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.64f),
-                        shape = RoundedCornerShape(16.dp),
+                        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.72f),
+                        shape = MaterialTheme.shapes.medium,
                     ) {
                         Row(Modifier
                             .fillMaxWidth()
                             .padding(horizontal = 16.dp, vertical = 12.dp)) {
-                            ProfileMetric("UID", session.uid.toString(), Modifier.weight(1f))
                             ProfileMetric(
-                                "阅读权限",
+                                stringResource(R.string.profile_uid_label),
+                                session.uid.toString(),
+                                Modifier.weight(1f),
+                            )
+                            ProfileMetric(
+                                stringResource(R.string.profile_read_access_label),
                                 session.readAccess.toString(),
-                                Modifier.weight(1f)
+                                Modifier.weight(1f),
                             )
                         }
                     }
-                    Row(
-                        Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    OutlinedButton(
+                        onClick = { logoutConfirmVisible = true },
+                        enabled = !loggingOut,
+                        modifier = Modifier.fillMaxWidth(),
                     ) {
-                        Button(onClick = { reload++ }, modifier = Modifier.weight(1f)) {
-                            Icon(
-                                Icons.Rounded.Refresh,
-                                contentDescription = null,
-                                Modifier.size(18.dp)
-                            )
-                            Spacer(Modifier.size(8.dp))
-                            Text("刷新资料")
-                        }
-                        OutlinedButton(
-                            onClick = { loggingOut = true },
-                            enabled = !loggingOut,
-                            modifier = Modifier.weight(1f)
-                        ) {
-                            Icon(
-                                Icons.AutoMirrored.Rounded.Logout,
-                                contentDescription = null,
-                                Modifier.size(18.dp)
-                            )
-                            Spacer(Modifier.size(8.dp))
-                            Text(if (loggingOut) "正在退出…" else "退出登录")
-                        }
+                        Icon(
+                            Icons.AutoMirrored.Rounded.Logout,
+                            contentDescription = null,
+                            Modifier.size(18.dp),
+                        )
+                        Spacer(Modifier.size(8.dp))
+                        Text(
+                            stringResource(
+                                if (loggingOut) R.string.profile_logging_out
+                                else R.string.profile_logout_action,
+                            ),
+                        )
                     }
                     error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
                 }
@@ -478,11 +562,19 @@ private fun ProfileSummary(
                 onRetry = { checkInReload++ },
             )
         }
-        item { ProfileDownloadsItem(onDownloads) }
-        item { ProfileHistoryItem(onHistory) }
-        item { Box(Modifier
-            .fillMaxWidth()
-            .widthIn(max = 720.dp)) { SectionLabel("个人资料") } }
+        item {
+            ProfileLocalLibraryCard(
+                downloadCount = downloadCount,
+                historyCount = historyCount,
+                onDownloads = onDownloads,
+                onHistory = onHistory,
+            )
+        }
+        item {
+            Box(Modifier.fillMaxWidth().widthIn(max = 720.dp)) {
+                SectionLabel(stringResource(R.string.profile_details_section))
+            }
+        }
         when (val current = profile) {
             LoadState.Loading -> item {
                 Box(
@@ -495,9 +587,14 @@ private fun ProfileSummary(
             }
 
             is LoadState.Failed -> item {
-                Card(Modifier
-                    .fillMaxWidth()
-                    .widthIn(max = 720.dp)) {
+                Card(
+                    Modifier
+                        .fillMaxWidth()
+                        .widthIn(max = 720.dp),
+                    shape = MaterialTheme.shapes.large,
+                    colors = pocketCardColors(),
+                    border = pocketCardBorder(),
+                ) {
                     Text(
                         current.message,
                         color = MaterialTheme.colorScheme.error,
@@ -509,7 +606,7 @@ private fun ProfileSummary(
             is LoadState.Ready -> if (current.value.fields.isEmpty()) {
                 item {
                     Text(
-                        "资料页没有解析到可展示字段",
+                        stringResource(R.string.profile_details_empty),
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
@@ -519,7 +616,9 @@ private fun ProfileSummary(
                         Modifier
                             .fillMaxWidth()
                             .widthIn(max = 720.dp),
-                        shape = RoundedCornerShape(20.dp)
+                        shape = MaterialTheme.shapes.large,
+                        colors = pocketCardColors(),
+                        border = pocketCardBorder(),
                     ) {
                         Column {
                             current.value.fields.forEachIndexed { index, field ->
@@ -549,13 +648,35 @@ private fun ProfileSummary(
             }
         }
     }
+    if (logoutConfirmVisible) {
+        AlertDialog(
+            onDismissRequest = { logoutConfirmVisible = false },
+            title = { Text(stringResource(R.string.profile_logout_confirm_title)) },
+            text = { Text(stringResource(R.string.profile_logout_confirm_message)) },
+            dismissButton = {
+                TextButton(onClick = { logoutConfirmVisible = false }) {
+                    Text(stringResource(R.string.logs_cancel))
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        logoutConfirmVisible = false
+                        loggingOut = true
+                    },
+                ) {
+                    Text(stringResource(R.string.profile_logout_action))
+                }
+            },
+        )
+    }
     if (loggingOut) LaunchedEffect(Unit) {
         runCatching { api.auth.logout() }
             .onSuccess { onLoggedOut() }
             .onFailure { failure ->
                 if (failure is CancellationException) throw failure
                 AppLogger.warn(TAG, failure) { "Logout failed" }
-                error = failure.message ?: "退出失败"
+                error = failure.message ?: logoutFailedMessage
             }
         loggingOut = false
     }
@@ -580,7 +701,9 @@ private fun DailyCheckInCard(
         modifier = Modifier
             .fillMaxWidth()
             .widthIn(max = 720.dp),
-        shape = RoundedCornerShape(20.dp),
+        shape = MaterialTheme.shapes.large,
+        colors = pocketCardColors(),
+        border = pocketCardBorder(),
     ) {
         Row(
             modifier = Modifier
@@ -645,57 +768,92 @@ private fun DailyCheckInCard(
 }
 
 @Composable
-private fun ProfileDownloadsItem(onClick: () -> Unit) = ProfileActionItem(
-    Icons.Rounded.DownloadForOffline,
-    R.string.profile_downloads,
-    R.string.profile_downloads_description,
-    onClick,
-)
-
-@Composable
-private fun ProfileHistoryItem(onClick: () -> Unit) = ProfileActionItem(
-    Icons.Rounded.History,
-    R.string.profile_reading_history,
-    R.string.profile_reading_history_description,
-    onClick,
-)
-
-@Composable
-private fun ProfileActionItem(
-    icon: ImageVector,
-    @StringRes title: Int,
-    @StringRes description: Int,
-    onClick: () -> Unit,
+private fun ProfileLocalLibraryCard(
+    downloadCount: Int,
+    historyCount: Int,
+    onDownloads: () -> Unit,
+    onHistory: () -> Unit,
 ) {
-    Card(
-        onClick = onClick,
+    Column(
         modifier = Modifier
             .fillMaxWidth()
             .widthIn(max = 720.dp),
-        shape = RoundedCornerShape(20.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 18.dp, vertical = 16.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(16.dp),
+        SectionLabel(stringResource(R.string.profile_local_section))
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = MaterialTheme.shapes.large,
+            colors = pocketCardColors(),
+            border = pocketCardBorder(),
         ) {
-            Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                Text(stringResource(title), style = MaterialTheme.typography.titleMedium)
-                Text(
-                    stringResource(description),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+            Column {
+                ProfileLocalLibraryRow(
+                    icon = Icons.Rounded.DownloadForOffline,
+                    title = R.string.profile_downloads,
+                    description = R.string.profile_downloads_description,
+                    count = downloadCount,
+                    onClick = onDownloads,
+                )
+                HorizontalDivider(
+                    modifier = Modifier.padding(horizontal = 18.dp),
+                    color = MaterialTheme.colorScheme.outlineVariant,
+                )
+                ProfileLocalLibraryRow(
+                    icon = Icons.Rounded.History,
+                    title = R.string.profile_reading_history,
+                    description = R.string.profile_reading_history_description,
+                    count = historyCount,
+                    onClick = onHistory,
                 )
             }
-            Icon(
-                Icons.AutoMirrored.Rounded.KeyboardArrowRight,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+        }
+    }
+}
+
+@Composable
+private fun ProfileLocalLibraryRow(
+    icon: ImageVector,
+    @StringRes title: Int,
+    @StringRes description: Int,
+    count: Int,
+    onClick: () -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(horizontal = 18.dp, vertical = 16.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(16.dp),
+    ) {
+        Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(stringResource(title), style = MaterialTheme.typography.titleMedium)
+            Text(
+                stringResource(description),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
+        if (count > 0) {
+            Surface(
+                shape = CircleShape,
+                color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+            ) {
+                Text(
+                    text = stringResource(R.string.profile_count_badge, count),
+                    style = MaterialTheme.typography.labelSmall,
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                )
+            }
+        }
+        Icon(
+            Icons.AutoMirrored.Rounded.KeyboardArrowRight,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
     }
 }
 

@@ -50,6 +50,8 @@ import com.yamibo.pocket300.ui.ScreenScaffold
 import com.yamibo.pocket300.ui.ScrollableEmptyState
 import com.yamibo.pocket300.ui.api
 import com.yamibo.pocket300.ui.load
+import com.yamibo.pocket300.ui.theme.pocketCardBorder
+import com.yamibo.pocket300.ui.theme.pocketCardColors
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
@@ -60,6 +62,7 @@ import kotlinx.coroutines.withContext
 internal fun ListScreen(
     sharedTransitionScope: SharedTransitionScope,
     animatedVisibilityScope: AnimatedVisibilityScope,
+    scrollToTopTrigger: Int = 0,
     onCreate: () -> Unit,
     onOpen: (Long) -> Unit,
 ) {
@@ -88,6 +91,9 @@ internal fun ListScreen(
 
     LaunchedEffect(reload) {
         state = load { loadOverview() }
+    }
+    LaunchedEffect(scrollToTopTrigger) {
+        if (scrollToTopTrigger > 0) listState.animateScrollToItem(0)
     }
     LaunchedEffect(Unit) {
         CustomListRefreshEvents.refreshedListIds.collect {
@@ -180,6 +186,9 @@ private fun CustomListOverview(
                                     animatedVisibilityScope,
                                 )
                         },
+                        shape = MaterialTheme.shapes.medium,
+                        colors = pocketCardColors(),
+                        border = pocketCardBorder(),
                     ) {
                         Row(
                             Modifier
@@ -221,8 +230,16 @@ private fun CustomListOverview(
                             Surface(
                                 modifier = Modifier.padding(start = 16.dp),
                                 shape = MaterialTheme.shapes.medium,
-                                color = MaterialTheme.colorScheme.primaryContainer,
-                                contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                                color = if (unreadCount > 0) {
+                                    MaterialTheme.colorScheme.primaryContainer
+                                } else {
+                                    MaterialTheme.colorScheme.surfaceContainerHigh
+                                },
+                                contentColor = if (unreadCount > 0) {
+                                    MaterialTheme.colorScheme.onPrimaryContainer
+                                } else {
+                                    MaterialTheme.colorScheme.onSurfaceVariant
+                                },
                             ) {
                                 Column(
                                     Modifier.padding(horizontal = 14.dp, vertical = 10.dp),

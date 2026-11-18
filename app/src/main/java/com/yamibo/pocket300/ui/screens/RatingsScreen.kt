@@ -32,6 +32,9 @@ import com.yamibo.pocket300.ui.LoadState
 import com.yamibo.pocket300.ui.ScreenScaffold
 import com.yamibo.pocket300.ui.api
 import com.yamibo.pocket300.ui.load
+import com.yamibo.pocket300.ui.theme.PocketSpacing
+import com.yamibo.pocket300.ui.theme.pocketCardBorder
+import com.yamibo.pocket300.ui.theme.pocketCardColors
 import kotlinx.coroutines.launch
 
 @Composable
@@ -67,12 +70,16 @@ internal fun RatingsScreen(threadId: Int, postId: Int, onBack: () -> Unit) {
             } else {
                 LazyColumn(
                     state = listState,
-                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    contentPadding = PaddingValues(horizontal = PocketSpacing.screen, vertical = 12.dp),
+                    verticalArrangement = Arrangement.spacedBy(PocketSpacing.itemGap),
                 ) {
                     items(ratings, key = { "${it.userId}-${it.creditName}" }) { rating ->
-                        Card {
-                            RatingRow(rating, Modifier.padding(horizontal = 12.dp, vertical = 10.dp))
+                        Card(
+                            shape = MaterialTheme.shapes.medium,
+                            colors = pocketCardColors(),
+                            border = pocketCardBorder(),
+                        ) {
+                            RatingRow(rating, Modifier.padding(horizontal = 16.dp, vertical = 12.dp))
                         }
                     }
                 }

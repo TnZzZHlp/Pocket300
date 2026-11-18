@@ -31,6 +31,7 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -64,6 +65,8 @@ import com.yamibo.pocket300.ui.EmptyState
 import com.yamibo.pocket300.ui.Loading
 import com.yamibo.pocket300.ui.ScreenScaffold
 import com.yamibo.pocket300.ui.components.LocalSearchField
+import com.yamibo.pocket300.ui.theme.pocketCardBorder
+import com.yamibo.pocket300.ui.theme.pocketCardColors
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -450,7 +453,12 @@ private fun DownloadCard(
         Modifier
     }
 
-    Card(modifier = modifier.fillMaxWidth().then(actionModifier)) {
+    Card(
+        modifier = modifier.fillMaxWidth().then(actionModifier),
+        shape = MaterialTheme.shapes.medium,
+        colors = pocketCardColors(),
+        border = pocketCardBorder(),
+    ) {
         Column(
             Modifier.padding(start = 16.dp, top = 16.dp, bottom = 16.dp, end = 8.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -515,6 +523,33 @@ private fun DownloadCard(
                     MaterialTheme.colorScheme.onSurfaceVariant
                 },
             )
+            when (item.phase) {
+                ThreadDownloadPhase.FETCHING_PAGES -> {
+                    if (item.totalPages > 0) {
+                        LinearProgressIndicator(
+                            progress = {
+                                (item.completedPages.toFloat() / item.totalPages.toFloat()).coerceIn(0f, 1f)
+                            },
+                            modifier = Modifier.fillMaxWidth().padding(end = 8.dp),
+                        )
+                    } else {
+                        LinearProgressIndicator(modifier = Modifier.fillMaxWidth().padding(end = 8.dp))
+                    }
+                }
+                ThreadDownloadPhase.DOWNLOADING_IMAGES -> {
+                    if (item.imageCount > 0) {
+                        LinearProgressIndicator(
+                            progress = {
+                                (item.completedImages.toFloat() / item.imageCount.toFloat()).coerceIn(0f, 1f)
+                            },
+                            modifier = Modifier.fillMaxWidth().padding(end = 8.dp),
+                        )
+                    } else {
+                        LinearProgressIndicator(modifier = Modifier.fillMaxWidth().padding(end = 8.dp))
+                    }
+                }
+                else -> Unit
+            }
             if (completed) {
                 Text(
                     text = formatDownloadSize(

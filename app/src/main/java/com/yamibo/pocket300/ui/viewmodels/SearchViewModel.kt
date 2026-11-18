@@ -49,6 +49,7 @@ internal class SearchViewModel(savedStateHandle: SavedStateHandle) : ViewModel()
     private var submittedKeyword = ""
     private var submittedSearchType = YamiboThreadSearchType.TITLE
     private val forumId = savedStateHandle.get<Int>("forumId")?.takeIf { it > 0 }
+    val isForumScoped: Boolean = forumId != null
     private var searchId: Int? = null
     private var searchJob: Job? = null
 

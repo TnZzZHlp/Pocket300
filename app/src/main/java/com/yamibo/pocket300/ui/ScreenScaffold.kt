@@ -23,6 +23,7 @@ import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -35,9 +36,13 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
@@ -63,83 +68,98 @@ internal fun ScreenScaffold(
     bottomBar: @Composable () -> Unit = {},
     floatingActionButton: @Composable () -> Unit = {},
     content: @Composable (PaddingValues) -> Unit,
-) = Scaffold(
-    modifier = modifier,
-    topBar = {
-        TopAppBar(
-            modifier = if (onTopBarDoubleClick == null) {
-                Modifier
-            } else {
-                Modifier.pointerInput(onTopBarDoubleClick) {
-                    detectTapGestures(onDoubleTap = { onTopBarDoubleClick() })
-                }
-            },
-            title = { Text(title, style = MaterialTheme.typography.titleLarge, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-            navigationIcon = {
-                if (onBack != null) IconButton(onBack) {
-                    Icon(Icons.AutoMirrored.Rounded.ArrowBack, stringResource(R.string.action_back))
-                }
-            },
-            actions = {
-                actions()
-                if (onSearch != null) IconButton(onSearch) {
-                    Icon(Icons.Rounded.Search, stringResource(R.string.search_action))
-                }
-                if (onSettings != null) {
-                    IconButton(onSettings) {
-                        Icon(Icons.Rounded.Settings, stringResource(R.string.settings_title))
-                    }
-                }
-            },
-            colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surface),
-        )
-    },
-    bottomBar = bottomBar,
-    floatingActionButton = floatingActionButton,
-    content = { padding ->
-        if (onRefresh == null) {
-            content(padding)
-        } else {
-            val pullToRefreshState = rememberPullToRefreshState()
-            PullToRefreshBox(
-                isRefreshing = isRefreshing,
-                onRefresh = onRefresh,
-                state = pullToRefreshState,
-                modifier = Modifier.fillMaxSize(),
-                indicator = {
-                    if (isRefreshing) {
-                        Surface(
-                            modifier = Modifier
-                                .align(Alignment.TopCenter)
-                                .padding(top = padding.calculateTopPadding() + 40.dp)
-                                .size(40.dp),
-                            shape = CircleShape,
-                            color = PullToRefreshDefaults.indicatorContainerColor,
-                            shadowElevation = PullToRefreshDefaults.Elevation,
-                        ) {
-                            Box(contentAlignment = Alignment.Center) {
-                                CircularProgressIndicator(
-                                    modifier = Modifier.size(16.dp),
-                                    color = PullToRefreshDefaults.indicatorColor,
-                                )
+) {
+    val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
+    val showTopBarDivider by remember(scrollBehavior) {
+        derivedStateOf { scrollBehavior.state.overlappedFraction > 0.01f }
+    }
+    Scaffold(
+        modifier = modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
+        topBar = {
+            Column(Modifier.fillMaxWidth()) {
+                TopAppBar(
+                    modifier = if (onTopBarDoubleClick == null) {
+                        Modifier
+                    } else {
+                        Modifier.pointerInput(onTopBarDoubleClick) {
+                            detectTapGestures(onDoubleTap = { onTopBarDoubleClick() })
+                        }
+                    },
+                    title = { Text(title, style = MaterialTheme.typography.titleLarge, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                    navigationIcon = {
+                        if (onBack != null) IconButton(onBack) {
+                            Icon(Icons.AutoMirrored.Rounded.ArrowBack, stringResource(R.string.action_back))
+                        }
+                    },
+                    actions = {
+                        actions()
+                        if (onSearch != null) IconButton(onSearch) {
+                            Icon(Icons.Rounded.Search, stringResource(R.string.search_action))
+                        }
+                        if (onSettings != null) {
+                            IconButton(onSettings) {
+                                Icon(Icons.Rounded.Settings, stringResource(R.string.settings_title))
                             }
                         }
-                    } else {
-                        PullToRefreshDefaults.Indicator(
-                            state = pullToRefreshState,
-                            isRefreshing = false,
-                            modifier = Modifier
-                                .align(Alignment.TopCenter)
-                                .padding(top = padding.calculateTopPadding()),
-                        )
-                    }
-                },
-            ) {
-                content(padding)
+                    },
+                    colors = TopAppBarDefaults.topAppBarColors(
+                        containerColor = MaterialTheme.colorScheme.surface,
+                        scrolledContainerColor = MaterialTheme.colorScheme.surfaceContainer,
+                    ),
+                    scrollBehavior = scrollBehavior,
+                )
+                if (showTopBarDivider) {
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                }
             }
-        }
-    },
-)
+        },
+        bottomBar = bottomBar,
+        floatingActionButton = floatingActionButton,
+        content = { padding ->
+            if (onRefresh == null) {
+                content(padding)
+            } else {
+                val pullToRefreshState = rememberPullToRefreshState()
+                PullToRefreshBox(
+                    isRefreshing = isRefreshing,
+                    onRefresh = onRefresh,
+                    state = pullToRefreshState,
+                    modifier = Modifier.fillMaxSize(),
+                    indicator = {
+                        if (isRefreshing) {
+                            Surface(
+                                modifier = Modifier
+                                    .align(Alignment.TopCenter)
+                                    .padding(top = padding.calculateTopPadding() + 40.dp)
+                                    .size(40.dp),
+                                shape = CircleShape,
+                                color = PullToRefreshDefaults.indicatorContainerColor,
+                                shadowElevation = PullToRefreshDefaults.Elevation,
+                            ) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.size(16.dp),
+                                        color = PullToRefreshDefaults.indicatorColor,
+                                    )
+                                }
+                            }
+                        } else {
+                            PullToRefreshDefaults.Indicator(
+                                state = pullToRefreshState,
+                                isRefreshing = false,
+                                modifier = Modifier
+                                    .align(Alignment.TopCenter)
+                                    .padding(top = padding.calculateTopPadding()),
+                            )
+                        }
+                    },
+                ) {
+                    content(padding)
+                }
+            }
+        },
+    )
+}
 
 @Composable
 internal fun <T> LoadContent(

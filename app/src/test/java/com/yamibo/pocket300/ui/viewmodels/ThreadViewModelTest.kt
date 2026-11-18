@@ -161,6 +161,18 @@ class ThreadViewModelTest {
     }
 
     @Test
+    fun replacesExistingPostsWhenJumpingDirectlyToLaterPage() {
+        val merged = mergeThreadPosts(
+            existing = listOf(testPost(9), testPost(10)),
+            loaded = listOf(testPost(21), testPost(22)),
+            page = 3,
+            replaceExisting = true,
+        )
+
+        assertEquals(listOf(21, 22), merged.map { it.id })
+    }
+
+    @Test
     fun keepsSuccessfulContentWhenLoadingALaterPageFails() {
         val previous = threadContent()
         val failure = LoadState.Failed("network unavailable")

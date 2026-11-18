@@ -3,7 +3,6 @@ package com.yamibo.pocket300.ui.screens
 import androidx.compose.animation.AnimatedVisibilityScope
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionScope
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -21,9 +20,10 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowForward
+import androidx.compose.material.icons.rounded.ExpandLess
+import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.material.icons.rounded.Forum
 import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -31,9 +31,15 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -45,6 +51,8 @@ import com.yamibo.pocket300.api.YamiboForumIndex
 import com.yamibo.pocket300.ui.LoadContent
 import com.yamibo.pocket300.ui.ScreenScaffold
 import com.yamibo.pocket300.ui.theme.PocketSpacing
+import com.yamibo.pocket300.ui.theme.pocketCardBorder
+import com.yamibo.pocket300.ui.theme.pocketCardColors
 import com.yamibo.pocket300.ui.viewmodels.ForumIndexViewModel
 import kotlinx.coroutines.launch
 import java.text.NumberFormat
@@ -55,6 +63,7 @@ internal fun ForumIndexScreen(
     sharedTransitionScope: SharedTransitionScope,
     animatedVisibilityScope: AnimatedVisibilityScope,
     authStateVersion: Int,
+    scrollToTopTrigger: Int = 0,
     onForum: (YamiboForum) -> Unit,
     onSearch: () -> Unit,
 ) {
@@ -63,6 +72,9 @@ internal fun ForumIndexScreen(
     val coroutineScope = rememberCoroutineScope()
     LaunchedEffect(authStateVersion) {
         if (authStateVersion > 0) viewModel.refresh(showRefreshIndicator = false)
+    }
+    LaunchedEffect(scrollToTopTrigger) {
+        if (scrollToTopTrigger > 0) listState.animateScrollToItem(0)
     }
     ScreenScaffold(
         title = stringResource(R.string.home_title),
@@ -83,6 +95,9 @@ internal fun ForumIndexScreen(
     }
 }
 
+internal fun toggleCollapsedCategory(collapsedIds: Set<Int>, categoryId: Int): Set<Int> =
+    if (categoryId in collapsedIds) collapsedIds - categoryId else collapsedIds + categoryId
+
 @OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
 private fun ForumIndexContent(
@@ -92,54 +107,86 @@ private fun ForumIndexContent(
     onForum: (YamiboForum) -> Unit,
     listState: LazyListState,
 ) {
+    var collapsedCategoryIds by rememberSaveable { mutableStateOf(emptyList<Int>()) }
+    val collapsedSet = remember(collapsedCategoryIds) { collapsedCategoryIds.toSet() }
     LazyColumn(
         state = listState,
         contentPadding = PaddingValues(horizontal = PocketSpacing.screen, vertical = 12.dp),
         verticalArrangement = Arrangement.spacedBy(PocketSpacing.itemGap),
     ) {
         index.categories.forEachIndexed { categoryIndex, category ->
+            val collapsed = category.id in collapsedSet
             item(key = "category-${category.id}") {
                 CategoryHeader(
                     name = category.name,
                     count = category.forums.size,
+                    collapsed = collapsed,
+                    onToggle = {
+                        collapsedCategoryIds = toggleCollapsedCategory(collapsedSet, category.id).toList()
+                    },
                     modifier = Modifier.padding(top = if (categoryIndex == 0) 0.dp else 14.dp),
                 )
             }
-            items(category.forums, key = { it.id }) { forum ->
-                ForumCard(
-                    forum = forum,
-                    onClick = onForum,
-                    modifier = with(sharedTransitionScope) {
-                        Modifier.sharedBounds(
-                            rememberSharedContentState("forum-${forum.id}"),
-                            animatedVisibilityScope,
-                        )
-                    },
-                )
+            if (!collapsed) {
+                items(category.forums, key = { it.id }) { forum ->
+                    ForumCard(
+                        forum = forum,
+                        onClick = onForum,
+                        modifier = with(sharedTransitionScope) {
+                            Modifier.sharedBounds(
+                                rememberSharedContentState("forum-${forum.id}"),
+                                animatedVisibilityScope,
+                            )
+                        },
+                    )
+                }
             }
         }
     }
 }
 
 @Composable
-private fun CategoryHeader(name: String, count: Int, modifier: Modifier = Modifier) {
-    Row(
-        modifier = modifier
-            .fillMaxWidth()
-            .padding(horizontal = 4.dp, vertical = 4.dp),
-        verticalAlignment = Alignment.CenterVertically,
+private fun CategoryHeader(
+    name: String,
+    count: Int,
+    collapsed: Boolean,
+    onToggle: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Surface(
+        onClick = onToggle,
+        modifier = modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.small,
+        color = Color.Transparent,
     ) {
-        Text(
-            text = name,
-            modifier = Modifier.weight(1f),
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.Bold,
-        )
-        Text(
-            text = stringResource(R.string.home_forum_count, count),
-            style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 4.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            Text(
+                text = name,
+                modifier = Modifier.weight(1f),
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+            )
+            Text(
+                text = stringResource(R.string.home_forum_count, count),
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Icon(
+                imageVector = if (collapsed) Icons.Rounded.ExpandMore else Icons.Rounded.ExpandLess,
+                contentDescription = stringResource(
+                    if (collapsed) R.string.home_expand_category else R.string.home_collapse_category,
+                    name,
+                ),
+                modifier = Modifier.size(20.dp),
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
     }
 }
 
@@ -152,9 +199,9 @@ private fun ForumCard(
     Card(
         onClick = { onClick(forum) },
         modifier = modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
+        colors = pocketCardColors(),
         shape = MaterialTheme.shapes.medium,
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+        border = pocketCardBorder(),
     ) {
         Row(
             modifier = Modifier.padding(14.dp),
