@@ -4,6 +4,7 @@ import com.yamibo.pocket300.api.AndroidCookieJar
 import com.yamibo.pocket300.api.POCKET300_USER_AGENT
 import com.yamibo.pocket300.api.Pocket300UserAgentInterceptor
 import com.yamibo.pocket300.api.YamiboRequestGate
+import com.yamibo.pocket300.api.YamiboWafException
 import kotlinx.coroutines.suspendCancellableCoroutine
 import okhttp3.Call
 import okhttp3.Callback
@@ -57,9 +58,20 @@ class OkHttpPostImageDownloader(
     override suspend fun download(
         request: PostImageDownloadRequest,
         destination: File,
-    ): PostImageDownloadResult {
-        requestGate?.awaitReady()
-        return downloadWithoutGate(request, destination)
+    ): PostImageDownloadResult = try {
+        downloadWithoutGate(request, destination)
+    } catch (error: YamiboWafException) {
+        val gate = requestGate ?: throw IOException(error.message, error)
+        try {
+            gate.awaitReady()
+        } catch (gateError: YamiboWafException) {
+            throw IOException(gateError.message, gateError)
+        }
+        try {
+            downloadWithoutGate(request, destination)
+        } catch (retryError: YamiboWafException) {
+            throw IOException(retryError.message, retryError)
+        }
     }
 
     private suspend fun downloadWithoutGate(
@@ -109,12 +121,23 @@ class OkHttpPostImageDownloader(
                 override fun onResponse(call: Call, response: Response) {
                     val result = runCatching {
                         response.use {
+                            val body = response.body
+                            val contentType = body.contentType()
+                            val isHtml = contentType?.let {
+                                it.type.equals("text", ignoreCase = true) &&
+                                    it.subtype.equals("html", ignoreCase = true)
+                            } == true
                             if (!response.isSuccessful) {
+                                if (response.code in IMAGE_CHALLENGE_STATUS_CODES || isHtml) {
+                                    throw YamiboWafException("图片下载需要完成百合会浏览器验证")
+                                }
                                 throw IOException(
                                     "Image request failed with HTTP ${response.code}",
                                 )
                             }
-                            val body = response.body
+                            if (isHtml) {
+                                throw YamiboWafException("图片下载需要完成百合会浏览器验证")
+                            }
                             val declaredLength = body.contentLength()
                             if (declaredLength > MAX_IMAGE_BYTES) {
                                 throw IOException("Image exceeds the 100 MiB size limit")
@@ -139,7 +162,7 @@ class OkHttpPostImageDownloader(
                             if (byteCount <= 0) throw IOException("Image response body was empty")
                             PostImageDownloadResult(
                                 byteCount = byteCount,
-                                contentType = body.contentType()?.toString(),
+                                contentType = contentType?.toString(),
                             )
                         }
                     }
@@ -155,5 +178,6 @@ class OkHttpPostImageDownloader(
     private companion object {
         const val DEFAULT_TIMEOUT_MILLIS = 30_000L
         const val MAX_IMAGE_BYTES = 100L * 1024L * 1024L
+        val IMAGE_CHALLENGE_STATUS_CODES = setOf(403, 412, 429, 503)
     }
 }

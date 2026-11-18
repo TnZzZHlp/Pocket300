@@ -4,6 +4,7 @@ import android.webkit.CookieManager
 import com.yamibo.pocket300.logging.AppLogger
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import okhttp3.Call
 import okhttp3.FormBody
 import okhttp3.HttpUrl
 import okhttp3.OkHttpClient
@@ -49,8 +50,7 @@ class YamiboClient(
     timeoutMillis: Long = 15_000,
     userAgent: String = POCKET300_USER_AGENT,
     private val requestGate: YamiboRequestGate? = null,
-) {
-    private val http = OkHttpClient.Builder()
+    private val callFactory: Call.Factory = OkHttpClient.Builder()
         .cookieJar(cookieJar)
         .addInterceptor(Pocket300UserAgentInterceptor(userAgent))
         .connectTimeout(timeoutMillis, TimeUnit.MILLISECONDS)
@@ -58,7 +58,8 @@ class YamiboClient(
         .writeTimeout(timeoutMillis, TimeUnit.MILLISECONDS)
         .callTimeout(timeoutMillis, TimeUnit.MILLISECONDS)
         .followRedirects(true)
-        .build()
+        .build(),
+) {
 
     suspend fun requestMobileApi(
         parameters: Map<String, String>,
@@ -80,7 +81,7 @@ class YamiboClient(
             }
         }.build()
 
-        val text = execute(request)
+        val text = execute(request, expectJson = true)
         val root = try {
             JSONObject(text.body)
         } catch (error: JSONException) {
@@ -146,13 +147,34 @@ class YamiboClient(
                 post(body)
             }
         }.build()
-        val response = execute(request)
+        val response = execute(request, expectJson = false)
         YamiboPageResponse(response.body, response.url)
     }
 
-    private suspend fun execute(request: Request): TextResponse {
+    private suspend fun execute(request: Request, expectJson: Boolean): TextResponse {
+        val firstAttempt = withContext(Dispatchers.IO) {
+            executeOnce(request)
+        }
+        if (!isYamiboBrowserChallenge(firstAttempt.statusCode, firstAttempt.contentType, firstAttempt.body, expectJson)) {
+            if (firstAttempt.statusCode !in 200..299) {
+                throw YamiboApiException(
+                    YamiboApiErrorCode.SERVER_ERROR,
+                    "百合会请求失败（HTTP ${firstAttempt.statusCode}）",
+                )
+            }
+            return TextResponse(firstAttempt.body, firstAttempt.url)
+        }
+
+        AppLogger.info(TAG) {
+            "${request.safeLogSummary()} received browser verification challenge (HTTP ${firstAttempt.statusCode})"
+        }
+        val gate = requestGate ?: throw YamiboApiException(
+            YamiboApiErrorCode.SERVER_ERROR,
+            "百合会需要完成浏览器验证，请稍后重试",
+            "browser_verification",
+        )
         try {
-            requestGate?.awaitReady()
+            gate.awaitReady()
         } catch (error: YamiboWafException) {
             throw YamiboApiException(
                 YamiboApiErrorCode.SERVER_ERROR,
@@ -161,27 +183,33 @@ class YamiboClient(
                 error,
             )
         }
-        return withContext(Dispatchers.IO) {
-            executeBlocking(request)
+
+        val retryAttempt = withContext(Dispatchers.IO) {
+            executeOnce(request)
         }
+        if (isYamiboBrowserChallenge(retryAttempt.statusCode, retryAttempt.contentType, retryAttempt.body, expectJson)) {
+            throw YamiboApiException(
+                YamiboApiErrorCode.SERVER_ERROR,
+                "百合会需要完成浏览器验证，请稍后重试",
+                "browser_verification",
+            )
+        }
+        if (retryAttempt.statusCode !in 200..299) {
+            throw YamiboApiException(
+                YamiboApiErrorCode.SERVER_ERROR,
+                "百合会请求失败（HTTP ${retryAttempt.statusCode}）",
+            )
+        }
+        return TextResponse(retryAttempt.body, retryAttempt.url)
     }
 
-    private fun executeBlocking(request: Request): TextResponse {
+    private fun executeOnce(request: Request): RawHttpResponse {
         val requestSummary = request.safeLogSummary()
         val startedAtNanos = System.nanoTime()
         AppLogger.debug(TAG) { "$requestSummary started" }
         try {
-            http.newCall(request).execute().use { response ->
-                if (!response.isSuccessful) {
-                    AppLogger.warn(TAG) {
-                        "$requestSummary failed with HTTP ${response.code} in " +
-                            "${elapsedMillis(startedAtNanos)} ms"
-                    }
-                    throw YamiboApiException(
-                        YamiboApiErrorCode.SERVER_ERROR,
-                        "百合会请求失败（HTTP ${response.code}）",
-                    )
-                }
+            callFactory.newCall(request).execute().use { response ->
+                val contentType = response.body.contentType()?.toString()
                 val body = try {
                     response.body.string()
                 } catch (error: IOException) {
@@ -194,11 +222,23 @@ class YamiboClient(
                         cause = error,
                     )
                 }
-                AppLogger.debug(TAG) {
-                    "$requestSummary completed with HTTP ${response.code} in " +
-                        "${elapsedMillis(startedAtNanos)} ms; responseLength=${body.length}"
+                if (!response.isSuccessful) {
+                    AppLogger.warn(TAG) {
+                        "$requestSummary failed with HTTP ${response.code} in " +
+                            "${elapsedMillis(startedAtNanos)} ms"
+                    }
+                } else {
+                    AppLogger.debug(TAG) {
+                        "$requestSummary completed with HTTP ${response.code} in " +
+                            "${elapsedMillis(startedAtNanos)} ms; responseLength=${body.length}"
+                    }
                 }
-                return TextResponse(body, response.request.url.toString())
+                return RawHttpResponse(
+                    statusCode = response.code,
+                    contentType = contentType,
+                    body = body,
+                    url = response.request.url.toString(),
+                )
             }
         } catch (error: YamiboApiException) {
             throw error
@@ -215,6 +255,13 @@ class YamiboClient(
             )
         }
     }
+
+    private data class RawHttpResponse(
+        val statusCode: Int,
+        val contentType: String?,
+        val body: String,
+        val url: String,
+    )
 
     private data class TextResponse(val body: String, val url: String)
 
