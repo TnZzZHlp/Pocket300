@@ -125,6 +125,7 @@ import com.yamibo.pocket300.ui.api
 import com.yamibo.pocket300.ui.components.AutoLoadNextPage
 import com.yamibo.pocket300.ui.components.ListFooter
 import com.yamibo.pocket300.ui.components.PostAuthorAvatar
+import com.yamibo.pocket300.ui.components.ThreadLoadingSkeleton
 import com.yamibo.pocket300.ui.load
 import com.yamibo.pocket300.ui.plainText
 import com.yamibo.pocket300.ui.resolvePostLink
@@ -630,6 +631,7 @@ internal fun ThreadScreen(
             padding,
             onRetry = if (offlineOnly) null else ({ viewModel.refresh(); reload++ }),
             failureMessage = if (offlineOnly) offlineUnavailableMessage else "",
+            loading = { ThreadLoadingSkeleton() },
         ) { content ->
             val page = content.page
             if (!offlineOnly) {
