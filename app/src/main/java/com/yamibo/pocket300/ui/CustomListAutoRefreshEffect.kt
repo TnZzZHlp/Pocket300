@@ -22,7 +22,8 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 @Composable
-internal fun CustomListAutoRefreshEffect() {
+internal fun CustomListAutoRefreshEffect(enabled: Boolean = true) {
+    if (!enabled) return
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val database = remember(context) { CustomListDatabase.getInstance(context) }

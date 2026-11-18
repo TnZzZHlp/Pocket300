@@ -65,7 +65,7 @@ internal fun ForumIndexScreen(
     authStateVersion: Int,
     scrollToTopTrigger: Int = 0,
     onForum: (YamiboForum) -> Unit,
-    onSearch: () -> Unit,
+    onSearch: (() -> Unit)?,
 ) {
     val viewModel: ForumIndexViewModel = viewModel()
     val listState = rememberLazyListState()

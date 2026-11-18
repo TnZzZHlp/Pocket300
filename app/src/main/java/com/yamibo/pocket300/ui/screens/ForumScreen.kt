@@ -39,6 +39,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -82,6 +83,10 @@ private data class ForumSnapshot(
 
 private val forumSnapshots = mutableMapOf<Int, ForumSnapshot>()
 
+internal fun clearForumSnapshots() {
+    forumSnapshots.clear()
+}
+
 internal const val STICKY_THREADS_INITIAL_EXPANDED = false
 
 internal fun isStickyThread(stickyLevel: Int): Boolean = stickyLevel > 0
@@ -93,13 +98,15 @@ internal fun ForumScreen(
     forumId: Int,
     sharedTransitionScope: SharedTransitionScope,
     animatedVisibilityScope: AnimatedVisibilityScope,
+    authStateVersion: Int = 0,
     onBack: () -> Unit,
     onForum: (Int) -> Unit,
-    onSearch: () -> Unit,
+    onSearch: (() -> Unit)?,
     onThread: (YamiboThread) -> Unit,
 ) {
     val cachedSnapshot = remember(forumId) { forumSnapshots[forumId] }
     var reload by remember { mutableStateOf(0) }
+    var lastHandledAuthVersion by rememberSaveable(forumId) { mutableIntStateOf(authStateVersion) }
     var pageNumber by rememberSaveable(forumId) { mutableStateOf(cachedSnapshot?.pageNumber ?: 1) }
     var selectedTypeId by rememberSaveable(forumId) { mutableStateOf(cachedSnapshot?.selectedTypeId) }
     var sort by rememberSaveable(forumId) {
@@ -117,6 +124,15 @@ internal fun ForumScreen(
     var sortMenuExpanded by remember { mutableStateOf(false) }
     val listState = rememberLazyListState()
     val coroutineScope = rememberCoroutineScope()
+    LaunchedEffect(authStateVersion) {
+        if (authStateVersion != lastHandledAuthVersion) {
+            lastHandledAuthVersion = authStateVersion
+            forumSnapshots.remove(forumId)
+            restoreCachedPage = false
+            pageNumber = 1
+            reload++
+        }
+    }
     LaunchedEffect(forumId, reload, pageNumber, selectedTypeId, sort) {
         if (restoreCachedPage && reload == 0) {
             restoreCachedPage = false

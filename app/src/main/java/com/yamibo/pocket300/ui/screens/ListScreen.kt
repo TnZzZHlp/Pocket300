@@ -63,6 +63,7 @@ internal fun ListScreen(
     sharedTransitionScope: SharedTransitionScope,
     animatedVisibilityScope: AnimatedVisibilityScope,
     scrollToTopTrigger: Int = 0,
+    canModifyAndSync: Boolean = true,
     onCreate: () -> Unit,
     onOpen: (Long) -> Unit,
 ) {
@@ -103,16 +104,18 @@ internal fun ListScreen(
 
     ScreenScaffold(
         stringResource(R.string.list_title),
-        onRefresh = {
-            val listsToRefresh = (state as? LoadState.Ready)?.value.orEmpty().map { it.list }
-            if (!refreshingLists && listsToRefresh.isNotEmpty()) {
-                refreshingLists = true
-                coroutineScope.launch {
-                    try {
-                        refreshScheduler.refreshAllLists(listsToRefresh)
-                        state = load { loadOverview() }
-                    } finally {
-                        refreshingLists = false
+        onRefresh = if (!canModifyAndSync) null else {
+            {
+                val listsToRefresh = (state as? LoadState.Ready)?.value.orEmpty().map { it.list }
+                if (!refreshingLists && listsToRefresh.isNotEmpty()) {
+                    refreshingLists = true
+                    coroutineScope.launch {
+                        try {
+                            refreshScheduler.refreshAllLists(listsToRefresh)
+                            state = load { loadOverview() }
+                        } finally {
+                            refreshingLists = false
+                        }
                     }
                 }
             }
@@ -120,11 +123,13 @@ internal fun ListScreen(
         isRefreshing = refreshingLists,
         onTopBarDoubleClick = { coroutineScope.launch { listState.animateScrollToItem(0) } },
         actions = {
-            IconButton(onClick = onCreate) {
-                Icon(
-                    Icons.Rounded.Add,
-                    contentDescription = stringResource(R.string.custom_list_create),
-                )
+            if (canModifyAndSync) {
+                IconButton(onClick = onCreate) {
+                    Icon(
+                        Icons.Rounded.Add,
+                        contentDescription = stringResource(R.string.custom_list_create),
+                    )
+                }
             }
         },
     ) { padding ->

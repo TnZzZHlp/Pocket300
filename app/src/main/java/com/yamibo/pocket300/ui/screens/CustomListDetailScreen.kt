@@ -100,6 +100,7 @@ internal fun CustomListDetailScreen(
     listId: Long,
     sharedTransitionScope: SharedTransitionScope,
     animatedVisibilityScope: AnimatedVisibilityScope,
+    canSyncAndEdit: Boolean = true,
     onBack: () -> Unit,
     onEdit: () -> Unit,
     onThread: (CustomListThread) -> Unit,
@@ -360,9 +361,17 @@ internal fun CustomListDetailScreen(
         if (!applyingSelectionAction) exitSelectionMode()
     }
 
+    LaunchedEffect(canSyncAndEdit) {
+        if (!canSyncAndEdit) {
+            refreshMenuExpanded = false
+            pendingExcludeThread = null
+            if (selectionMode && !applyingSelectionAction) exitSelectionMode()
+        }
+    }
+
     LaunchedEffect(listId) {
         val loaded = loadLocal()
-        if (loaded != null && loaded.lastSyncedAt == null) sync(loaded)
+        if (canSyncAndEdit && loaded != null && loaded.lastSyncedAt == null) sync(loaded)
     }
 
     LaunchedEffect(downloadRepository) {
@@ -406,7 +415,7 @@ internal fun CustomListDetailScreen(
             selectionMode -> ::exitSelectionMode
             else -> onBack
         },
-        onRefresh = if (selectionMode) null else list?.let { target ->
+        onRefresh = if (selectionMode || !canSyncAndEdit) null else list?.let { target ->
             {
                 if (!syncing) {
                     syncing = true
@@ -417,7 +426,7 @@ internal fun CustomListDetailScreen(
         isRefreshing = syncing,
         onTopBarDoubleClick = { scope.launch { listState.animateScrollToItem(0) } },
         actions = {
-            if (selectionMode) {
+            if (selectionMode && canSyncAndEdit) {
                 IconButton(
                     enabled = displayedThreadIds.isNotEmpty() && !applyingSelectionAction,
                     onClick = {
@@ -509,7 +518,7 @@ internal fun CustomListDetailScreen(
                         )
                     }
                 }
-            } else {
+            } else if (canSyncAndEdit) {
                 IconButton(
                     enabled = list != null,
                     onClick = onEdit,
@@ -658,6 +667,7 @@ internal fun CustomListDetailScreen(
                                         thread = thread,
                                         onClick = onThread,
                                         selectionMode = selectionMode,
+                                        canModify = canSyncAndEdit,
                                         selected = thread.threadId in selectedThreadIds,
                                         onToggleSelection = {
                                             toggleSelection(thread.threadId)
@@ -830,6 +840,7 @@ private fun CustomListThreadCard(
     onClick: (CustomListThread) -> Unit,
     onExclude: () -> Unit,
     selectionMode: Boolean,
+    canModify: Boolean,
     selected: Boolean,
     interactionEnabled: Boolean,
     onToggleSelection: () -> Unit,
@@ -844,8 +855,10 @@ private fun CustomListThreadCard(
                 onClick = {
                     if (selectionMode) onToggleSelection() else onClick(thread)
                 },
-                onLongClick = {
-                    if (selectionMode) onToggleSelection() else onStartSelection()
+                onLongClick = if (selectionMode || canModify) {
+                    { if (selectionMode) onToggleSelection() else onStartSelection() }
+                } else {
+                    null
                 },
             ),
         colors = threadCardColors(selected),
@@ -878,7 +891,7 @@ private fun CustomListThreadCard(
                 replyCount = thread.replyCount,
                 viewCount = thread.viewCount,
                 resolveMissingAuthor = true,
-                headerTrailing = if (selectionMode) {
+                headerTrailing = if (selectionMode || !canModify) {
                     null
                 } else {
                     {

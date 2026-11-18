@@ -1,8 +1,20 @@
 package com.yamibo.pocket300.api
 
+import kotlinx.coroutines.runBlocking
+import okhttp3.Cookie
+import okhttp3.CookieJar
+import okhttp3.HttpUrl
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.OkHttpClient
+import okhttp3.Protocol
+import okhttp3.Request
+import okhttp3.Response
+import okhttp3.ResponseBody.Companion.toResponseBody
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class YamiboAuthApiTest {
@@ -68,4 +80,79 @@ class YamiboAuthApiTest {
     fun rejectsLoginPageAsProfile() {
         parseUserProfilePage("<form id='loginform'>", "$YAMIBO_ORIGIN/member.php?mod=logging", 42)
     }
+
+    @Test
+    fun detectsValidDiscuzAuthCookiesAndRejectsDeletedOrBlankValues() {
+        val domain = "bbs.yamibo.com"
+        assertTrue(
+            hasDiscuzAuthCookie(
+                listOf(Cookie.Builder().domain(domain).name("EeqY_2132_auth").value("token").build()),
+            ),
+        )
+        assertTrue(
+            hasDiscuzAuthCookie(
+                listOf(Cookie.Builder().domain(domain).name("auth").value("token").build()),
+            ),
+        )
+        assertFalse(
+            hasDiscuzAuthCookie(
+                listOf(Cookie.Builder().domain(domain).name("EeqY_2132_auth").value("deleted").build()),
+            ),
+        )
+        assertFalse(
+            hasDiscuzAuthCookie(
+                listOf(Cookie.Builder().domain(domain).name("EeqY_2132_auth").value("").build()),
+            ),
+        )
+        assertFalse(
+            hasDiscuzAuthCookie(
+                listOf(Cookie.Builder().domain(domain).name("EeqY_2132_saltkey").value("abc").build()),
+            ),
+        )
+        assertFalse(hasDiscuzAuthCookie(emptyList()))
+    }
+
+    @Test
+    fun seedsAndUpdatesClientAuthenticationStateFromSessionResponses() = runBlocking {
+        val cookieClient = YamiboClient(
+            cookieJar = object : CookieJar {
+                override fun saveFromResponse(url: HttpUrl, cookies: List<Cookie>) = Unit
+                override fun loadForRequest(url: HttpUrl): List<Cookie> = listOf(
+                    Cookie.Builder().domain("bbs.yamibo.com").name("EeqY_2132_auth").value("token").build(),
+                )
+            },
+        )
+        assertTrue(cookieClient.isAuthenticated.value)
+
+        val responses = ArrayDeque(
+            listOf(
+                """{"Version":"4","Variables":{"member_uid":"42","member_username":"alice"}}""",
+                """{"Version":"4","Variables":{"member_uid":"0","member_username":""}}""",
+            ),
+        )
+        val guestClient = YamiboClient(
+            cookieJar = CookieJar.NO_COOKIES,
+            callFactory = stubCallFactory { request ->
+                Response.Builder()
+                    .request(request)
+                    .protocol(Protocol.HTTP_1_1)
+                    .code(200)
+                    .message("HTTP 200")
+                    .body(responses.removeFirst().toResponseBody("application/json".toMediaType()))
+                    .build()
+            },
+        )
+        assertFalse(guestClient.isAuthenticated.value)
+
+        guestClient.requestMobileApi(mapOf("module" to "login"))
+        assertTrue(guestClient.isAuthenticated.value)
+
+        guestClient.requestMobileApi(mapOf("module" to "login"))
+        assertFalse(guestClient.isAuthenticated.value)
+    }
+
+    private fun stubCallFactory(handler: (Request) -> Response): OkHttpClient =
+        OkHttpClient.Builder()
+            .addInterceptor { chain -> handler(chain.request()) }
+            .build()
 }

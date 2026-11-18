@@ -48,6 +48,7 @@ import androidx.navigation.navArgument
 import com.yamibo.pocket300.Pocket300Application
 import com.yamibo.pocket300.R
 import com.yamibo.pocket300.api.GetThreadPostsInput
+import com.yamibo.pocket300.data.CustomListDatabase
 import com.yamibo.pocket300.data.ThreadAuthorRepository
 import com.yamibo.pocket300.data.ReadingHistoryDatabase
 import com.yamibo.pocket300.data.ReadingHistoryEntry
@@ -69,6 +70,7 @@ import com.yamibo.pocket300.ui.screens.ReadingHistoryScreen
 import com.yamibo.pocket300.ui.screens.SearchScreen
 import com.yamibo.pocket300.ui.screens.SettingsScreen
 import com.yamibo.pocket300.ui.screens.ThreadScreen
+import com.yamibo.pocket300.ui.screens.clearForumSnapshots
 import com.yamibo.pocket300.ui.theme.PocketTheme
 
 internal val api = Pocket300Application.api
@@ -90,6 +92,10 @@ fun Pocket300App() {
     val context = LocalContext.current
     val themePreferencesStore = remember(context) { AppThemePreferencesStore(context) }
     val historyDatabase = remember(context) { ReadingHistoryDatabase.getInstance(context) }
+    val customListDatabase = remember(context) { CustomListDatabase.getInstance(context) }
+    val isAuthenticated by api.auth.isAuthenticated.collectAsState()
+    val customListCount by customListDatabase.listCount.collectAsState()
+    val hasLocalCustomLists = customListCount > 0
     val threadAuthors = remember {
         ThreadAuthorRepository(loadAuthor = { threadId ->
             api.posts.getThreadPosts(GetThreadPostsInput(threadId)).thread.author
@@ -108,7 +114,7 @@ fun Pocket300App() {
     }
     var colorTheme by rememberSaveable { mutableStateOf(themePreferencesStore.load()) }
 
-    CustomListAutoRefreshEffect()
+    CustomListAutoRefreshEffect(enabled = isAuthenticated)
 
     PocketTheme(colorTheme = colorTheme) {
         val navController = rememberNavController()
@@ -120,8 +126,38 @@ fun Pocket300App() {
         var readerContent by remember { mutableStateOf<ReaderContent?>(null) }
         val entry by navController.currentBackStackEntryAsState()
         val route = entry?.destination?.route.orEmpty()
-        val isTopLevel = tabs.any { it.route == route }
+        val visibleTabs = remember(isAuthenticated, hasLocalCustomLists) {
+            tabs.filter { isTabVisible(it.route, isAuthenticated, hasLocalCustomLists) }
+        }
+        val isTopLevel = visibleTabs.any { it.route == route }
         var pendingThread by remember { mutableStateOf<PendingThreadNavigation?>(null) }
+
+        LaunchedEffect(authStateVersion) {
+            if (authStateVersion > 0) clearForumSnapshots()
+            runCatching { api.auth.getCurrentSession() }
+        }
+
+        LaunchedEffect(route, isAuthenticated, hasLocalCustomLists) {
+            if (shouldRedirectUnauthorizedRoute(route, isAuthenticated, hasLocalCustomLists)) {
+                val isOverlayRoute = route.startsWith("search") ||
+                    route.startsWith("ratings/") ||
+                    route == "custom-list/new" ||
+                    route.endsWith("/edit")
+                if (isOverlayRoute && navController.previousBackStackEntry != null) {
+                    navController.navigateUp()
+                } else {
+                    val fallback = if (hasLocalCustomLists && route.startsWith("custom-list/")) {
+                        "list"
+                    } else {
+                        "home"
+                    }
+                    navController.navigate(fallback) {
+                        popUpTo("home") { saveState = false }
+                        launchSingleTop = true
+                    }
+                }
+            }
+        }
 
         fun openThread(threadId: Int, route: String) {
             val history = readingHistory[threadId]
@@ -151,7 +187,7 @@ fun Pocket300App() {
                   Column {
                       HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                       NavigationBar(containerColor = MaterialTheme.colorScheme.surfaceContainerLow) {
-                          tabs.forEach { tab ->
+                          visibleTabs.forEach { tab ->
                               NavigationBarItem(
                                   selected = route == tab.route,
                                   onClick = {
@@ -205,7 +241,7 @@ fun Pocket300App() {
                     authStateVersion = authStateVersion,
                     scrollToTopTrigger = homeScrollToTop,
                     onForum = { navController.navigate("forum/${it.id}") },
-                    onSearch = { navController.navigate("search") },
+                    onSearch = if (isAuthenticated) ({ navController.navigate("search") }) else null,
                 )
             }
             composable("favorites") {
@@ -227,6 +263,7 @@ fun Pocket300App() {
                     sharedTransitionScope = sharedTransitionScope,
                     animatedVisibilityScope = this,
                     scrollToTopTrigger = listScrollToTop,
+                    canModifyAndSync = isAuthenticated,
                     onCreate = { navController.navigate("custom-list/new") },
                     onOpen = { navController.navigate("custom-list/$it") },
                 )
@@ -252,6 +289,7 @@ fun Pocket300App() {
                     listId = listId,
                     sharedTransitionScope = sharedTransitionScope,
                     animatedVisibilityScope = this,
+                    canSyncAndEdit = isAuthenticated,
                     onBack = navController::navigateUp,
                     onEdit = { navController.navigate("custom-list/$listId/edit") },
                     onThread = { openThread(it.threadId, "thread/${it.threadId}") },
@@ -334,9 +372,14 @@ fun Pocket300App() {
                     forumId = forumId,
                     sharedTransitionScope = sharedTransitionScope,
                     animatedVisibilityScope = this,
+                    authStateVersion = authStateVersion,
                     onBack = navController::navigateUp,
                     onForum = { navController.navigate("forum/$it") },
-                    onSearch = { navController.navigate("search?forumId=$forumId") },
+                    onSearch = if (isAuthenticated) {
+                        { navController.navigate("search?forumId=$forumId") }
+                    } else {
+                        null
+                    },
                     onThread = { openThread(it.id, "thread/${it.id}") },
                 )
             }
@@ -365,6 +408,7 @@ fun Pocket300App() {
                     offlineOnly = offlineOnly,
                     sharedTransitionScope = sharedTransitionScope,
                     animatedVisibilityScope = this,
+                    isAuthenticated = isAuthenticated,
                     onBack = navController::navigateUp,
                     onForum = { navController.navigate("forum/$it") },
                     onRatings = { threadId, postId -> navController.navigate("ratings/$threadId/$postId") },
