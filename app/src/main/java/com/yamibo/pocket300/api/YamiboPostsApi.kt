@@ -1,6 +1,8 @@
 package com.yamibo.pocket300.api
 
 import com.yamibo.pocket300.logging.AppLogger
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
@@ -166,11 +168,13 @@ class YamiboPostsApi(private val client: YamiboClient) {
                 serverCode,
             )
         }
-        return parseThreadPosts(
-            response.variables ?: invalidResponse("百合会未返回主题楼层数据"),
-            input.page,
-            input.authorId,
-        )
+        return withContext(Dispatchers.Default) {
+            parseThreadPosts(
+                response.variables ?: invalidResponse("百合会未返回主题楼层数据"),
+                input.page,
+                input.authorId,
+            )
+        }
     }
 
     suspend fun replyToThread(input: ReplyToThreadInput): YamiboReplyResult {
