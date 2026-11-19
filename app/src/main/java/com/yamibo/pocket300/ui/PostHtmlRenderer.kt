@@ -8,24 +8,36 @@ import android.text.style.URLSpan
 import android.util.LruCache
 import android.webkit.CookieManager
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.InlineTextContent
 import androidx.compose.foundation.text.appendInlineContent
 import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.HideImage
+import androidx.compose.material.icons.rounded.Refresh
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.layout.ContentScale
@@ -72,6 +84,7 @@ internal fun PostHtml(
     textStyle: TextStyle = MaterialTheme.typography.bodyLarge,
     localImageUrls: Map<String, String> = emptyMap(),
     allowRemoteImages: Boolean = true,
+    onImageClick: ((String) -> Unit)? = null,
 ) {
     val parts = remember(html, attachmentUrls) { postHtmlParts(html, attachmentUrls) }
     val renderParts = remember(parts) { groupPostHtmlParts(parts) }
@@ -104,19 +117,62 @@ internal fun PostHtml(
                                 localImageUrls,
                                 allowRemoteImages,
                             )
-                            var failed by remember(url) { mutableStateOf(false) }
+                            var retryKey by remember(url) { mutableIntStateOf(0) }
+                            var failed by remember(url, retryKey) { mutableStateOf(false) }
                             if (url == null) {
-                                Text(
-                                    stringResource(R.string.reader_offline_image_unavailable),
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
+                                Surface(
+                                    shape = RoundedCornerShape(10.dp),
+                                    color = MaterialTheme.colorScheme.surfaceContainerLow,
+                                    modifier = Modifier.fillMaxWidth(),
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                    ) {
+                                        Icon(
+                                            Icons.Rounded.HideImage,
+                                            contentDescription = null,
+                                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            modifier = Modifier.size(18.dp),
+                                        )
+                                        Text(
+                                            stringResource(R.string.reader_offline_image_unavailable),
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        )
+                                    }
+                                }
                             } else {
-                                val request = rememberPostImageRequest(url, threadId)
+                                val request = rememberPostImageRequest(url, threadId, retryKey)
                                 if (failed) {
-                                    Text(
-                                        stringResource(R.string.reader_image_load_error),
-                                        color = MaterialTheme.colorScheme.error,
-                                    )
+                                    Surface(
+                                        onClick = {
+                                            failed = false
+                                            retryKey++
+                                        },
+                                        shape = RoundedCornerShape(10.dp),
+                                        color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.45f),
+                                        modifier = Modifier.fillMaxWidth(),
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                        ) {
+                                            Icon(
+                                                Icons.Rounded.Refresh,
+                                                contentDescription = null,
+                                                tint = MaterialTheme.colorScheme.onErrorContainer,
+                                                modifier = Modifier.size(18.dp),
+                                            )
+                                            Text(
+                                                "${stringResource(R.string.reader_image_load_error)} · ${stringResource(R.string.thread_image_tap_to_retry)}",
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = MaterialTheme.colorScheme.onErrorContainer,
+                                            )
+                                        }
+                                    }
                                 } else {
                                     AsyncImage(
                                         model = request,
@@ -127,7 +183,18 @@ internal fun PostHtml(
                                         ),
                                         contentScale = ContentScale.FillWidth,
                                         onError = { failed = true },
-                                        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .heightIn(min = 48.dp)
+                                            .clip(RoundedCornerShape(10.dp))
+                                            .background(MaterialTheme.colorScheme.surfaceContainerLow)
+                                            .let { mod ->
+                                                if (onImageClick != null) {
+                                                    mod.clickable { onImageClick(part.url) }
+                                                } else {
+                                                    mod
+                                                }
+                                            },
                                     )
                                 }
                             }
@@ -149,12 +216,13 @@ private fun PostPartContainer(quoted: Boolean, content: @Composable () -> Unit) 
     Box(
         Modifier
             .fillMaxWidth()
-            .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+            .clip(RoundedCornerShape(topStart = 4.dp, bottomStart = 4.dp, topEnd = 12.dp, bottomEnd = 12.dp))
+            .background(MaterialTheme.colorScheme.surfaceContainerLow)
             .drawBehind {
-                val stroke = 2.dp.toPx()
+                val stroke = 3.dp.toPx()
                 drawLine(accent, Offset(stroke / 2, 0f), Offset(stroke / 2, size.height), stroke)
             }
-            .padding(horizontal = 14.dp, vertical = 12.dp),
+            .padding(horizontal = 14.dp, vertical = 10.dp),
     ) {
         content()
     }
@@ -262,14 +330,19 @@ private fun PostInlineHtml(
 }
 
 @Composable
-internal fun rememberPostImageRequest(url: String, threadId: Int? = null): ImageRequest {
+internal fun rememberPostImageRequest(
+    url: String,
+    threadId: Int? = null,
+    retryKey: Int = 0,
+): ImageRequest {
     val context = LocalContext.current
     val userAgent = POCKET300_USER_AGENT
-    return remember(url, threadId, userAgent) {
+    return remember(url, threadId, userAgent, retryKey) {
         ImageRequest.Builder(context)
             .data(url)
             .crossfade(false)
             .apply {
+                if (retryKey > 0) setParameter("retry", retryKey, memoryCacheKey = null)
                 if (url.startsWith("http://") || url.startsWith("https://")) {
                     val cookie = CookieManager.getInstance().getCookie(url)
                     if (!cookie.isNullOrBlank()) addHeader("Cookie", cookie)

@@ -14,7 +14,7 @@
     <string name="forum_title">板块</string>
     <string name="forum_subforums">子板块</string>
     <string name="forum_subforum_summary">%1$s · %2$d 主题</string>
-    <string name="thread_activity">%1$d 回复 · %2$d 浏览 · 热度 %3$d</string>
+    <string name="thread_activity">%1$s 回复 · %2$s 浏览 · 热度 %3$s</string>
     <string name="favorites_empty_title">暂无收藏</string>
     <string name="history_empty_title">暂无阅读记录</string>
     <string name="history_last_reply">最后回复 %1$s</string>
@@ -385,8 +385,12 @@
     <string name="thread_author_badge_op">楼主</string>
     <string name="thread_action_comment">点评</string>
     <string name="thread_action_rate">评分</string>
-    <string name="thread_comments_heading">点评</string>
+    <string name="thread_comments_heading">点评（%1$d）</string>
     <string name="thread_page_indicator">%1$d/%2$d 页</string>
+    <string name="thread_floor_indicator">%1$d/%2$d 楼</string>
+    <string name="thread_open_forum">所属板块</string>
+    <string name="thread_attachment_item">附件 %1$d</string>
+    <string name="thread_image_tap_to_retry">点击重试加载图片</string>
     <string name="thread_jump_action">跳页 / 跳楼</string>
     <string name="thread_jump_title">快速跳转</string>
     <string name="thread_jump_mode_page">按页码</string>

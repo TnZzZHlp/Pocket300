@@ -436,6 +436,34 @@ class ReaderScreenTest {
         )
     }
 
+    @Test
+    fun resolvesInitialReaderImageIndexFromNormalizedOrLocalUrl() {
+        val images = listOf(
+            "https://bbs.yamibo.com/data/attachment/forum/a.jpg",
+            "file:///storage/emulated/0/b.jpg",
+        )
+        val localMap = mapOf(
+            "https://bbs.yamibo.com/data/attachment/forum/b.jpg" to "file:///storage/emulated/0/b.jpg",
+        )
+
+        assertEquals(
+            0,
+            resolveInitialReaderImageIndex(images, "/data/attachment/forum/a.jpg", localMap),
+        )
+        assertEquals(
+            1,
+            resolveInitialReaderImageIndex(images, "/data/attachment/forum/b.jpg", localMap),
+        )
+        assertEquals(
+            0,
+            resolveInitialReaderImageIndex(images, "https://bbs.yamibo.com/unknown.jpg", localMap),
+        )
+        assertEquals(
+            0,
+            resolveInitialReaderImageIndex(images, null, localMap),
+        )
+    }
+
     private fun readerContent(
         source: ReaderContentSource = ReaderContentSource.NETWORK,
         localImages: Map<String, String> = emptyMap(),
