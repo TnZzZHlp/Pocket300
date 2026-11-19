@@ -5,6 +5,7 @@ import androidx.compose.animation.AnimatedVisibilityScope
 import androidx.compose.animation.EnterExitState
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionScope
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
@@ -12,11 +13,15 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
@@ -28,29 +33,37 @@ import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.Comment
+import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.rounded.MenuBook
 import androidx.compose.material.icons.automirrored.rounded.Send
 import androidx.compose.material.icons.outlined.FavoriteBorder
 import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.AttachFile
+import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Download
 import androidx.compose.material.icons.rounded.DownloadDone
 import androidx.compose.material.icons.rounded.DoneAll
 import androidx.compose.material.icons.rounded.Favorite
+import androidx.compose.material.icons.rounded.Forum
+import androidx.compose.material.icons.rounded.Lock
+import androidx.compose.material.icons.rounded.MonetizationOn
 import androidx.compose.material.icons.rounded.OfflinePin
+import androidx.compose.material.icons.rounded.PersonOutline
 import androidx.compose.material.icons.rounded.Remove
 import androidx.compose.material.icons.rounded.RemoveDone
 import androidx.compose.material.icons.rounded.Star
+import androidx.compose.material.icons.rounded.SwapVert
+import androidx.compose.material.icons.rounded.UnfoldMore
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
-import androidx.compose.material3.Badge
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.FilterChip
-import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -78,6 +91,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.res.stringResource
@@ -101,6 +116,7 @@ import com.yamibo.pocket300.api.POST_COMMENT_MAX_LENGTH
 import com.yamibo.pocket300.api.POST_RATING_REASON_MAX_LENGTH
 import com.yamibo.pocket300.api.ReplyToThreadInput
 import com.yamibo.pocket300.api.YamiboPost
+import com.yamibo.pocket300.api.YamiboPostAttachment
 import com.yamibo.pocket300.api.YamiboPostRatingForm
 import com.yamibo.pocket300.api.YamiboPostRatingOption
 import com.yamibo.pocket300.api.postRatingReasonLength
@@ -118,6 +134,7 @@ import com.yamibo.pocket300.ui.LoadState
 import com.yamibo.pocket300.ui.LocalReadingHistory
 import com.yamibo.pocket300.ui.PostHtml
 import com.yamibo.pocket300.ui.PostLinkTarget
+import com.yamibo.pocket300.ui.ReaderMode
 import com.yamibo.pocket300.ui.ReaderPreferences
 import com.yamibo.pocket300.ui.ReaderTone
 import com.yamibo.pocket300.ui.ScreenScaffold
@@ -143,6 +160,8 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
+import java.text.NumberFormat
+import kotlin.math.roundToInt
 import kotlin.time.Duration.Companion.milliseconds
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalSharedTransitionApi::class)
@@ -212,6 +231,11 @@ internal fun ThreadScreen(
         mutableIntStateOf(initialFloor.coerceAtLeast(1))
     }
     var jumpDialogVisible by rememberSaveable(threadId) { mutableStateOf(false) }
+    var highlightedPostId by remember { mutableIntStateOf(0) }
+    var highlightNextJump by rememberSaveable(threadId, initialFloor, initialPostId) {
+        mutableStateOf(initialFloor > 1 || initialPostId > 0)
+    }
+    val fabExpanded = rememberScrollUpState(listState)
     val showThreadTitle by remember {
         derivedStateOf { shouldShowThreadTitle(listState.firstVisibleItemIndex) }
     }
@@ -385,12 +409,20 @@ internal fun ThreadScreen(
         val content = loadedContent ?: return@LaunchedEffect
         if (restoredFloor) return@LaunchedEffect
         val headerCount = 1 + if (content.page.poll == null) 0 else 1
+        fun markLandedPost(postIndex: Int) {
+            if (highlightNextJump) {
+                highlightedPostId = content.posts[postIndex].id
+                highlightNextJump = false
+            }
+        }
         if (targetPostId > 0) {
             val postIndex = content.posts.indexOfFirst { it.id == targetPostId }
             if (postIndex >= 0) {
                 listState.scrollToItem(headerCount + postIndex)
+                markLandedPost(postIndex)
                 restoredFloor = true
             } else if (offlineOnly) {
+                highlightNextJump = false
                 restoredFloor = true
             } else {
                 when (val resolved = load { api.posts.findPostPage(threadId, targetPostId) }) {
@@ -400,11 +432,15 @@ internal fun ThreadScreen(
                             viewModel.preparePageJump()
                             pageNumber = resolvedPage
                         } else {
+                            highlightNextJump = false
                             restoredFloor = true
                         }
                     }
 
-                    is LoadState.Failed -> restoredFloor = true
+                    is LoadState.Failed -> {
+                        highlightNextJump = false
+                        restoredFloor = true
+                    }
                     LoadState.Loading -> Unit
                 }
             }
@@ -412,6 +448,7 @@ internal fun ThreadScreen(
             val exactIndex = content.posts.indexOfFirst { it.number == targetFloor }
             if (exactIndex >= 0) {
                 listState.scrollToItem(headerCount + exactIndex)
+                markLandedPost(exactIndex)
                 restoredFloor = true
             } else {
                 val expectedPage = targetPageForFloor(
@@ -426,12 +463,22 @@ internal fun ThreadScreen(
                     val fallbackIndex = resolveFloorScrollIndex(content.posts, targetFloor)
                     if (fallbackIndex != null) {
                         listState.scrollToItem(headerCount + fallbackIndex)
+                        markLandedPost(fallbackIndex)
+                    } else {
+                        highlightNextJump = false
                     }
                     restoredFloor = true
                 }
             }
         } else {
+            highlightNextJump = false
             restoredFloor = true
+        }
+    }
+    LaunchedEffect(highlightedPostId) {
+        if (highlightedPostId > 0) {
+            delay(1600.milliseconds)
+            highlightedPostId = 0
         }
     }
     LaunchedEffect(loadedThread?.id, loadedThread?.subject) {
@@ -481,19 +528,39 @@ internal fun ThreadScreen(
         onTopBarDoubleClick = { coroutineScope.launch { listState.animateScrollToItem(0) } },
         actions = {
             loadedContent?.let { content ->
-                if (content.page.pagination.totalPages > 1 || content.posts.size > 1) {
-                    TextButton(
+                val progress = resolveThreadProgressDisplay(
+                    currentDisplayPage = currentDisplayPage,
+                    totalPages = content.page.pagination.totalPages.coerceAtLeast(1),
+                    currentFloor = lastVisibleFloor,
+                    maxFloor = maxFloorOf(content),
+                )
+                if (progress != null) {
+                    Surface(
                         onClick = { jumpDialogVisible = true },
-                        contentPadding = PaddingValues(horizontal = 8.dp),
+                        shape = CircleShape,
+                        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                        contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
                     ) {
-                        Text(
-                            text = stringResource(
-                                R.string.thread_page_indicator,
-                                currentDisplayPage,
-                                content.page.pagination.totalPages.coerceAtLeast(1),
-                            ),
-                            style = MaterialTheme.typography.labelLarge,
-                        )
+                        Row(
+                            modifier = Modifier.padding(start = 10.dp, end = 6.dp, top = 6.dp, bottom = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(2.dp),
+                        ) {
+                            Text(
+                                text = stringResource(
+                                    if (progress.isPageMode) R.string.thread_page_indicator
+                                    else R.string.thread_floor_indicator,
+                                    progress.current,
+                                    progress.total,
+                                ),
+                                style = MaterialTheme.typography.labelMedium,
+                            )
+                            Icon(
+                                Icons.Rounded.UnfoldMore,
+                                contentDescription = null,
+                                modifier = Modifier.size(14.dp),
+                            )
+                        }
                     }
                 }
             }
@@ -622,7 +689,10 @@ internal fun ThreadScreen(
         },
         floatingActionButton = {
             loadedContent?.takeIf { authActionsEnabled }?.let {
-                ThreadReplyButton(onClick = { replyEditorVisible = true })
+                ThreadReplyButton(
+                    expanded = fabExpanded,
+                    onClick = { replyEditorVisible = true },
+                )
             }
         },
     ) { padding ->
@@ -641,15 +711,14 @@ internal fun ThreadScreen(
                     onLoadMore = { pageNumber = page.pagination.page + 1 },
                 )
             }
+            val navBarBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
             LazyColumn(
                 state = listState,
                 contentPadding = PaddingValues(
-                    start = PocketSpacing.screen,
-                    top = 8.dp,
-                    end = PocketSpacing.screen,
-                    bottom = 88.dp,
+                    top = 4.dp,
+                    bottom = navBarBottom + if (authActionsEnabled) 88.dp else 24.dp,
                 ),
-                verticalArrangement = Arrangement.spacedBy(PocketSpacing.itemGap),
+                verticalArrangement = Arrangement.spacedBy(0.dp),
             ) {
                 item {
                     ThreadHero(
@@ -661,6 +730,7 @@ internal fun ThreadScreen(
                         offlineOnly = offlineOnly,
                         showFavoriteAction = authActionsEnabled,
                         typography = threadTypography,
+                        onForum = { onForum(page.thread.forumId) },
                         onJump = { jumpDialogVisible = true },
                         onFavorite = {
                             if (!favoriteBusy) {
@@ -718,6 +788,7 @@ internal fun ThreadScreen(
                             poll = if (authActionsEnabled) poll else poll.copy(canVote = false),
                             submitting = pollSubmitting,
                             typography = threadTypography,
+                            modifier = Modifier.padding(horizontal = PocketSpacing.screen, vertical = 6.dp),
                             onVote = { optionIds ->
                                 if (!pollSubmitting) {
                                     pollSubmitting = true
@@ -763,10 +834,29 @@ internal fun ThreadScreen(
                     }
                 }
                 items(content.posts, key = { it.id }, contentType = { "post" }) { post ->
+                    fun openPostReader(mode: ReaderMode? = null, initialImageUrl: String? = null) {
+                        val postPage = ((post.position - 1) / page.pagination.pageSize.coerceAtLeast(1)) + 1
+                        onReader(
+                            ReaderContent(
+                                thread = page.thread,
+                                post = post,
+                                localImageUrls = localDownload?.localImageUris.orEmpty(),
+                                source = if (offlineOnly) {
+                                    ReaderContentSource.DOWNLOAD
+                                } else {
+                                    ReaderContentSource.NETWORK
+                                },
+                                initialMode = mode,
+                                initialImageUrl = initialImageUrl,
+                            ),
+                            postPage.coerceAtLeast(1),
+                        )
+                    }
                     PostCard(
                         post = post,
                         threadAuthorId = page.thread.author.id,
                         typography = threadTypography,
+                        highlighted = post.id == highlightedPostId,
                         onForum = onForum,
                         onRatings = { onRatings(post.threadId, post.id) },
                         networkActionsEnabled = authActionsEnabled,
@@ -781,21 +871,9 @@ internal fun ThreadScreen(
                             commentTargetIsOriginalPost = post.isOriginalPost
                         },
                         onRate = { viewModel.openPostRating(post) },
-                        onReader = {
-                            val postPage = ((post.position - 1) / page.pagination.pageSize) + 1
-                            onReader(
-                                ReaderContent(
-                                    thread = page.thread,
-                                    post = post,
-                                    localImageUrls = localDownload?.localImageUris.orEmpty(),
-                                    source = if (offlineOnly) {
-                                        ReaderContentSource.DOWNLOAD
-                                    } else {
-                                        ReaderContentSource.NETWORK
-                                    },
-                                ),
-                                postPage.coerceAtLeast(1),
-                            )
+                        onReader = { openPostReader() },
+                        onImageClick = { clickedUrl ->
+                            openPostReader(mode = ReaderMode.IMAGES, initialImageUrl = clickedUrl)
                         },
                         onThread = { target ->
                             if (target.id == threadId) {
@@ -803,6 +881,7 @@ internal fun ThreadScreen(
                                 if (target.postId != null) {
                                     targetFloor = 0
                                     targetPostId = target.postId
+                                    highlightNextJump = true
                                     restoredFloor = false
                                     val nextPage = target.page?.coerceAtLeast(1) ?: 1
                                     if (nextPage != pageNumber) {
@@ -812,6 +891,7 @@ internal fun ThreadScreen(
                                 } else {
                                     targetFloor = 0
                                     targetPostId = 0
+                                    highlightNextJump = false
                                     restoredFloor = true
                                     coroutineScope.launch { listState.animateScrollToItem(0) }
                                 }
@@ -838,11 +918,7 @@ internal fun ThreadScreen(
     if (jumpDialogVisible && loadedContent != null) {
         val pagination = loadedContent.page.pagination
         val totalPages = pagination.totalPages.coerceAtLeast(1)
-        val maxFloor = maxOf(
-            loadedContent.page.thread.replyCount + 1,
-            pagination.totalPosts,
-            loadedContent.posts.maxOfOrNull { it.number } ?: 1,
-        )
+        val maxFloor = maxFloorOf(loadedContent)
         ThreadJumpDialog(
             currentPage = currentDisplayPage,
             totalPages = totalPages,
@@ -874,6 +950,7 @@ internal fun ThreadScreen(
                 jumpDialogVisible = false
                 targetPostId = 0
                 targetFloor = chosenFloor
+                highlightNextJump = true
                 restoredFloor = false
                 val expectedPage = targetPageForFloor(
                     floor = chosenFloor,
@@ -1078,6 +1155,64 @@ internal fun ThreadScreen(
     }
 }
 
+internal data class ThreadProgressDisplay(
+    val current: Int,
+    val total: Int,
+    val isPageMode: Boolean,
+)
+
+internal fun resolveThreadProgressDisplay(
+    currentDisplayPage: Int,
+    totalPages: Int,
+    currentFloor: Int,
+    maxFloor: Int,
+): ThreadProgressDisplay? = when {
+    totalPages > 1 -> ThreadProgressDisplay(
+        current = currentDisplayPage.coerceIn(1, totalPages),
+        total = totalPages,
+        isPageMode = true,
+    )
+    maxFloor > 1 -> ThreadProgressDisplay(
+        current = currentFloor.coerceIn(1, maxFloor),
+        total = maxFloor,
+        isPageMode = false,
+    )
+    else -> null
+}
+
+internal fun nonImagePostAttachments(
+    attachments: List<YamiboPostAttachment>,
+): List<YamiboPostAttachment> = attachments.filter { !it.isImage && it.url.isNotBlank() }
+
+private fun maxFloorOf(content: ThreadContent): Int = maxOf(
+    content.page.thread.replyCount + 1,
+    content.page.pagination.totalPosts,
+    content.posts.maxOfOrNull { it.number } ?: 1,
+)
+
+@Composable
+private fun rememberScrollUpState(listState: LazyListState): Boolean {
+    var expanded by remember(listState) { mutableStateOf(true) }
+    LaunchedEffect(listState) {
+        var previousIndex = listState.firstVisibleItemIndex
+        var previousOffset = listState.firstVisibleItemScrollOffset
+        snapshotFlow {
+            listState.firstVisibleItemIndex to listState.firstVisibleItemScrollOffset
+        }.collect { (index, offset) ->
+            expanded = when {
+                index == 0 && offset < 24 -> true
+                index != previousIndex -> index < previousIndex
+                offset < previousOffset -> true
+                offset > previousOffset -> false
+                else -> expanded
+            }
+            previousIndex = index
+            previousOffset = offset
+        }
+    }
+    return expanded
+}
+
 internal fun shouldShowThreadTitle(firstVisibleItemIndex: Int): Boolean =
     firstVisibleItemIndex > 0
 
@@ -1193,6 +1328,20 @@ private fun ThreadJumpDialog(
                             ),
                         )
                     }
+                }
+                if (maxAllowed > 1) {
+                    val sliderValue = (
+                        parsedTarget
+                            ?: if (mode == ThreadJumpMode.PAGE) currentPage else currentFloor
+                        ).coerceIn(1, maxAllowed)
+                    Slider(
+                        value = sliderValue.toFloat(),
+                        onValueChange = { value ->
+                            input = value.roundToInt().coerceIn(1, maxAllowed).toString()
+                        },
+                        valueRange = 1f..maxAllowed.toFloat(),
+                        modifier = Modifier.fillMaxWidth(),
+                    )
                 }
                 OutlinedTextField(
                     value = input,
@@ -1563,14 +1712,20 @@ private fun PostRatingOptionRow(
 
 @Composable
 private fun ThreadReplyButton(
+    expanded: Boolean,
     onClick: () -> Unit,
 ) {
-    FloatingActionButton(onClick = onClick, shape = CircleShape) {
-        Icon(
-            Icons.AutoMirrored.Rounded.Send,
-            contentDescription = stringResource(R.string.thread_reply_action),
-        )
-    }
+    ExtendedFloatingActionButton(
+        onClick = onClick,
+        expanded = expanded,
+        icon = {
+            Icon(
+                Icons.AutoMirrored.Rounded.Send,
+                contentDescription = stringResource(R.string.thread_reply_action),
+            )
+        },
+        text = { Text(stringResource(R.string.thread_reply_title)) },
+    )
 }
 
 @Composable
@@ -1698,11 +1853,13 @@ internal fun ReaderTheme(tone: ReaderTone, content: @Composable () -> Unit) {
     MaterialTheme(colorScheme = colors, typography = MaterialTheme.typography, content = content)
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun PostCard(
     post: YamiboPost,
     threadAuthorId: Int?,
     typography: ThreadTypography,
+    highlighted: Boolean,
     onForum: (Int) -> Unit,
     onRatings: () -> Unit,
     networkActionsEnabled: Boolean,
@@ -1710,6 +1867,7 @@ private fun PostCard(
     onComment: () -> Unit,
     onRate: () -> Unit,
     onReader: () -> Unit,
+    onImageClick: (String) -> Unit,
     onThread: (PostLinkTarget.Thread) -> Unit,
     localImageUrls: Map<String, String>,
     allowRemoteImages: Boolean,
@@ -1722,183 +1880,285 @@ private fun PostCard(
             is PostLinkTarget.External -> uriHandler.openUri(target.url)
         }
     }
-    Surface(color = MaterialTheme.colorScheme.surface) {
-        Column(
-            Modifier.padding(horizontal = 4.dp, vertical = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp),
-        ) {
-            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
+    val otherAttachments = remember(post.attachments) { nonImagePostAttachments(post.attachments) }
+    val containerColor by animateColorAsState(
+        targetValue = if (highlighted) {
+            MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.28f)
+        } else {
+            MaterialTheme.colorScheme.surface
+        },
+        label = "postHighlightColor",
+    )
+    Surface(color = containerColor) {
+        Column(Modifier.fillMaxWidth()) {
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f))
+            Column(
+                Modifier.padding(horizontal = PocketSpacing.screen, vertical = 16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                PostAuthorAvatar(
-                    author = post.author,
-                    size = 36.dp,
-                    allowRemoteImage = allowRemoteImages,
-                )
-                Column(
-                    modifier = Modifier.weight(1f),
-                    verticalArrangement = Arrangement.spacedBy(4.dp),
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    ) {
-                        SelectionContainer(modifier = Modifier.weight(1f, fill = false)) {
-                            Text(
-                                text = post.author.name,
-                                style = typography.byline,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                        }
-                        if (shouldShowOriginalPosterBadge(post, threadAuthorId)) {
-                            Surface(
-                                shape = CircleShape,
-                                color = MaterialTheme.colorScheme.primaryContainer,
-                                contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                            ) {
-                                Text(
-                                    text = stringResource(R.string.thread_author_badge_op),
-                                    style = typography.metadata,
-                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                                )
-                            }
-                        }
-                    }
-                    Text(
-                        post.createdAtText,
-                        style = typography.metadata,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-                Text(
-                    if (post.isOriginalPost) stringResource(R.string.reader_original_post)
-                    else stringResource(R.string.reader_floor, post.number),
-                    style = typography.label,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                IconButton(onClick = onReader) {
-                    Icon(
-                        Icons.AutoMirrored.Rounded.MenuBook,
-                        contentDescription = stringResource(R.string.reader_open),
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-            }
-            PostHtml(
-                html = post.html,
-                threadId = post.threadId,
-                attachmentUrls = post.attachments.filter { it.isImage }.map { it.url },
-                onLink = openLink,
-                textStyle = typography.body,
-                localImageUrls = localImageUrls,
-                allowRemoteImages = allowRemoteImages,
-            )
-            if (networkActionsEnabled) {
-                val commentDescription = if (post.isOriginalPost) {
-                    stringResource(R.string.thread_comment_original_post_action)
-                } else {
-                    stringResource(R.string.thread_comment_post_action, post.number)
-                }
-                val rateDescription = if (post.isOriginalPost) {
-                    stringResource(R.string.thread_rating_original_post_action)
-                } else {
-                    stringResource(R.string.thread_rating_post_action, post.number)
-                }
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
                     verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
-                    TextButton(
-                        onClick = onComment,
-                        enabled = commentEnabled,
-                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
-                        modifier = Modifier.semantics { contentDescription = commentDescription },
+                    PostAuthorAvatar(
+                        author = post.author,
+                        size = 36.dp,
+                        allowRemoteImage = allowRemoteImages,
+                    )
+                    Column(
+                        modifier = Modifier.weight(1f),
+                        verticalArrangement = Arrangement.spacedBy(4.dp),
                     ) {
-                        Icon(
-                            Icons.AutoMirrored.Rounded.Comment,
-                            contentDescription = null,
-                            modifier = Modifier.size(16.dp),
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        ) {
+                            SelectionContainer(modifier = Modifier.weight(1f, fill = false)) {
+                                Text(
+                                    text = post.author.name,
+                                    style = typography.byline,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
+                            if (shouldShowOriginalPosterBadge(post, threadAuthorId)) {
+                                Surface(
+                                    shape = CircleShape,
+                                    color = MaterialTheme.colorScheme.primaryContainer,
+                                    contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                                ) {
+                                    Text(
+                                        text = stringResource(R.string.thread_author_badge_op),
+                                        style = typography.metadata,
+                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                    )
+                                }
+                            }
+                        }
+                        Text(
+                            post.createdAtText,
+                            style = typography.metadata,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
-                        Spacer(Modifier.width(4.dp))
-                        Text(stringResource(R.string.thread_action_comment), style = typography.action)
                     }
-                    TextButton(
-                        onClick = onRate,
-                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
-                        modifier = Modifier.semantics { contentDescription = rateDescription },
-                    ) {
-                        Icon(
-                            Icons.Rounded.Star,
-                            contentDescription = null,
-                            modifier = Modifier.size(16.dp),
-                        )
-                        Spacer(Modifier.width(4.dp))
-                        Text(stringResource(R.string.thread_action_rate), style = typography.action)
-                    }
-                }
-            }
-            if (shouldShowRatingsSummary(post.ratingCount)) {
-                Surface(
-                    color = MaterialTheme.colorScheme.secondaryContainer,
-                    shape = MaterialTheme.shapes.medium
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 10.dp, vertical = 8.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically,
+                    Surface(
+                        shape = MaterialTheme.shapes.small,
+                        color = if (post.isOriginalPost) {
+                            MaterialTheme.colorScheme.primaryContainer
+                        } else {
+                            MaterialTheme.colorScheme.surfaceContainerHigh
+                        },
+                        contentColor = if (post.isOriginalPost) {
+                            MaterialTheme.colorScheme.onPrimaryContainer
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        },
                     ) {
                         Text(
-                            stringResource(R.string.rating_count, post.ratingCount),
-                            style = typography.heading,
+                            text = if (post.isOriginalPost) {
+                                stringResource(R.string.reader_original_post)
+                            } else {
+                                stringResource(R.string.reader_floor, post.number)
+                            },
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
                         )
-                        if (networkActionsEnabled) {
-                            TextButton(onClick = onRatings) {
-                                Text(
-                                    stringResource(R.string.rating_view_all, post.ratingCount),
-                                    style = typography.action,
+                    }
+                    IconButton(onClick = onReader, modifier = Modifier.size(36.dp)) {
+                        Icon(
+                            Icons.AutoMirrored.Rounded.MenuBook,
+                            contentDescription = stringResource(R.string.reader_open),
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+                PostHtml(
+                    html = post.html,
+                    threadId = post.threadId,
+                    attachmentUrls = post.attachments.filter { it.isImage }.map { it.url },
+                    onLink = openLink,
+                    textStyle = typography.body,
+                    localImageUrls = localImageUrls,
+                    allowRemoteImages = allowRemoteImages,
+                    onImageClick = onImageClick,
+                )
+                if (otherAttachments.isNotEmpty()) {
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
+                        otherAttachments.forEachIndexed { index, attachment ->
+                            AssistChip(
+                                onClick = { openLink(attachment.url) },
+                                leadingIcon = {
+                                    Icon(
+                                        Icons.Rounded.AttachFile,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(16.dp),
+                                    )
+                                },
+                                label = {
+                                    Text(
+                                        stringResource(R.string.thread_attachment_item, index + 1),
+                                        style = typography.action,
+                                    )
+                                },
+                            )
+                        }
+                    }
+                }
+                if (shouldShowRatingsSummary(post.ratingCount)) {
+                    val summaryContent: @Composable () -> Unit = {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 12.dp, vertical = 10.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            ) {
+                                Icon(
+                                    Icons.Rounded.Star,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(16.dp),
+                                    tint = MaterialTheme.colorScheme.onSecondaryContainer,
                                 )
+                                Text(
+                                    stringResource(R.string.rating_count, post.ratingCount),
+                                    style = typography.action,
+                                    color = MaterialTheme.colorScheme.onSecondaryContainer,
+                                )
+                            }
+                            if (networkActionsEnabled) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(2.dp),
+                                ) {
+                                    Text(
+                                        stringResource(R.string.rating_view_all, post.ratingCount),
+                                        style = typography.label,
+                                        color = MaterialTheme.colorScheme.primary,
+                                    )
+                                    Icon(
+                                        Icons.AutoMirrored.Rounded.KeyboardArrowRight,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(16.dp),
+                                        tint = MaterialTheme.colorScheme.primary,
+                                    )
+                                }
+                            }
+                        }
+                    }
+                    if (networkActionsEnabled) {
+                        Surface(
+                            onClick = onRatings,
+                            color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.65f),
+                            shape = MaterialTheme.shapes.medium,
+                            modifier = Modifier.fillMaxWidth(),
+                            content = summaryContent,
+                        )
+                    } else {
+                        Surface(
+                            color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.65f),
+                            shape = MaterialTheme.shapes.medium,
+                            modifier = Modifier.fillMaxWidth(),
+                            content = summaryContent,
+                        )
+                    }
+                }
+                if (post.comments.isNotEmpty()) {
+                    Surface(
+                        color = MaterialTheme.colorScheme.surfaceContainerLow,
+                        shape = MaterialTheme.shapes.medium,
+                    ) {
+                        Column(
+                            Modifier.fillMaxWidth().padding(12.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            Text(
+                                text = stringResource(R.string.thread_comments_heading, post.comments.size),
+                                style = typography.label,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            post.comments.forEach { comment ->
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalAlignment = Alignment.Top,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                ) {
+                                    PostAuthorAvatar(
+                                        author = comment.author,
+                                        size = 20.dp,
+                                        allowRemoteImage = allowRemoteImages,
+                                    )
+                                    Text(
+                                        text = buildAnnotatedString {
+                                            withStyle(
+                                                SpanStyle(
+                                                    fontWeight = FontWeight.SemiBold,
+                                                    color = MaterialTheme.colorScheme.primary,
+                                                ),
+                                            ) {
+                                                append(comment.author.name)
+                                                append("：")
+                                            }
+                                            append(plainText(comment.message))
+                                        },
+                                        style = typography.supporting,
+                                        modifier = Modifier.weight(1f),
+                                    )
+                                }
                             }
                         }
                     }
                 }
-            }
-            if (post.comments.isNotEmpty()) {
-                Surface(
-                    color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                    shape = MaterialTheme.shapes.medium,
-                ) {
-                    Column(
-                        Modifier.fillMaxWidth().padding(12.dp),
-                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                if (networkActionsEnabled) {
+                    val commentDescription = if (post.isOriginalPost) {
+                        stringResource(R.string.thread_comment_original_post_action)
+                    } else {
+                        stringResource(R.string.thread_comment_post_action, post.number)
+                    }
+                    val rateDescription = if (post.isOriginalPost) {
+                        stringResource(R.string.thread_rating_original_post_action)
+                    } else {
+                        stringResource(R.string.thread_rating_post_action, post.number)
+                    }
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
+                        verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Text(
-                            text = stringResource(R.string.thread_comments_heading),
-                            style = typography.label,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                        post.comments.forEach { comment ->
-                            Text(
-                                text = buildAnnotatedString {
-                                    withStyle(
-                                        SpanStyle(
-                                            fontWeight = FontWeight.SemiBold,
-                                            color = MaterialTheme.colorScheme.primary,
-                                        ),
-                                    ) {
-                                        append(comment.author.name)
-                                        append("：")
-                                    }
-                                    append(plainText(comment.message))
-                                },
-                                style = typography.supporting,
+                        TextButton(
+                            onClick = onComment,
+                            enabled = commentEnabled,
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                            modifier = Modifier.semantics { contentDescription = commentDescription },
+                        ) {
+                            Icon(
+                                Icons.AutoMirrored.Rounded.Comment,
+                                contentDescription = null,
+                                modifier = Modifier.size(16.dp),
                             )
+                            Spacer(Modifier.width(4.dp))
+                            Text(stringResource(R.string.thread_action_comment), style = typography.action)
+                        }
+                        TextButton(
+                            onClick = onRate,
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                            modifier = Modifier.semantics { contentDescription = rateDescription },
+                        ) {
+                            Icon(
+                                Icons.Rounded.Star,
+                                contentDescription = null,
+                                modifier = Modifier.size(16.dp),
+                            )
+                            Spacer(Modifier.width(4.dp))
+                            Text(stringResource(R.string.thread_action_rate), style = typography.action)
                         }
                     }
                 }
@@ -2000,6 +2260,31 @@ internal fun DownloadedThread.toThreadContent(authorId: Int? = null): ThreadCont
     )
 }
 
+@Composable
+private fun ThreadStatusPill(
+    label: String,
+    icon: ImageVector,
+    containerColor: Color,
+    contentColor: Color,
+    modifier: Modifier = Modifier,
+) {
+    Surface(
+        modifier = modifier,
+        shape = MaterialTheme.shapes.small,
+        color = containerColor,
+        contentColor = contentColor,
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            Icon(icon, contentDescription = null, modifier = Modifier.size(14.dp))
+            Text(label, style = MaterialTheme.typography.labelSmall)
+        }
+    }
+}
+
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun ThreadHero(
@@ -2011,13 +2296,18 @@ private fun ThreadHero(
     originalPosterOnly: Boolean,
     offlineOnly: Boolean,
     showFavoriteAction: Boolean = !offlineOnly,
+    onForum: () -> Unit,
     onJump: () -> Unit,
     onFavorite: () -> Unit,
     onOriginalPosterOnlyChange: (Boolean) -> Unit,
 ) {
     val thread = page.thread
+    val numberFormat = remember { NumberFormat.getIntegerInstance() }
     Surface(modifier = Modifier.fillMaxWidth(), color = MaterialTheme.colorScheme.surface) {
-        Column(Modifier.padding(horizontal = 4.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Column(
+            Modifier.padding(horizontal = PocketSpacing.screen, vertical = 14.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
@@ -2030,12 +2320,12 @@ private fun ThreadHero(
                     )
                 }
                 if (offlineOnly) {
-                    Badge {
-                        Text(
-                            stringResource(R.string.reader_offline),
-                            style = typography.metadata,
-                        )
-                    }
+                    ThreadStatusPill(
+                        label = stringResource(R.string.reader_offline),
+                        icon = Icons.Rounded.OfflinePin,
+                        containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                        contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                    )
                 } else if (showFavoriteAction) {
                     IconButton(onClick = onFavorite, enabled = !favoriteBusy) {
                         if (favoriteBusy) {
@@ -2066,11 +2356,11 @@ private fun ThreadHero(
             }
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 PostAuthorAvatar(
                     author = thread.author,
-                    size = 32.dp,
+                    size = 34.dp,
                     allowRemoteImage = !offlineOnly,
                 )
                 Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
@@ -2081,7 +2371,12 @@ private fun ThreadHero(
                         )
                     }
                     Text(
-                        stringResource(R.string.thread_activity, thread.replyCount, thread.viewCount, thread.heat),
+                        stringResource(
+                            R.string.thread_activity,
+                            numberFormat.format(thread.replyCount),
+                            numberFormat.format(thread.viewCount),
+                            numberFormat.format(thread.heat),
+                        ),
                         style = typography.metadata,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -2089,13 +2384,24 @@ private fun ThreadHero(
             }
             FlowRow(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalArrangement = Arrangement.spacedBy(4.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
                 itemVerticalAlignment = Alignment.CenterVertically,
             ) {
                 if (!offlineOnly) {
                     FilterChip(
                         selected = originalPosterOnly,
                         onClick = { onOriginalPosterOnlyChange(!originalPosterOnly) },
+                        leadingIcon = {
+                            Icon(
+                                imageVector = if (originalPosterOnly) {
+                                    Icons.Rounded.Check
+                                } else {
+                                    Icons.Rounded.PersonOutline
+                                },
+                                contentDescription = null,
+                                modifier = Modifier.size(16.dp),
+                            )
+                        },
                         label = {
                             Text(
                                 stringResource(R.string.thread_original_poster_only),
@@ -2108,6 +2414,13 @@ private fun ThreadHero(
                 if (canJump) {
                     AssistChip(
                         onClick = onJump,
+                        leadingIcon = {
+                            Icon(
+                                Icons.Rounded.SwapVert,
+                                contentDescription = null,
+                                modifier = Modifier.size(16.dp),
+                            )
+                        },
                         label = {
                             Text(
                                 stringResource(R.string.thread_jump_action),
@@ -2116,19 +2429,47 @@ private fun ThreadHero(
                         },
                     )
                 }
+                if (!offlineOnly && thread.forumId > 0) {
+                    AssistChip(
+                        onClick = onForum,
+                        leadingIcon = {
+                            Icon(
+                                Icons.Rounded.Forum,
+                                contentDescription = null,
+                                modifier = Modifier.size(16.dp),
+                            )
+                        },
+                        label = {
+                            Text(
+                                stringResource(R.string.thread_open_forum),
+                                style = typography.action,
+                            )
+                        },
+                    )
+                }
                 if (thread.isClosed) {
-                    Badge { Text(stringResource(R.string.thread_status_closed), style = typography.metadata) }
+                    ThreadStatusPill(
+                        label = stringResource(R.string.thread_status_closed),
+                        icon = Icons.Rounded.Lock,
+                        containerColor = MaterialTheme.colorScheme.errorContainer,
+                        contentColor = MaterialTheme.colorScheme.onErrorContainer,
+                    )
                 }
                 if (thread.price > 0) {
-                    Badge {
-                        Text(
-                            stringResource(R.string.thread_status_price, thread.price),
-                            style = typography.metadata,
-                        )
-                    }
+                    ThreadStatusPill(
+                        label = stringResource(R.string.thread_status_price, thread.price),
+                        icon = Icons.Rounded.MonetizationOn,
+                        containerColor = MaterialTheme.colorScheme.tertiaryContainer,
+                        contentColor = MaterialTheme.colorScheme.onTertiaryContainer,
+                    )
                 }
                 if (thread.hasAttachment) {
-                    Badge { Text(stringResource(R.string.thread_status_attachment), style = typography.metadata) }
+                    ThreadStatusPill(
+                        label = stringResource(R.string.thread_status_attachment),
+                        icon = Icons.Rounded.AttachFile,
+                        containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                        contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                 }
             }
         }
@@ -2141,11 +2482,15 @@ private fun PollCard(
     submitting: Boolean,
     typography: ThreadTypography,
     onVote: (Set<Int>) -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     val optionIds = poll.options.map { it.id }
     var selectedOptionIds by remember(poll.canVote, optionIds) { mutableStateOf(emptySet<Int>()) }
     val showResults = shouldShowPollResults(poll.resultsHiddenUntilVote)
-    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)) {
+    Card(
+        modifier = modifier,
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer),
+    ) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
             Text(stringResource(R.string.thread_poll_title), style = typography.heading)
             Text(

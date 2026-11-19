@@ -103,6 +103,7 @@ import com.yamibo.pocket300.ui.ReaderMode
 import com.yamibo.pocket300.ui.api
 import com.yamibo.pocket300.ui.components.PostAuthorAvatar
 import com.yamibo.pocket300.ui.load
+import com.yamibo.pocket300.ui.normalizePostImageUrl
 import com.yamibo.pocket300.ui.postImageUrls
 import com.yamibo.pocket300.ui.reader.ImageReader
 import com.yamibo.pocket300.ui.reader.ImageReaderBottomBar
@@ -127,7 +128,23 @@ internal data class ReaderContent(
     val post: YamiboPost,
     val localImageUrls: Map<String, String> = emptyMap(),
     val source: ReaderContentSource = ReaderContentSource.NETWORK,
+    val initialMode: ReaderMode? = null,
+    val initialImageUrl: String? = null,
 )
+
+internal fun resolveInitialReaderImageIndex(
+    readerImages: List<String>,
+    clickedUrl: String?,
+    localImageUrls: Map<String, String>,
+    allowRemoteImages: Boolean = true,
+): Int {
+    if (clickedUrl.isNullOrBlank() || readerImages.isEmpty()) return 0
+    val resolved = resolvePostImageSource(clickedUrl, localImageUrls, allowRemoteImages)
+        ?: normalizePostImageUrl(clickedUrl)
+    return readerImages.indexOf(resolved).takeIf { it >= 0 }
+        ?: readerImages.indexOf(normalizePostImageUrl(clickedUrl)).takeIf { it >= 0 }
+        ?: 0
+}
 
 internal sealed interface AdjacentFloorTarget {
     data class PostInMemory(val post: YamiboPost, val page: Int) : AdjacentFloorTarget
@@ -218,8 +235,30 @@ internal fun ReaderScreen(
     var deleteDownloadVisible by remember { mutableStateOf(false) }
     var autoDeleteAttempted by remember(threadId) { mutableStateOf(false) }
     var imageReadingCompleted by remember(threadId, activePostId) { mutableStateOf(false) }
-    var readerMode by remember(threadId, postId) { mutableStateOf(preferencesStore.loadMode()) }
-    var imageIndex by remember(threadId, activePostId) { mutableIntStateOf(0) }
+    var readerMode by remember(threadId, postId) {
+        mutableStateOf(initialContent?.initialMode ?: preferencesStore.loadMode())
+    }
+    val initialResolvedImageIndex = remember(initialContent, threadId, postId) {
+        val content = initialContent?.takeUnless {
+            needsReaderContentLoad(it.thread.id, it.post.id, threadId, postId)
+        } ?: return@remember 0
+        val attachments = content.post.attachments.filter { it.isImage }.map { it.url }
+        val allowRemote = content.source != ReaderContentSource.DOWNLOAD
+        val images = resolveReaderImageUrls(
+            remoteImageUrls = postImageUrls(content.post.html, attachments),
+            localImageUrls = content.localImageUrls,
+            allowRemoteImages = allowRemote,
+        )
+        resolveInitialReaderImageIndex(
+            readerImages = images,
+            clickedUrl = content.initialImageUrl,
+            localImageUrls = content.localImageUrls,
+            allowRemoteImages = allowRemote,
+        )
+    }
+    var imageIndex by remember(threadId, activePostId) {
+        mutableIntStateOf(if (activePostId == postId) initialResolvedImageIndex else 0)
+    }
     val scrollState = rememberScrollState()
     val coroutineScope = rememberCoroutineScope()
     val uriHandler = LocalUriHandler.current
@@ -987,6 +1026,19 @@ internal fun ReaderScreen(
                                     ),
                                     localImageUrls = content.localImageUrls,
                                     allowRemoteImages = content.source != ReaderContentSource.DOWNLOAD,
+                                    onImageClick = if (readerImages.isNotEmpty()) {
+                                        { clickedUrl ->
+                                            imageIndex = resolveInitialReaderImageIndex(
+                                                readerImages = readerImages,
+                                                clickedUrl = clickedUrl,
+                                                localImageUrls = content.localImageUrls,
+                                                allowRemoteImages = content.source != ReaderContentSource.DOWNLOAD,
+                                            )
+                                            readerMode = ReaderMode.IMAGES
+                                        }
+                                    } else {
+                                        null
+                                    },
                                 )
                             }
                         }

@@ -1,6 +1,7 @@
 package com.yamibo.pocket300.ui.screens
 
 import com.yamibo.pocket300.api.YamiboPost
+import com.yamibo.pocket300.api.YamiboPostAttachment
 import com.yamibo.pocket300.api.YamiboPostRatingForm
 import com.yamibo.pocket300.api.YamiboPostRatingOption
 import com.yamibo.pocket300.data.download.DownloadedThread
@@ -94,6 +95,50 @@ class ThreadScreenTest {
         assertNull(parseJumpTarget("11", maxAllowed = 10))
         assertNull(parseJumpTarget("abc", maxAllowed = 10))
         assertNull(parseJumpTarget("1", maxAllowed = 0))
+    }
+
+    @Test
+    fun resolvesThreadProgressDisplayForPageAndFloorModes() {
+        assertEquals(
+            ThreadProgressDisplay(current = 2, total = 5, isPageMode = true),
+            resolveThreadProgressDisplay(
+                currentDisplayPage = 2,
+                totalPages = 5,
+                currentFloor = 12,
+                maxFloor = 80,
+            ),
+        )
+        assertEquals(
+            ThreadProgressDisplay(current = 4, total = 18, isPageMode = false),
+            resolveThreadProgressDisplay(
+                currentDisplayPage = 1,
+                totalPages = 1,
+                currentFloor = 4,
+                maxFloor = 18,
+            ),
+        )
+        assertNull(
+            resolveThreadProgressDisplay(
+                currentDisplayPage = 1,
+                totalPages = 1,
+                currentFloor = 1,
+                maxFloor = 1,
+            ),
+        )
+    }
+
+    @Test
+    fun filtersNonImagePostAttachmentsWithNonBlankUrl() {
+        val attachments = listOf(
+            YamiboPostAttachment(isImage = true, url = "https://bbs.yamibo.com/a.jpg"),
+            YamiboPostAttachment(isImage = false, url = "https://bbs.yamibo.com/file.zip"),
+            YamiboPostAttachment(isImage = false, url = " "),
+        )
+
+        assertEquals(
+            listOf(YamiboPostAttachment(isImage = false, url = "https://bbs.yamibo.com/file.zip")),
+            nonImagePostAttachments(attachments),
+        )
     }
 
     @Test
