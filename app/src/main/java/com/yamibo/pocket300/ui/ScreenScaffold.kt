@@ -36,6 +36,8 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
@@ -52,6 +54,8 @@ import com.yamibo.pocket300.R
 import com.yamibo.pocket300.logging.AppLogger
 import com.yamibo.pocket300.ui.theme.PocketSpacing
 import kotlinx.coroutines.CancellationException
+
+internal val LocalScreenRefreshing = compositionLocalOf { false }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -154,7 +158,9 @@ internal fun ScreenScaffold(
                         }
                     },
                 ) {
-                    content(padding)
+                    CompositionLocalProvider(LocalScreenRefreshing provides isRefreshing) {
+                        content(padding)
+                    }
                 }
             }
         },
@@ -172,7 +178,7 @@ internal fun <T> LoadContent(
 ) {
     Box(Modifier.fillMaxSize().padding(padding)) {
         when (state) {
-            LoadState.Loading -> loading()
+            LoadState.Loading -> if (!LocalScreenRefreshing.current) loading()
             is LoadState.Failed -> ScrollableEmptyState(
                 title = stringResource(R.string.load_failed_title),
                 message = failureMessage,
@@ -186,7 +192,7 @@ internal fun <T> LoadContent(
 
 @Composable
 internal fun Loading(modifier: Modifier = Modifier) = Box(modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-    CircularProgressIndicator()
+    if (!LocalScreenRefreshing.current) CircularProgressIndicator()
 }
 
 @Composable

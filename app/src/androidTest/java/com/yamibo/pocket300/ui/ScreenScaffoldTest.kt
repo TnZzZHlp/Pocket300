@@ -7,6 +7,10 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.semantics.ProgressBarRangeInfo
+import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.test.SemanticsMatcher
+import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
@@ -24,6 +28,24 @@ import org.junit.runner.RunWith
 class ScreenScaffoldTest {
     @get:Rule
     val composeRule = createComposeRule()
+
+    @Test
+    fun refreshingWhileContentIsLoadingShowsOnlyOneProgressIndicator() {
+        composeRule.setContent {
+            MaterialTheme {
+                ScreenScaffold(title = "", onRefresh = {}, isRefreshing = true) { padding ->
+                    LoadContent<Unit>(LoadState.Loading, padding) {}
+                }
+            }
+        }
+
+        composeRule.onAllNodes(
+            SemanticsMatcher.expectValue(
+                SemanticsProperties.ProgressBarRangeInfo,
+                ProgressBarRangeInfo.Indeterminate,
+            ),
+        ).assertCountEquals(1)
+    }
 
     @Test
     fun failureOffersRetryWithoutDisplayingRawExceptions() {

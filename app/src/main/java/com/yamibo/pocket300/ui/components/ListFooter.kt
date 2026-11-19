@@ -20,6 +20,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.yamibo.pocket300.R
+import com.yamibo.pocket300.ui.LocalScreenRefreshing
 import kotlinx.coroutines.flow.distinctUntilChanged
 
 @Composable
@@ -41,6 +42,7 @@ internal fun ListFooter(
     isLoadingMore: Boolean,
     onLoadMore: () -> Unit,
 ) {
+    if (LocalScreenRefreshing.current) return
     Column(
         Modifier.fillMaxWidth().padding(vertical = 16.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -69,13 +71,13 @@ internal fun AutoLoadNextPage(
     hasNextPage: Boolean,
     onLoadMore: () -> Unit,
 ) {
+    if (!hasNextPage || LocalScreenRefreshing.current) return
     val currentOnLoadMore by rememberUpdatedState(onLoadMore)
-    LaunchedEffect(listState, hasNextPage) {
+    LaunchedEffect(listState) {
         snapshotFlow {
             val layoutInfo = listState.layoutInfo
             val lastVisibleIndex = layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: -1
-            hasNextPage &&
-                listState.isScrollInProgress &&
+            listState.isScrollInProgress &&
                 listState.lastScrolledForward &&
                 lastVisibleIndex == layoutInfo.totalItemsCount - 1
         }

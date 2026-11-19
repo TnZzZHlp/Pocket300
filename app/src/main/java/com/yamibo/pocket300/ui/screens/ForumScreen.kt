@@ -61,6 +61,7 @@ import com.yamibo.pocket300.ui.LoadState
 import com.yamibo.pocket300.ui.ScreenScaffold
 import com.yamibo.pocket300.ui.api
 import com.yamibo.pocket300.ui.components.AutoLoadNextPage
+import com.yamibo.pocket300.ui.components.ForumLoadingSkeleton
 import com.yamibo.pocket300.ui.components.ListFooter
 import com.yamibo.pocket300.ui.components.SectionLabel
 import com.yamibo.pocket300.ui.components.ThreadCard
@@ -191,7 +192,12 @@ internal fun ForumScreen(
         isRefreshing = refreshingThreads,
         onTopBarDoubleClick = { coroutineScope.launch { listState.animateScrollToItem(0) } },
     ) { padding ->
-        LoadContent(state, padding, onRetry = { reload++ }) { content ->
+        LoadContent(
+            state,
+            padding,
+            onRetry = { reload++ },
+            loading = { ForumLoadingSkeleton() },
+        ) { content ->
             val page = content.page
             AutoLoadNextPage(
                 listState = listState,
