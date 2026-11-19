@@ -50,6 +50,7 @@ import com.yamibo.pocket300.api.YamiboForum
 import com.yamibo.pocket300.api.YamiboForumIndex
 import com.yamibo.pocket300.ui.LoadContent
 import com.yamibo.pocket300.ui.ScreenScaffold
+import com.yamibo.pocket300.ui.components.ForumIndexLoadingSkeleton
 import com.yamibo.pocket300.ui.theme.PocketSpacing
 import com.yamibo.pocket300.ui.theme.pocketCardBorder
 import com.yamibo.pocket300.ui.theme.pocketCardColors
@@ -83,7 +84,12 @@ internal fun ForumIndexScreen(
         onSearch = onSearch,
         onTopBarDoubleClick = { coroutineScope.launch { listState.animateScrollToItem(0) } },
     ) { padding ->
-        LoadContent(viewModel.state, padding, onRetry = { viewModel.refresh() }) { index ->
+        LoadContent(
+            viewModel.state,
+            padding,
+            onRetry = { viewModel.refresh(showRefreshIndicator = false) },
+            loading = { ForumIndexLoadingSkeleton() },
+        ) { index ->
             ForumIndexContent(
                 index = index,
                 sharedTransitionScope = sharedTransitionScope,
