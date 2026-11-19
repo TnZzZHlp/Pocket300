@@ -52,6 +52,7 @@ import com.yamibo.pocket300.ui.api
 import com.yamibo.pocket300.ui.components.LocalSearchField
 import com.yamibo.pocket300.ui.components.ThreadCardContent
 import com.yamibo.pocket300.ui.components.ThreadCardSurface
+import com.yamibo.pocket300.ui.components.ThreadListLoadingSkeleton
 import com.yamibo.pocket300.ui.components.matchesLocalSearch
 import com.yamibo.pocket300.ui.load
 import kotlinx.coroutines.CancellationException
@@ -126,7 +127,12 @@ internal fun FavoritesScreen(
                 )
             }
             Box(Modifier.fillMaxWidth().weight(1f)) {
-                LoadContent(state, PaddingValues(0.dp), onRetry = { state = LoadState.Loading; reload++ }) { favorites ->
+                LoadContent(
+                    state,
+                    PaddingValues(0.dp),
+                    onRetry = { state = LoadState.Loading; reload++ },
+                    loading = { ThreadListLoadingSkeleton() },
+                ) { favorites ->
                     val filteredFavorites = remember(favorites, searchQuery) {
                         filterFavoriteThreads(favorites, searchQuery)
                     }

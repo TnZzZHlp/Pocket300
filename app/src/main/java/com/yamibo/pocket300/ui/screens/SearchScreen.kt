@@ -62,12 +62,12 @@ import com.yamibo.pocket300.api.YamiboPostAuthor
 import com.yamibo.pocket300.api.YamiboSearchThread
 import com.yamibo.pocket300.api.YamiboThreadSearchType
 import com.yamibo.pocket300.ui.LoadState
-import com.yamibo.pocket300.ui.Loading
 import com.yamibo.pocket300.ui.ScreenScaffold
 import com.yamibo.pocket300.ui.ScrollableEmptyState
 import com.yamibo.pocket300.ui.components.AutoLoadNextPage
 import com.yamibo.pocket300.ui.components.ThreadCardContent
 import com.yamibo.pocket300.ui.components.ThreadCardSurface
+import com.yamibo.pocket300.ui.components.ThreadListLoadingSkeleton
 import com.yamibo.pocket300.ui.viewmodels.SearchContent
 import com.yamibo.pocket300.ui.viewmodels.SearchQueryError
 import com.yamibo.pocket300.ui.viewmodels.SearchViewModel
@@ -117,7 +117,7 @@ internal fun SearchScreen(
                         title = stringResource(R.string.search_initial_title),
                         message = "",
                     )
-                    LoadState.Loading -> Loading()
+                    LoadState.Loading -> ThreadListLoadingSkeleton()
                     is LoadState.Failed -> SearchMessage(
                         title = stringResource(R.string.search_failed_title),
                         message = current.message,

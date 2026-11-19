@@ -61,10 +61,10 @@ import com.yamibo.pocket300.ui.LoadState
 import com.yamibo.pocket300.ui.ScreenScaffold
 import com.yamibo.pocket300.ui.api
 import com.yamibo.pocket300.ui.components.AutoLoadNextPage
-import com.yamibo.pocket300.ui.components.ForumLoadingSkeleton
 import com.yamibo.pocket300.ui.components.ListFooter
 import com.yamibo.pocket300.ui.components.SectionLabel
 import com.yamibo.pocket300.ui.components.ThreadCard
+import com.yamibo.pocket300.ui.components.ThreadListLoadingSkeleton
 import com.yamibo.pocket300.ui.load
 import kotlinx.coroutines.launch
 
@@ -196,7 +196,7 @@ internal fun ForumScreen(
             state,
             padding,
             onRetry = { reload++ },
-            loading = { ForumLoadingSkeleton() },
+            loading = { ThreadListLoadingSkeleton(showFilters = true) },
         ) { content ->
             val page = content.page
             AutoLoadNextPage(
