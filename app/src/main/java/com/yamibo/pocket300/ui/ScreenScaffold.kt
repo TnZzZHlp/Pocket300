@@ -167,11 +167,12 @@ internal fun <T> LoadContent(
     padding: PaddingValues,
     onRetry: (() -> Unit)? = null,
     failureMessage: String = "",
+    loading: @Composable () -> Unit = { Loading() },
     content: @Composable (T) -> Unit,
 ) {
     Box(Modifier.fillMaxSize().padding(padding)) {
         when (state) {
-            LoadState.Loading -> Loading()
+            LoadState.Loading -> loading()
             is LoadState.Failed -> ScrollableEmptyState(
                 title = stringResource(R.string.load_failed_title),
                 message = failureMessage,
